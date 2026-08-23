@@ -25,6 +25,7 @@ test:
 	cd frontend && $(NPM) test
 
 test-postgres:
+	docker compose exec -T backend uv run --no-sync python manage.py seed_stage2_demo
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage2.py
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage3.py
 
