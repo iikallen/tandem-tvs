@@ -14,11 +14,16 @@ def required(name: str) -> str:
 
 DEBUG = False
 SECRET_KEY = required("DJANGO_SECRET_KEY")
-ALLOWED_HOSTS = [host.strip() for host in required("DJANGO_ALLOWED_HOSTS").split(",")]
+ALLOWED_HOSTS = [
+    *[host.strip() for host in required("DJANGO_ALLOWED_HOSTS").split(",") if host.strip()],
+    "127.0.0.1",
+]
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in required("DJANGO_CSRF_TRUSTED_ORIGINS").split(",")
 ]
-required("DATABASE_URL")
+if not os.getenv("DATABASE_URL"):
+    for database_setting in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_HOST"):
+        required(database_setting)
 required("REDIS_URL")
 
 PORTAL_ADAPTER = required("PORTAL_ADAPTER")

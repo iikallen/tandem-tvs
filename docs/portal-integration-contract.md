@@ -7,10 +7,11 @@ The application depends only on the typed `PortalAdapter` boundary. A future rea
 ## Required behavior
 
 - `authenticate_request` validates trusted evidence and returns an immutable portal identity or no identity.
-- `get_employee` returns the authoritative profile, roles, organization key, and active/blocked state.
+- `get_employee` returns the authoritative profile, roles, organization key, and an explicit active/blocked state. Its `portal_id` must exactly match the requested authenticated identity.
 - `search_employees` follows the agreed search, privacy, pagination, and rate-limit contract.
 - `list_org_units` returns stable external IDs and parent IDs without making the module the organization master.
 - `healthcheck` exposes only availability needed by readiness, never secrets or employee payloads.
+- A temporary dependency/transport failure raises `PortalUnavailableError`; the API maps it to stable `503` JSON with code `portal_unavailable`.
 
 Every authenticated request checks the portal-backed employee state. Unknown and missing identities fail closed; blocked employees receive a stable backend denial. Local `User` and `OrgUnit` rows are projections only and cannot provide a fallback local login.
 

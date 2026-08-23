@@ -31,7 +31,13 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-tandem}:${POSTGRES_PASSWORD:-tandem-development-only}@postgres:5432/${POSTGRES_DB:-tandem}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost}
+      POSTGRES_DB: ${POSTGRES_DB:-tandem}
+      POSTGRES_USER: ${POSTGRES_USER:-tandem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
       MOCK_PORTAL_USER_ID: ${MOCK_PORTAL_USER_ID:-employee-1}
@@ -41,7 +47,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3)"]
+      test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/v1/health/ready', headers={'X-Forwarded-Proto': 'https'}), timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 20

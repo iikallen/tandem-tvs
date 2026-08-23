@@ -19,6 +19,12 @@ class PortalAuthentication(BaseAuthentication):
                 code="unknown_portal_identity",
             )
 
+        if employee.portal_id != identity.portal_id:
+            raise AuthenticationFailed(
+                "Portal identity does not match the employee record.",
+                code="portal_identity_mismatch",
+            )
+
         if not employee.is_active:
             deactivate_projection(employee.portal_id)
             raise PermissionDenied(

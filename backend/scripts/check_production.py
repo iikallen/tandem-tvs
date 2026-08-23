@@ -9,12 +9,20 @@ environment = os.environ | {
     "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.invalid",
     "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
     "REDIS_URL": "redis://redis:6379/0",
-    "PORTAL_ADAPTER": "contract-pending",
+    "PORTAL_ADAPTER": "unavailable",
 }
 
-raise SystemExit(
-    subprocess.call(
-        [sys.executable, "manage.py", "check", "--deploy"],
-        env=environment,
-    )
+commands = (
+    [sys.executable, "manage.py", "check", "--deploy"],
+    [
+        sys.executable,
+        "manage.py",
+        "shell",
+        "-c",
+        "from apps.identity.portal import get_portal_adapter; get_portal_adapter()",
+    ],
 )
+
+for command in commands:
+    if return_code := subprocess.call(command, env=environment):
+        raise SystemExit(return_code)

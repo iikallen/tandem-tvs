@@ -4,9 +4,11 @@ import pytest
 from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 
+from apps.identity.portal.exceptions import PortalUnavailableError
 from apps.identity.portal.factory import get_portal_adapter
 from apps.identity.portal.mock import MockPortalAdapter
 from apps.identity.portal.types import PortalIdentity
+from apps.identity.portal.unavailable import UnavailablePortalAdapter
 
 
 @pytest.fixture
@@ -47,3 +49,13 @@ def test_mock_identity_is_not_read_from_public_headers(adapter, settings):
 def test_mock_adapter_is_rejected_when_environment_disallows_it():
     with pytest.raises(ImproperlyConfigured, match="forbidden"):
         get_portal_adapter()
+
+
+@override_settings(PORTAL_ADAPTER="unavailable", ALLOW_MOCK_PORTAL_ADAPTER=False)
+def test_unavailable_adapter_is_supported_and_fails_closed():
+    adapter = get_portal_adapter()
+
+    assert isinstance(adapter, UnavailablePortalAdapter)
+    with pytest.raises(PortalUnavailableError):
+        adapter.get_employee("employee-1")
+    assert adapter.healthcheck().available is False

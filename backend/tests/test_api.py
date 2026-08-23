@@ -2,7 +2,9 @@ import pytest
 from django.test import override_settings
 from rest_framework.test import APIClient
 
+from apps.identity import authentication
 from apps.identity.models import User
+from apps.identity.portal import PortalUnavailableError
 
 
 @pytest.fixture
@@ -56,6 +58,34 @@ def test_missing_identity_is_unauthorized(client):
     response = client.get("/api/v1/me")
     assert response.status_code == 401
     assert response.data["error"]["code"] == "not_authenticated"
+
+
+@pytest.mark.django_db
+def test_portal_outage_returns_stable_service_unavailable(client, monkeypatch):
+    class FailingAdapter:
+        def authenticate_request(self, request):
+            raise PortalUnavailableError
+
+    monkeypatch.setattr(authentication, "get_portal_adapter", FailingAdapter)
+
+    response = client.get("/api/v1/me")
+
+    assert response.status_code == 503
+    assert response.data == {
+        "error": {
+            "code": "portal_unavailable",
+            "message": "Portal is temporarily unavailable.",
+        }
+    }
+
+
+@pytest.mark.django_db
+@override_settings(PORTAL_ADAPTER="unavailable", ALLOW_MOCK_PORTAL_ADAPTER=False)
+def test_unavailable_adapter_returns_stable_service_unavailable(client):
+    response = client.get("/api/v1/me")
+
+    assert response.status_code == 503
+    assert response.data["error"]["code"] == "portal_unavailable"
 
 
 @pytest.mark.django_db

@@ -3,9 +3,11 @@ from django.test import override_settings
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.test import APIRequestFactory
 
+from apps.identity import authentication
 from apps.identity.authentication import PortalAuthentication
 from apps.identity.managers import UserManager
 from apps.identity.models import User
+from apps.identity.portal.types import PortalEmployee, PortalIdentity
 from apps.organization.models import OrgUnit
 
 
@@ -54,6 +56,24 @@ def test_unknown_employee_is_denied():
     with pytest.raises(AuthenticationFailed) as error:
         authenticate()
     assert error.value.get_codes() == "unknown_portal_identity"
+
+
+@pytest.mark.django_db
+def test_adapter_cannot_substitute_a_different_employee(monkeypatch):
+    class ConfusedAdapter:
+        def authenticate_request(self, request):
+            return PortalIdentity(portal_id="attacker-id")
+
+        def get_employee(self, portal_id):
+            return PortalEmployee(portal_id="victim-id", full_name="Victim", is_active=True)
+
+    monkeypatch.setattr(authentication, "get_portal_adapter", ConfusedAdapter)
+
+    with pytest.raises(AuthenticationFailed) as error:
+        authenticate()
+
+    assert error.value.get_codes() == "portal_identity_mismatch"
+    assert not User.objects.exists()
 
 
 @pytest.mark.django_db

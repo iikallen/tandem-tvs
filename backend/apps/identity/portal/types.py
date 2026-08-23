@@ -10,13 +10,13 @@ class PortalIdentity:
 class PortalEmployee:
     portal_id: str
     full_name: str
+    is_active: bool
     email: str = ""
     job_title: str = ""
     phone: str = ""
     avatar_url: str = ""
     org_unit_external_id: str | None = None
     roles: tuple[str, ...] = ("employee",)
-    is_active: bool = True
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,22 @@
+from rest_framework import status
+from rest_framework.response import Response
 from rest_framework.views import exception_handler
+
+from apps.identity.portal import PortalUnavailableError
 
 
 def api_exception_handler(exc, context):
+    if isinstance(exc, PortalUnavailableError):
+        return Response(
+            {
+                "error": {
+                    "code": "portal_unavailable",
+                    "message": "Portal is temporarily unavailable.",
+                }
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
     response = exception_handler(exc, context)
     if response is None:
         return None

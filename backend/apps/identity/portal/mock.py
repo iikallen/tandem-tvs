@@ -23,6 +23,7 @@ EMPLOYEES = (
     PortalEmployee(
         portal_id="employee-1",
         full_name="Алия Байжанова",
+        is_active=True,
         email="a.baizhanova@tandem.example",
         job_title="Специалист",
         phone="+7 700 000 00 01",
@@ -31,6 +32,7 @@ EMPLOYEES = (
     PortalEmployee(
         portal_id="author-1",
         full_name="Серик Жаксибеков",
+        is_active=True,
         email="s.zhaksibekov@tandem.example",
         job_title="Автор",
         org_unit_external_id="communications",
@@ -39,6 +41,7 @@ EMPLOYEES = (
     PortalEmployee(
         portal_id="editor-1",
         full_name="Дмитрий Орлов",
+        is_active=True,
         email="d.orlov@tandem.example",
         job_title="Редактор",
         org_unit_external_id="communications",
@@ -47,6 +50,7 @@ EMPLOYEES = (
     PortalEmployee(
         portal_id="admin-1",
         full_name="Нурлан Касымов",
+        is_active=True,
         email="n.kassymov@tandem.example",
         job_title="Администратор",
         org_unit_external_id="engineering",
@@ -55,9 +59,9 @@ EMPLOYEES = (
     PortalEmployee(
         portal_id="blocked-1",
         full_name="Заблокированный сотрудник",
+        is_active=False,
         email="blocked@tandem.example",
         org_unit_external_id="engineering",
-        is_active=False,
     ),
 )
 

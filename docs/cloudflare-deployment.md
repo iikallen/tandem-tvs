@@ -5,7 +5,8 @@ The optional tunnel publishes only Nginx. PostgreSQL, Redis, and Django have no 
 1. Create a remotely managed named tunnel and map its public hostname to `http://frontend:80`.
 2. Put Cloudflare Access in front of the hostname with an explicit allow policy; do not use a public allow-all policy for employee data.
 3. Supply `CLOUDFLARE_TUNNEL_TOKEN` through the deployment environment or secret store. Never add it to `.env.example`, Git, logs, or an image layer.
-4. Start the isolated stack:
+4. Set `DJANGO_ALLOWED_HOSTS` to the public hostname plus any required local hosts, and set `DJANGO_CSRF_TRUSTED_ORIGINS` to its `https://` origin. The development mock remains appropriate only for this Stage 1 integration proof; a production deployment must also select `config.settings.production` and a supported non-mock portal adapter.
+5. Start the isolated stack:
 
 ```sh
 docker compose --profile tunnel up -d --build

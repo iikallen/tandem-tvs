@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -57,18 +57,51 @@ CACHES = {
     }
 }
 
-if database_url := os.getenv("DATABASE_URL"):
+
+def postgres_config(
+    *,
+    name: str,
+    user: str,
+    password: str,
+    host: str,
+    port: str,
+    options: dict[str, str] | None = None,
+) -> dict[str, object]:
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": name,
+        "USER": user,
+        "PASSWORD": password,
+        "HOST": host,
+        "PORT": port,
+        "CONN_MAX_AGE": 60,
+        "OPTIONS": options or {},
+    }
+
+
+def database_config(database_url: str) -> dict[str, object]:
     parsed_database = urlparse(database_url)
+    return postgres_config(
+        name=unquote(parsed_database.path.lstrip("/")),
+        user=unquote(parsed_database.username or ""),
+        password=unquote(parsed_database.password or ""),
+        host=parsed_database.hostname or "",
+        port=str(parsed_database.port or 5432),
+        options=dict(parse_qsl(parsed_database.query, keep_blank_values=True)),
+    )
+
+
+if database_url := os.getenv("DATABASE_URL"):
+    DATABASES = {"default": database_config(database_url)}
+elif postgres_host := os.getenv("POSTGRES_HOST"):
     DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": parsed_database.path.lstrip("/"),
-            "USER": parsed_database.username or "",
-            "PASSWORD": parsed_database.password or "",
-            "HOST": parsed_database.hostname or "",
-            "PORT": str(parsed_database.port or 5432),
-            "CONN_MAX_AGE": 60,
-        }
+        "default": postgres_config(
+            name=os.getenv("POSTGRES_DB", ""),
+            user=os.getenv("POSTGRES_USER", ""),
+            password=os.getenv("POSTGRES_PASSWORD", ""),
+            host=postgres_host,
+            port=os.getenv("POSTGRES_PORT", "5432"),
+        )
     }
 
 if redis_url := os.getenv("REDIS_URL"):
