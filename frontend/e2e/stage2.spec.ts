@@ -152,7 +152,9 @@ test("editor creates and publishes Регламент VPN", async ({ page }) => 
   await page.getByRole("button", { name: "Опубликовать" }).click();
 
   await expect(page.getByRole("heading", { name: "Публикации" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Регламент VPN" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Регламент VPN" }),
+  ).toBeVisible();
 });
 
 test("addressed employee sees feed, detail, search and unread", async ({
