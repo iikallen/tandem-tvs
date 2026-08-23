@@ -32,6 +32,38 @@ function renderNode(node: RichTextNode, key: number): ReactNode {
   if (node.type === "listItem") return <li key={key}>{children}</li>;
   if (node.type === "blockquote")
     return <blockquote key={key}>{children}</blockquote>;
+  if (node.type === "table")
+    return (
+      <table key={key}>
+        <tbody>{children}</tbody>
+      </table>
+    );
+  if (node.type === "tableRow") return <tr key={key}>{children}</tr>;
+  if (node.type === "tableCell") return <td key={key}>{children}</td>;
+  if (node.type === "tableHeader") return <th key={key}>{children}</th>;
+  const assetId =
+    typeof node.attrs?.asset_id === "string" ? node.attrs.asset_id : undefined;
+  if (node.type === "assetImage" && assetId)
+    return <img key={key} src={`/api/v1/media/${assetId}/content`} alt="" />;
+  if (node.type === "internalVideo" && assetId)
+    return (
+      <video
+        key={key}
+        controls
+        preload="metadata"
+        src={`/api/v1/media/${assetId}/content`}
+      />
+    );
+  if (node.type === "attachment" && assetId)
+    return (
+      <a
+        key={key}
+        className="attachment-link"
+        href={`/api/v1/media/${assetId}/content`}
+      >
+        Скачать вложение
+      </a>
+    );
   if (node.type === "doc") return children;
   return null;
 }

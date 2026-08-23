@@ -20,6 +20,14 @@ from .rich_text import (
 )
 
 MODULE_ROLE_MAX_LENGTH = 64
+POSITION_GROUP_MAX_LENGTH = 128
+MAX_PINNED = 5
+
+
+def media_storage_path(instance: "MediaAsset", _filename: str) -> str:
+    return instance.storage_key
+
+
 SEARCH_VECTOR = (
     SearchVector("title", weight="A", config="simple")
     + SearchVector("summary", weight="B", config="simple")
@@ -36,16 +44,36 @@ class PublicationQuerySet(models.QuerySet):
         org_unit = getattr(user, "org_unit", None)
         if org_unit is not None and org_unit.is_active:
             audience |= Q(kind="ORG_UNIT", org_unit=org_unit)
+            ancestor_ids: list[str] = []
+            current = org_unit.parent
+            seen: set[int] = set()
+            while current is not None and current.pk not in seen:
+                seen.add(current.pk)
+                ancestor_ids.append(current.external_id)
+                current = current.parent
+            if ancestor_ids:
+                audience |= Q(
+                    kind="ORG_UNIT",
+                    org_unit_id__in=ancestor_ids,
+                    include_descendants=True,
+                )
         roles = [role for role in getattr(user, "module_roles", []) if isinstance(role, str)]
         if roles:
             audience |= Q(kind="MODULE_ROLE", module_role__in=roles)
+        position_group_id = getattr(user, "position_group_external_id", "")
+        if position_group_id:
+            audience |= Q(
+                kind="POSITION_GROUP",
+                position_group_external_id=position_group_id,
+            )
 
         addressed = AudienceRule.objects.filter(audience).values("publication_id")
+        now = timezone.now()
         return self.filter(
             pk__in=addressed,
             status="PUBLISHED",
-            published_at__lte=timezone.now(),
-        )
+            published_at__lte=now,
+        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
 
     def search(self, query: str):
         query = query.strip()
@@ -107,13 +135,32 @@ class Category(models.Model):
         return self.name
 
 
+class Tag(models.Model):
+    slug = models.SlugField(max_length=100, unique=True)
+    name = models.CharField(max_length=160)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["name", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class Publication(models.Model):
     if TYPE_CHECKING:
         audience_rules: models.Manager["AudienceRule"]
+        audit_events: models.Manager["AuditEvent"]
+        media_usages: models.Manager["MediaUsage"]
+        versions: models.Manager["PublicationVersion"]
 
     class Status(models.TextChoices):
         DRAFT = "DRAFT", "Draft"
+        IN_REVIEW = "IN_REVIEW", "In review"
+        SCHEDULED = "SCHEDULED", "Scheduled"
         PUBLISHED = "PUBLISHED", "Published"
+        UNPUBLISHED = "UNPUBLISHED", "Unpublished"
+        ARCHIVED = "ARCHIVED", "Archived"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     title = models.CharField(max_length=255)
@@ -125,6 +172,7 @@ class Publication(models.Model):
     )
     body_text = models.TextField(blank=True, editable=False)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="publications")
+    tags = models.ManyToManyField(Tag, blank=True, related_name="publications")
     author = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -132,6 +180,19 @@ class Publication(models.Model):
     )
     status = models.CharField(max_length=32, choices=Status, default=Status.DRAFT)
     published_at = models.DateTimeField(null=True, blank=True)
+    scheduled_for = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    unpublished_at = models.DateTimeField(null=True, blank=True)
+    archived_at = models.DateTimeField(null=True, blank=True)
+    edit_revision = models.PositiveIntegerField(default=0)
+    last_autosaved_at = models.DateTimeField(null=True, blank=True)
+    cover = models.ForeignKey(
+        "MediaAsset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cover_publications",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -148,12 +209,23 @@ class Publication(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                condition=~models.Q(status="DRAFT") | models.Q(published_at__isnull=True),
-                name="publication_draft_has_no_date",
+                condition=(
+                    ~models.Q(status__in=["DRAFT", "IN_REVIEW", "SCHEDULED"])
+                    | models.Q(published_at__isnull=True)
+                ),
+                name="publication_prepublication_has_no_date",
             ),
             models.CheckConstraint(
                 condition=~models.Q(status="PUBLISHED") | models.Q(published_at__isnull=False),
                 name="publication_published_has_date",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(status="SCHEDULED") | models.Q(scheduled_for__isnull=False),
+                name="publication_scheduled_has_date",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(status="ARCHIVED") | models.Q(archived_at__isnull=False),
+                name="publication_archived_has_date",
             ),
         ]
 
@@ -174,6 +246,7 @@ class AudienceRule(models.Model):
         ORG_UNIT = "ORG_UNIT", "Organization unit"
         EMPLOYEE = "EMPLOYEE", "Employee"
         MODULE_ROLE = "MODULE_ROLE", "Module role"
+        POSITION_GROUP = "POSITION_GROUP", "Position group"
 
     publication = models.ForeignKey(
         Publication,
@@ -200,6 +273,9 @@ class AudienceRule(models.Model):
         related_name="publication_audience_rules",
     )
     module_role = models.CharField(max_length=MODULE_ROLE_MAX_LENGTH, blank=True)
+    include_descendants = models.BooleanField(default=False)
+    position_group_external_id = models.CharField(max_length=POSITION_GROUP_MAX_LENGTH, blank=True)
+    position_group_name = models.CharField(max_length=255, blank=True)
 
     class Meta:
         ordering = ["id"]
@@ -211,26 +287,48 @@ class AudienceRule(models.Model):
                         org_unit__isnull=True,
                         employee__isnull=True,
                         module_role="",
+                        position_group_external_id="",
+                        position_group_name="",
+                        include_descendants=False,
                     )
                     | models.Q(
                         kind="ORG_UNIT",
                         org_unit__isnull=False,
                         employee__isnull=True,
                         module_role="",
+                        position_group_external_id="",
+                        position_group_name="",
                     )
                     | models.Q(
                         kind="EMPLOYEE",
                         org_unit__isnull=True,
                         employee__isnull=False,
                         module_role="",
+                        position_group_external_id="",
+                        position_group_name="",
+                        include_descendants=False,
                     )
                     | (
                         models.Q(
                             kind="MODULE_ROLE",
                             org_unit__isnull=True,
                             employee__isnull=True,
+                            position_group_external_id="",
+                            position_group_name="",
+                            include_descendants=False,
                         )
                         & ~models.Q(module_role="")
+                    )
+                    | (
+                        models.Q(
+                            kind="POSITION_GROUP",
+                            org_unit__isnull=True,
+                            employee__isnull=True,
+                            module_role="",
+                            include_descendants=False,
+                        )
+                        & ~models.Q(position_group_external_id="")
+                        & ~models.Q(position_group_name="")
                     )
                 ),
                 name="audience_rule_target_shape",
@@ -254,6 +352,11 @@ class AudienceRule(models.Model):
                 fields=["publication", "module_role"],
                 condition=models.Q(kind="MODULE_ROLE"),
                 name="audience_rule_role_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["publication", "position_group_external_id"],
+                condition=models.Q(kind="POSITION_GROUP"),
+                name="audience_rule_position_group_unique",
             ),
         ]
 
@@ -312,6 +415,10 @@ class AuditEvent(models.Model):
         CREATED = "publication.created", "Publication created"
         UPDATED = "publication.updated", "Publication updated"
         PUBLISHED = "publication.published", "Publication published"
+        TRANSITIONED = "publication.transitioned", "Publication transitioned"
+        DUPLICATED = "publication.duplicated", "Publication duplicated"
+        PINNED = "publication.pinned", "Publication pinned"
+        UNPINNED = "publication.unpinned", "Publication unpinned"
 
     publication = models.ForeignKey(
         Publication,
@@ -343,3 +450,137 @@ class AuditEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValidationError("Audit events are append-only.")
+
+
+class PublicationVersionQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Publication versions are append-only.")
+
+    def delete(self):
+        raise ValidationError("Publication versions are append-only.")
+
+
+class PublicationVersionManager(models.Manager["PublicationVersion"]):
+    def get_queryset(self) -> PublicationVersionQuerySet:
+        return PublicationVersionQuerySet(self.model, using=self._db)
+
+
+class PublicationVersion(models.Model):
+    publication = models.ForeignKey(Publication, on_delete=models.PROTECT, related_name="versions")
+    version_number = models.PositiveIntegerField()
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="publication_versions",
+    )
+    reason = models.CharField(max_length=64)
+    snapshot = models.JSONField()
+    changed_fields = models.JSONField(default=list)
+    content_hash = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = PublicationVersionManager()
+
+    class Meta:
+        ordering = ["-version_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["publication", "version_number"],
+                name="publication_version_number_unique",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.publication.pk} v{self.version_number}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("Publication versions are append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Publication versions are append-only.")
+
+
+class PublicationPin(models.Model):
+    publication = models.OneToOneField(Publication, on_delete=models.CASCADE, related_name="pin")
+    slot = models.PositiveSmallIntegerField(unique=True)
+    pinned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="publication_pins",
+    )
+    pinned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["slot"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(slot__gte=1, slot__lte=MAX_PINNED),
+                name="publication_pin_slot_range",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"slot {self.slot}: {self.publication.pk}"
+
+
+class MediaAsset(models.Model):
+    class Kind(models.TextChoices):
+        IMAGE = "IMAGE", "Image"
+        VIDEO = "VIDEO", "Video"
+        DOCUMENT = "DOCUMENT", "Document"
+
+    class Status(models.TextChoices):
+        READY = "READY", "Ready"
+        REJECTED = "REJECTED", "Rejected"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    original_name = models.CharField(max_length=255)
+    storage_key = models.CharField(max_length=255, unique=True, editable=False)
+    file = models.FileField(upload_to=media_storage_path, max_length=255)
+    mime_type = models.CharField(max_length=128)
+    size = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64, db_index=True)
+    kind = models.CharField(max_length=16, choices=Kind)
+    uploader = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="uploaded_media_assets",
+    )
+    width = models.PositiveIntegerField(null=True, blank=True)
+    height = models.PositiveIntegerField(null=True, blank=True)
+    status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return self.original_name
+
+
+class MediaUsage(models.Model):
+    class Purpose(models.TextChoices):
+        COVER = "COVER", "Cover"
+        BODY = "BODY", "Body"
+        ATTACHMENT = "ATTACHMENT", "Attachment"
+
+    asset = models.ForeignKey(MediaAsset, on_delete=models.PROTECT, related_name="usages")
+    publication = models.ForeignKey(
+        Publication, on_delete=models.CASCADE, related_name="media_usages"
+    )
+    purpose = models.CharField(max_length=16, choices=Purpose)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["asset", "publication", "purpose"],
+                name="media_usage_unique",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.publication.pk}: {self.asset.pk} ({self.purpose})"

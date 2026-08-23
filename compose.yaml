@@ -40,6 +40,9 @@ services:
       POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0
       REALTIME_REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MEDIA_ROOT: /app/media
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
       MOCK_PORTAL_USER_ID: ${MOCK_PORTAL_USER_ID:-employee-1}
@@ -54,6 +57,85 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+    read_only: true
+    volumes:
+      - media-data:/app/media
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  celery-worker:
+    build: ./backend
+    entrypoint: ["uv", "run", "--no-sync", "celery"]
+    command: ["-A", "config", "worker", "--loglevel=INFO", "--concurrency=2"]
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
+      POSTGRES_DB: ${POSTGRES_DB:-tandem}
+      POSTGRES_USER: ${POSTGRES_USER:-tandem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      REALTIME_REDIS_URL: redis://redis:6379/1
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MEDIA_ROOT: /app/media
+      PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - media-data:/app/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+
+  celery-beat:
+    build: ./backend
+    entrypoint: ["uv", "run", "--no-sync", "celery"]
+    command:
+      ["-A", "config", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
+      POSTGRES_DB: ${POSTGRES_DB:-tandem}
+      POSTGRES_USER: ${POSTGRES_USER:-tandem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_URL: redis://redis:6379/0
+      REALTIME_REDIS_URL: redis://redis:6379/1
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
+      CELERY_BROKER_URL: redis://redis:6379/2
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      MEDIA_ROOT: /app/media
+      PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - media-data:/app/media
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     read_only: true
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=0700
@@ -72,6 +154,8 @@ services:
       timeout: 5s
       retries: 10
     read_only: true
+    volumes:
+      - media-data:/srv/media:ro
     tmpfs:
       - /var/cache/nginx:uid=101,gid=101,mode=0750
       - /var/run:uid=101,gid=101,mode=0750
@@ -95,3 +179,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

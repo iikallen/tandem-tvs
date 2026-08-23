@@ -5,7 +5,7 @@ from apps.core.views import PrivateAPIView
 from apps.identity.portal import get_portal_adapter
 
 from .models import OrgUnit
-from .serializers import EmployeeSerializer, OrgUnitSerializer
+from .serializers import EmployeeSerializer, OrgUnitSerializer, PositionGroupSerializer
 
 EMPLOYEE_SEARCH_LIMIT = 20
 
@@ -44,3 +44,29 @@ class EmployeeSearchView(PrivateAPIView):
             if employee.is_active
         ][:EMPLOYEE_SEARCH_LIMIT]
         return Response(self.serializer_class(employees, many=True).data)
+
+
+class PositionGroupListView(PrivateAPIView):
+    serializer_class = PositionGroupSerializer
+
+    def get(self, request):
+        groups = {
+            employee.position_group_external_id: employee.position_group_name
+            for employee in get_portal_adapter().search_employees("", limit=1_000)
+            if employee.is_active
+            and employee.position_group_external_id
+            and employee.position_group_name
+        }
+        if not groups:
+            from apps.identity.models import User
+
+            groups = dict(
+                User.objects.filter(is_active=True)
+                .exclude(position_group_external_id="")
+                .values_list("position_group_external_id", "position_group_name")
+            )
+        payload = [
+            {"external_id": external_id, "name": name}
+            for external_id, name in sorted(groups.items(), key=lambda item: item[1])
+        ]
+        return Response(self.serializer_class(payload, many=True).data)

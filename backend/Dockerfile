@@ -14,7 +14,10 @@ RUN addgroup --system --gid 10001 app \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY --chown=app:app . .
-RUN chmod +x /app/entrypoint.sh
+RUN mkdir -p /app/media \
+    && chown app:app /app/media \
+    && chmod 0755 /app/media \
+    && chmod +x /app/entrypoint.sh
 
 EXPOSE 8000
 USER app

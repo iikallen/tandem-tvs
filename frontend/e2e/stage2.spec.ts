@@ -72,6 +72,19 @@ test("editor creates and publishes Регламент VPN", async ({ page }) => 
       ]),
     }),
   );
+  for (const path of [
+    "**/api/v1/editorial/tags",
+    "**/api/v1/editorial/media",
+    "**/api/v1/organization/position-groups",
+  ]) {
+    await page.route(path, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: "[]",
+      }),
+    );
+  }
   const editorial = {
     ...publication,
     category: "regulations",
@@ -135,14 +148,11 @@ test("editor creates and publishes Регламент VPN", async ({ page }) => 
     .getByRole("textbox", { name: "Текст публикации" })
     .fill("VPN безопасно");
   await page.getByLabel("Аудитория").selectOption("ORG_UNIT");
-  await page
-    .locator(".editor-sidebar select")
-    .nth(2)
-    .selectOption("engineering");
+  await page.getByLabel("Подразделения").selectOption("engineering");
   await page.getByRole("button", { name: "Опубликовать" }).click();
 
   await expect(page.getByRole("heading", { name: "Публикации" })).toBeVisible();
-  await expect(page.getByText("Опубликовано")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Регламент VPN" })).toBeVisible();
 });
 
 test("addressed employee sees feed, detail, search and unread", async ({

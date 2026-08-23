@@ -59,6 +59,8 @@ def provision_user(adapter: PortalAdapter, employee: PortalEmployee) -> User:
         user.email = employee.email
         user.full_name = employee.full_name
         user.job_title = employee.job_title
+        user.position_group_external_id = employee.position_group_external_id
+        user.position_group_name = employee.position_group_name
         user.phone = employee.phone
         user.avatar_url = employee.avatar_url
         user.org_unit = (

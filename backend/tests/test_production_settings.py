@@ -106,3 +106,30 @@ def test_production_requires_an_isolated_realtime_redis_database():
     )
     assert result.returncode != 0
     assert "REALTIME_REDIS_URL must use logical Redis database 1" in result.stderr
+
+
+def test_production_requires_an_isolated_celery_redis_database():
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.production",
+        "DJANGO_SECRET_KEY": "test-only-production-check",
+        "DJANGO_ALLOWED_HOSTS": "portal.example.invalid",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.invalid",
+        "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
+        "REDIS_URL": "redis://redis:6379/0",
+        "REALTIME_REDIS_URL": "redis://redis:6379/1",
+        "REALTIME_ALLOWED_ORIGINS": "https://portal.example.invalid",
+        "PORTAL_ADAPTER": "unavailable",
+        "CELERY_BROKER_URL": "redis://redis:6379/0",
+        "CELERY_RESULT_BACKEND": "redis://redis:6379/2",
+    }
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Celery broker and result backend must use Redis database 2" in result.stderr

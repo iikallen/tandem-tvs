@@ -36,6 +36,12 @@ export function NewsPage() {
     queryFn: ({ pageParam }) => api.news(filters, pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => cursorFromUrl(page.next),
+    refetchInterval: 30_000,
+  });
+  const pinned = useQuery({
+    queryKey: ["news-pinned"],
+    queryFn: api.pinned,
+    refetchInterval: 30_000,
   });
   const categories = useQuery({
     queryKey: ["categories"],
@@ -118,6 +124,22 @@ export function NewsPage() {
           </label>
         </div>
       </section>
+      {(pinned.data?.length ?? 0) > 0 && (
+        <section className="pinned-news" aria-label="Закреплённые публикации">
+          <h2>Важное</h2>
+          <div className="editorial-list">
+            {pinned.data?.map((publication) => (
+              <Link key={publication.id} to={`/news/${publication.id}`}>
+                <Card>
+                  <Badge>Закреплено · {publication.pin_slot}</Badge>
+                  <h3>{publication.title}</h3>
+                  <p>{publication.summary}</p>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       {news.isPending ? (
         <PageState kind="loading" />
       ) : news.isError ? (

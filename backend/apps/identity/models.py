@@ -14,6 +14,8 @@ class User(AbstractBaseUser):
     email = models.EmailField(blank=True)
     full_name = models.CharField(max_length=255)
     job_title = models.CharField(max_length=255, blank=True)
+    position_group_external_id = models.CharField(max_length=128, blank=True)
+    position_group_name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=64, blank=True)
     avatar_url = models.URLField(max_length=2048, blank=True)
     org_unit = models.ForeignKey(
