@@ -1,0 +1,3 @@
+*.docx binary
+*.woff2 binary
+references/source/*.html whitespace=-trailing-space
