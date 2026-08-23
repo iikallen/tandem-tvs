@@ -30,7 +30,7 @@ test-postgres:
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage3.py
 
 test-realtime:
-	cd backend && $(UV) run pytest tests/test_realtime.py
+	cd backend && $(UV) run pytest tests/test_realtime.py --no-cov
 
 e2e:
 	docker compose exec -T backend uv run --no-sync python manage.py seed_stage3_demo
