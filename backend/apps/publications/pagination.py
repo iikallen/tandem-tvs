@@ -9,7 +9,7 @@ class NewsCursorPagination(CursorPagination):
 
     def get_ordering(self, request, queryset, view) -> tuple[str, ...]:
         if request.query_params.get("q", "").strip():
-            return ("-search_rank", "-published_at", "-id")
+            return ("-search_cursor",)
         return self.ordering
 
 

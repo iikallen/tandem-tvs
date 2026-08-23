@@ -135,7 +135,7 @@ def _audience_targets(payload: AudiencePayload):
         adapter = get_portal_adapter()
         for portal_id in employee_ids:
             employee = adapter.get_employee(portal_id)
-            if employee is None or not employee.is_active:
+            if employee is None or employee.portal_id != portal_id or not employee.is_active:
                 raise ValidationError("Unknown or inactive employee audience target.")
             users.append(provision_user(adapter, employee))
     if {unit.external_id for unit in units} != unit_ids:

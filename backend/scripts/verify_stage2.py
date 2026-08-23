@@ -147,6 +147,34 @@ second_page = request("employee-1", "get", "/api/v1/news", {"page_size": 5, "cur
 assert not {item["id"] for item in first_page.data["results"]}.intersection(
     item["id"] for item in second_page.data["results"]
 )
+
+search_first = request(
+    "employee-1",
+    "get",
+    "/api/v1/news",
+    {"q": f"Cursor {suffix}", "page_size": 5},
+)
+search_cursor = parse_qs(urlparse(search_first.data["next"]).query)["cursor"][0]
+inserted = Publication.objects.create(
+    title=f"Cursor {suffix} inserted",
+    slug=f"cursor-{suffix}-inserted",
+    summary="Cursor acceptance",
+    body=body("Cursor inserted"),
+    category=category,
+    author=author,
+    status=Publication.Status.PUBLISHED,
+    published_at=timezone.now(),
+)
+replace_audience_rules(inserted, everyone=True)
+search_second = request(
+    "employee-1",
+    "get",
+    "/api/v1/news",
+    {"q": f"Cursor {suffix}", "page_size": 5, "cursor": search_cursor},
+)
+assert not {item["id"] for item in search_first.data["results"]}.intersection(
+    item["id"] for item in search_second.data["results"]
+)
 assert request("blocked-1", "get", "/api/v1/news").status_code == 403
 
 print(
@@ -159,5 +187,6 @@ print(
         "unique_views": 1,
         "default_page_size": 20,
         "cursor_overlap": 0,
+        "search_cursor_overlap_after_insert": 0,
     }
 )

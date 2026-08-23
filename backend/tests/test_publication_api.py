@@ -1,4 +1,5 @@
 from datetime import timedelta
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -7,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.identity.models import User
+from apps.publications import services as publication_services
 from apps.publications.models import (
     AudienceRule,
     AuditEvent,
@@ -163,6 +165,11 @@ def test_editor_update_publish_and_audit_are_transactional_and_append_only(
         event.save()
     with pytest.raises(ValidationError, match="append-only"):
         event.delete()
+    with pytest.raises(ValidationError, match="append-only"):
+        AuditEvent.objects.update(previous_state={"tampered": True})
+    with pytest.raises(ValidationError, match="append-only"):
+        AuditEvent.objects.all().delete()
+    assert AuditEvent.objects.count() == 3
 
 
 @pytest.mark.django_db
@@ -299,6 +306,38 @@ def test_employee_audience_provisions_portal_target_before_first_visit(client, c
     outsider = as_user(client, settings, "admin-1", "get", "/api/v1/news")
     assert [item["title"] for item in addressed.data["results"]] == ["Личное сообщение"]
     assert outsider.data["results"] == []
+
+
+@pytest.mark.django_db
+def test_employee_audience_rejects_adapter_identity_substitution(
+    client, category, settings, monkeypatch
+):
+    class SubstitutingAdapter:
+        def get_employee(self, portal_id):
+            return SimpleNamespace(portal_id="admin-1", is_active=True)
+
+    monkeypatch.setattr(
+        publication_services,
+        "get_portal_adapter",
+        lambda: SubstitutingAdapter(),
+    )
+    response = as_user(
+        client,
+        settings,
+        "editor-1",
+        "post",
+        "/api/v1/editorial/publications",
+        draft_payload(
+            audience={
+                "everyone": False,
+                "org_units": [],
+                "employees": ["employee-1"],
+                "module_roles": [],
+            }
+        ),
+    )
+    assert response.status_code == 400
+    assert not Publication.objects.exists()
 
 
 @pytest.mark.django_db

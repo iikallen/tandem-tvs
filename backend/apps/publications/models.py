@@ -8,7 +8,7 @@ from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.core.exceptions import ValidationError
 from django.db import connection, models
 from django.db.models import Q
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Concat
 from django.utils import timezone
 
 from apps.organization.models import OrgUnit
@@ -60,17 +60,30 @@ class PublicationQuerySet(models.QuerySet):
                 search_rank=models.Value(
                     Decimal("0"),
                     output_field=models.DecimalField(max_digits=12, decimal_places=8),
-                )
+                ),
+                search_cursor=Cast("id", output_field=models.CharField()),
             )
 
         search_query = SearchQuery(query, config="simple", search_type="plain")
-        return self.annotate(
+        ranked = self.annotate(
             search_vector=SEARCH_VECTOR,
             search_rank=Cast(
                 SearchRank(SEARCH_VECTOR, search_query),
                 models.DecimalField(max_digits=12, decimal_places=8),
             ),
         ).filter(search_vector=search_query)
+        return ranked.annotate(
+            search_cursor=Concat(
+                models.Func(
+                    models.F("search_rank"),
+                    models.Value("FM0000000000.00000000"),
+                    function="to_char",
+                    output_field=models.CharField(),
+                ),
+                models.Value(":"),
+                Cast("id", output_field=models.CharField()),
+            )
+        )
 
 
 class PublicationManager(models.Manager["Publication"]):
@@ -281,6 +294,19 @@ class PublicationView(models.Model):
         return f"{self.publication.pk}: {self.user.pk}"
 
 
+class AuditEventQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Audit events are append-only.")
+
+    def delete(self):
+        raise ValidationError("Audit events are append-only.")
+
+
+class AuditEventManager(models.Manager["AuditEvent"]):
+    def get_queryset(self) -> AuditEventQuerySet:
+        return AuditEventQuerySet(self.model, using=self._db)
+
+
 class AuditEvent(models.Model):
     class Type(models.TextChoices):
         CREATED = "publication.created", "Publication created"
@@ -300,6 +326,8 @@ class AuditEvent(models.Model):
     event_type = models.CharField(max_length=64, choices=Type)
     previous_state = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AuditEventManager()
 
     class Meta:
         ordering = ["created_at", "id"]
