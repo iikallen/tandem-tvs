@@ -13,7 +13,7 @@ class UnavailablePortalAdapter:
     def get_employee(self, portal_id: str) -> PortalEmployee | None:
         raise PortalUnavailableError
 
-    def search_employees(self, query: str) -> tuple[PortalEmployee, ...]:
+    def search_employees(self, query: str, *, limit: int) -> tuple[PortalEmployee, ...]:
         raise PortalUnavailableError
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]:

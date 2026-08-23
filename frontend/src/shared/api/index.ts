@@ -19,12 +19,8 @@ export interface Me {
 export interface Employee {
   portal_id: string;
   full_name: string;
-  email: string;
   job_title: string;
-  phone: string;
-  avatar_url: string;
   org_unit_external_id: string | null;
-  roles: string[];
 }
 
 export class ApiError extends Error {

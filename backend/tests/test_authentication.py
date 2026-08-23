@@ -7,7 +7,8 @@ from apps.identity import authentication
 from apps.identity.authentication import PortalAuthentication
 from apps.identity.managers import UserManager
 from apps.identity.models import User
-from apps.identity.portal.types import PortalEmployee, PortalIdentity
+from apps.identity.portal.types import PortalEmployee, PortalIdentity, PortalOrgUnit
+from apps.identity.services import sync_org_units
 from apps.organization.models import OrgUnit
 
 
@@ -100,3 +101,40 @@ def test_each_request_refreshes_profile_and_organization_projection():
     assert user.org_unit.external_id == "communications"
     assert OrgUnit.objects.filter(external_id="company").exists()
     assert not user.has_usable_password()
+
+
+@pytest.mark.django_db
+def test_org_unit_sync_deactivates_omissions_and_reactivates_returned_units():
+    OrgUnit.objects.create(external_id="stale", name="Старое подразделение")
+
+    class SnapshotAdapter:
+        def __init__(self, units):
+            self.units = units
+
+        def list_org_units(self):
+            return self.units
+
+    sync_org_units(
+        SnapshotAdapter((PortalOrgUnit(external_id="company", name="Tandem", kind="company"),))
+    )
+
+    assert OrgUnit.objects.get(external_id="stale").is_active is False
+
+    sync_org_units(
+        SnapshotAdapter(
+            (
+                PortalOrgUnit(external_id="company", name="Tandem", kind="company"),
+                PortalOrgUnit(
+                    external_id="stale",
+                    name="Возвращённое подразделение",
+                    kind="department",
+                    parent_external_id="company",
+                ),
+            )
+        )
+    )
+
+    restored = OrgUnit.objects.get(external_id="stale")
+    assert restored.is_active is True
+    assert restored.name == "Возвращённое подразделение"
+    assert restored.parent.external_id == "company"

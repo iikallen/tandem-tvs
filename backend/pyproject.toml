@@ -8,6 +8,7 @@ dependencies = [
   "django-redis>=6,<7",
   "djangorestframework>=3.16,<3.17",
   "drf-spectacular>=0.28,<0.29",
+  "drf-spectacular-sidecar==2026.8.1",
   "psycopg[binary]>=3.2,<4",
   "redis>=6,<8",
   "uvicorn[standard]>=0.35,<1",

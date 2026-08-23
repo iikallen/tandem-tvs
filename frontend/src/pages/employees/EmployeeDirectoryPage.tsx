@@ -70,15 +70,11 @@ export function EmployeeDirectoryPage() {
         <div className="employee-list">
           {employees.data.map((employee) => (
             <Card className="employee-card" key={employee.portal_id}>
-              <Avatar
-                name={employee.full_name}
-                imageUrl={employee.avatar_url}
-              />
+              <Avatar name={employee.full_name} />
               <div className="employee-card__body">
                 <h2>{employee.full_name}</h2>
                 <div className="employee-card__meta">
                   <span>{employee.job_title || t("notSpecified")}</span>
-                  <span>{employee.email || t("notSpecified")}</span>
                 </div>
               </div>
             </Card>

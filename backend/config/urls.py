@@ -1,6 +1,7 @@
+from django.conf import settings
+from django.contrib.staticfiles.views import serve as serve_static
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
-from rest_framework.permissions import AllowAny
 
 from apps.core.views import LiveView, ReadyView, RuntimeMetaView
 from apps.identity.views import MeView
@@ -17,21 +18,15 @@ urlpatterns = [
     path("api/v1/runtime/meta", RuntimeMetaView.as_view(), name="runtime-meta"),
     path("api/v1/health/live", LiveView.as_view(), name="health-live"),
     path("api/v1/health/ready", ReadyView.as_view(), name="health-ready"),
-    path(
-        "api/schema",
-        SpectacularAPIView.as_view(
-            authentication_classes=[],
-            permission_classes=[AllowAny],
-        ),
-        name="schema",
-    ),
-    path(
-        "api/docs",
-        SpectacularSwaggerView.as_view(
-            url_name="schema",
-            authentication_classes=[],
-            permission_classes=[AllowAny],
-        ),
-        name="api-docs",
-    ),
 ]
+
+if settings.API_DOCS_ENABLED:
+    urlpatterns += [
+        path("static/<path:path>", serve_static, {"insecure": True}),
+        path("api/schema", SpectacularAPIView.as_view(), name="schema"),
+        path(
+            "api/docs",
+            SpectacularSwaggerView.as_view(url_name="schema"),
+            name="api-docs",
+        ),
+    ]

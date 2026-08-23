@@ -22,27 +22,41 @@ test("loads the portal projection and navigates to an employee search result", a
   await expect(page.getByText("Найдено: 1")).toBeVisible();
 });
 
-test("supports theme switching and a 360px viewport without horizontal overflow", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 360, height: 800 });
-  await page.goto("/");
+for (const width of [360, 390, 768, 1440]) {
+  test(`${width}px viewport has the expected navigation and no horizontal overflow`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/");
 
-  await expect(
-    page.getByRole("navigation", { name: "Мобильная навигация" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("navigation", { name: "Основная навигация" }),
-  ).toBeHidden();
-  expect(
-    await page.evaluate(
-      () =>
-        document.documentElement.scrollWidth <=
-        document.documentElement.clientWidth,
-    ),
-  ).toBe(true);
+    const mobileNavigation = page.getByRole("navigation", {
+      name: "Мобильная навигация",
+    });
+    const desktopNavigation = page.getByRole("navigation", {
+      name: "Основная навигация",
+    });
 
+    if (width < 768) {
+      await expect(mobileNavigation).toBeVisible();
+      await expect(desktopNavigation).toBeHidden();
+    } else {
+      await expect(mobileNavigation).toBeHidden();
+      await expect(desktopNavigation).toBeVisible();
+    }
+
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  });
+}
+
+test("supports theme switching", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
   await page.getByRole("button", { name: "Включить тёмную тему" }).click();
   await expect(page.locator(".app-shell")).toHaveAttribute(
     "data-theme",

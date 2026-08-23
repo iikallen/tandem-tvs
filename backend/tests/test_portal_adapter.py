@@ -35,7 +35,9 @@ def test_adapter_contract_covers_roles_blocked_user_search_and_health(adapter):
     assert adapter.get_employee("author-1").roles == ("employee", "author")
     assert adapter.get_employee("blocked-1").is_active is False
     assert adapter.get_employee("unknown") is None
-    assert [employee.portal_id for employee in adapter.search_employees("Орлов")] == ["editor-1"]
+    assert [employee.portal_id for employee in adapter.search_employees("Орлов", limit=20)] == [
+        "editor-1"
+    ]
     assert adapter.healthcheck().available is True
 
 

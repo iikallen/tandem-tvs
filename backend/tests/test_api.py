@@ -5,6 +5,8 @@ from rest_framework.test import APIClient
 from apps.identity import authentication
 from apps.identity.models import User
 from apps.identity.portal import PortalUnavailableError
+from apps.identity.portal.types import PortalEmployee
+from apps.organization import views as organization_views
 
 
 @pytest.fixture
@@ -33,6 +35,7 @@ def test_me_returns_read_only_portal_projection(client):
         },
         "module_roles": ["employee"],
     }
+    assert_private_no_store(response)
     assert client.patch("/api/v1/me", {"full_name": "Подмена"}).status_code == 405
 
 
@@ -98,6 +101,7 @@ def test_organization_units_and_employee_search_are_authenticated(client):
         "communications",
         "engineering",
     }
+    assert_private_no_store(units_response)
 
     employees_response = client.get(
         "/api/v1/organization/employees",
@@ -106,11 +110,65 @@ def test_organization_units_and_employee_search_are_authenticated(client):
     assert employees_response.status_code == 200
     assert [employee["portal_id"] for employee in employees_response.data] == ["editor-1"]
     assert all(employee["portal_id"] != "blocked-1" for employee in employees_response.data)
+    assert employees_response.data == [
+        {
+            "portal_id": "editor-1",
+            "full_name": "Дмитрий Орлов",
+            "job_title": "Редактор",
+            "org_unit_external_id": "communications",
+        }
+    ]
+    assert_private_no_store(employees_response)
+
+
+@pytest.mark.django_db
+@override_settings(MOCK_PORTAL_USER_ID="employee-1")
+def test_employee_search_is_query_bounded_and_data_minimized(client, monkeypatch):
+    captured: dict[str, object] = {}
+
+    class SearchAdapter:
+        def search_employees(self, query, *, limit):
+            captured.update(query=query, limit=limit)
+            return tuple(
+                PortalEmployee(
+                    portal_id=f"employee-{index}",
+                    full_name=f"Employee {index}",
+                    is_active=True,
+                    email=f"employee-{index}@example.invalid",
+                    phone="secret",
+                    roles=("employee", "private-role"),
+                )
+                for index in range(25)
+            )
+
+    monkeypatch.setattr(organization_views, "get_portal_adapter", SearchAdapter)
+
+    assert client.get("/api/v1/organization/employees").data == []
+    assert client.get("/api/v1/organization/employees", {"search": "x"}).data == []
+    assert (
+        client.get(
+            "/api/v1/organization/employees",
+            {"search": "x" * 101},
+        ).status_code
+        == 400
+    )
+
+    response = client.get("/api/v1/organization/employees", {"search": "Employee"})
+
+    assert response.status_code == 200
+    assert len(response.data) == 20
+    assert captured == {"query": "Employee", "limit": 20}
+    assert set(response.data[0]) == {
+        "portal_id",
+        "full_name",
+        "job_title",
+        "org_unit_external_id",
+    }
 
 
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="")
-def test_public_health_runtime_and_schema_do_not_create_a_user(client):
+def test_public_health_and_runtime_do_not_create_a_user(client):
     assert client.get("/api/v1/health/live").data == {"status": "ok"}
 
     ready = client.get("/api/v1/health/ready")
@@ -122,12 +180,35 @@ def test_public_health_runtime_and_schema_do_not_create_a_user(client):
     assert runtime.data["supported_locales"] == ["ru"]
     assert runtime.data["planned_locales"] == ["kk"]
 
+    assert not User.objects.exists()
+
+
+@pytest.mark.django_db
+def test_schema_and_docs_require_identity_and_use_local_assets(client, settings):
+    settings.MOCK_PORTAL_USER_ID = ""
+    assert client.get("/api/schema").status_code == 401
+    assert client.get("/api/docs").status_code == 401
+
+    settings.MOCK_PORTAL_USER_ID = "employee-1"
     schema = client.get("/api/schema")
+    docs = client.get("/api/docs")
+
     assert schema.status_code == 200
     assert b"/api/v1/me" in schema.content
-    assert not User.objects.exists()
+    assert docs.status_code == 200
+    assert b"drf_spectacular_sidecar" in docs.content
+    assert b"cdn.jsdelivr" not in docs.content
+
+    swagger_css = client.get("/static/drf_spectacular_sidecar/swagger-ui-dist/swagger-ui.css")
+    assert swagger_css.status_code == 200
+    assert swagger_css["Content-Type"].startswith("text/css")
 
 
 def test_no_local_identity_routes_exist(client):
     for path in ("/login", "/register", "/password-reset", "/api/token"):
         assert client.get(path).status_code == 404
+
+
+def assert_private_no_store(response):
+    directives = {directive.strip() for directive in response["Cache-Control"].split(",")}
+    assert {"private", "no-store", "max-age=0"} <= directives

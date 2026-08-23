@@ -14,12 +14,8 @@ class OrgUnitSerializer(serializers.Serializer):
 class EmployeeSerializer(serializers.Serializer):
     portal_id = serializers.CharField()
     full_name = serializers.CharField()
-    email = serializers.EmailField(allow_blank=True)
     job_title = serializers.CharField(allow_blank=True)
-    phone = serializers.CharField(allow_blank=True)
-    avatar_url = serializers.URLField(allow_blank=True)
     org_unit_external_id = serializers.CharField(allow_null=True)
-    roles = serializers.ListField(child=serializers.CharField())
 
     def to_representation(self, instance: PortalEmployee):
         return super().to_representation(instance)

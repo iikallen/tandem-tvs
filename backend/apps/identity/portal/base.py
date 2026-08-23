@@ -10,7 +10,12 @@ class PortalAdapter(Protocol):
 
     def get_employee(self, portal_id: str) -> PortalEmployee | None: ...
 
-    def search_employees(self, query: str) -> tuple[PortalEmployee, ...]: ...
+    def search_employees(
+        self,
+        query: str,
+        *,
+        limit: int,
+    ) -> tuple[PortalEmployee, ...]: ...
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]: ...
 

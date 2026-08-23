@@ -74,10 +74,10 @@ class MockPortalAdapter:
     def get_employee(self, portal_id: str) -> PortalEmployee | None:
         return next((employee for employee in EMPLOYEES if employee.portal_id == portal_id), None)
 
-    def search_employees(self, query: str) -> tuple[PortalEmployee, ...]:
+    def search_employees(self, query: str, *, limit: int) -> tuple[PortalEmployee, ...]:
         normalized_query = query.casefold().strip()
         if not normalized_query:
-            return EMPLOYEES
+            return ()
 
         return tuple(
             employee
@@ -91,7 +91,7 @@ class MockPortalAdapter:
                     employee.portal_id,
                 )
             ).casefold()
-        )
+        )[:limit]
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]:
         return ORG_UNITS

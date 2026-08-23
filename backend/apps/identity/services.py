@@ -1,3 +1,5 @@
+from typing import Protocol
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -5,10 +7,15 @@ from apps.organization.models import OrgUnit
 
 from .models import User
 from .portal.base import PortalAdapter
-from .portal.types import PortalEmployee
+from .portal.types import PortalEmployee, PortalOrgUnit
 
 
-def sync_org_units(adapter: PortalAdapter) -> dict[str, OrgUnit]:
+class OrgUnitSource(Protocol):
+    def list_org_units(self) -> tuple[PortalOrgUnit, ...]: ...
+
+
+@transaction.atomic
+def sync_org_units(adapter: OrgUnitSource) -> dict[str, OrgUnit]:
     portal_units = adapter.list_org_units()
     units: dict[str, OrgUnit] = {}
 
@@ -33,6 +40,11 @@ def sync_org_units(adapter: PortalAdapter) -> dict[str, OrgUnit]:
         if unit.parent != parent:
             unit.parent = parent
             unit.save(update_fields=["parent", "updated_at"])
+
+    OrgUnit.objects.filter(is_active=True).exclude(external_id__in=units).update(
+        is_active=False,
+        updated_at=timezone.now(),
+    )
 
     return units
 

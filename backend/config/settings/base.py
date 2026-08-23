@@ -16,6 +16,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "drf_spectacular",
+    "drf_spectacular_sidecar",
     "apps.core",
     "apps.identity",
     "apps.organization",
@@ -130,7 +131,15 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
 }
 
-SPECTACULAR_SETTINGS = {"TITLE": "Tandem Portal Stage 1 API", "VERSION": "1.0.0"}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "Tandem Portal API",
+    "VERSION": "1.0.0",
+    "SWAGGER_UI_DIST": "SIDECAR",
+    "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
+    "SERVE_AUTHENTICATION": ["apps.identity.authentication.PortalAuthentication"],
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
+}
+API_DOCS_ENABLED: bool = False
 
 PORTAL_ADAPTER: str = ""
 ALLOW_MOCK_PORTAL_ADAPTER: bool = False

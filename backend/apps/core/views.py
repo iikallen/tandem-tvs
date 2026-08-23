@@ -1,5 +1,6 @@
 from django.core.cache import cache
 from django.db import connection
+from django.utils.cache import patch_cache_control
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -13,6 +14,15 @@ from .serializers import HealthSerializer, ReadinessSerializer, RuntimeMetaSeria
 class PublicAPIView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+
+
+class PrivateAPIView(APIView):
+    """Authenticated API base that prevents user-specific responses being cached."""
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        patch_cache_control(response, private=True, no_store=True, max_age=0)
+        return response
 
 
 class LiveView(PublicAPIView):
