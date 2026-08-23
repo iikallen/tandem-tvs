@@ -1,8 +1,8 @@
 # Tandem Portal Stage 3 acceptance report
 
-Date: 2026-08-23  
-Scope: Stage 3 — «Обсуждения, реакции и realtime»  
-Release candidate: `e825bfbc3bd482957f3c43b4d706a9a94c56f458`  
+Date: 2026-08-23
+Scope: Stage 3 — «Обсуждения, реакции и realtime»
+Release candidate: `e825bfbc3bd482957f3c43b4d706a9a94c56f458`
 Result: **PASS.** The Stage 3 implementation, clean CI deployment, PostgreSQL/Redis
 acceptance, live two-user browser flow, external Cloudflare HTTP/WSS checks, and independent
 security review passed. Stage 4 was not started.
