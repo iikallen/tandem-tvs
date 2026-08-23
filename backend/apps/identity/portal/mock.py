@@ -68,7 +68,9 @@ EMPLOYEES = (
 
 class MockPortalAdapter:
     def authenticate_request(self, request: HttpRequest) -> PortalIdentity | None:
-        portal_id = getattr(request, "_mock_portal_id", settings.MOCK_PORTAL_USER_ID)
+        portal_id = getattr(request, "_mock_portal_id", None)
+        if portal_id is None:
+            portal_id = request.headers.get("X-Mock-Portal-User", settings.MOCK_PORTAL_USER_ID)
         return PortalIdentity(portal_id=portal_id) if portal_id else None
 
     def get_employee(self, portal_id: str) -> PortalEmployee | None:

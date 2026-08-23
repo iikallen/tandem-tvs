@@ -12,6 +12,7 @@ import {
   type EditorialPublication,
   type RichTextNode,
 } from "../../shared/api";
+import { t } from "../../shared/i18n";
 import { PageState } from "../../shared/ui/PageState";
 import { RichTextRenderer } from "../../shared/ui/RichTextRenderer";
 import { EditorialGuard } from "./EditorialGuard";
@@ -54,17 +55,15 @@ function PublicationLoader() {
   );
 }
 
-function initialAudience(publication?: EditorialPublication): {
-  mode: AudienceMode;
-  target: string;
-} {
-  const audience = publication?.audience;
-  if (!audience || audience.everyone) return { mode: "ALL", target: "" };
-  if (audience.org_units[0])
-    return { mode: "ORG_UNIT", target: audience.org_units[0] };
-  if (audience.employees[0])
-    return { mode: "EMPLOYEE", target: audience.employees[0] };
-  return { mode: "MODULE_ROLE", target: audience.module_roles[0] ?? "" };
+function initialAudience(publication?: EditorialPublication): Audience {
+  return (
+    publication?.audience ?? {
+      everyone: false,
+      org_units: [],
+      employees: [],
+      module_roles: [],
+    }
+  );
 }
 
 function PublicationForm({
@@ -76,7 +75,7 @@ function PublicationForm({
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const initialTarget = initialAudience(initial);
+  const initialTargets = initialAudience(initial);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [summary, setSummary] = useState(initial?.summary ?? "");
   const [category, setCategory] = useState(
@@ -84,9 +83,15 @@ function PublicationForm({
   );
   const [body, setBody] = useState<RichTextNode>(initial?.body ?? EMPTY_BODY);
   const [audienceMode, setAudienceMode] = useState<AudienceMode>(
-    initialTarget.mode,
+    initialTargets.everyone
+      ? "ALL"
+      : initialTargets.employees.length
+        ? "EMPLOYEE"
+        : initialTargets.module_roles.length
+          ? "MODULE_ROLE"
+          : "ORG_UNIT",
   );
-  const [audienceTarget, setAudienceTarget] = useState(initialTarget.target);
+  const [audience, setAudience] = useState<Audience>(initialTargets);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -114,31 +119,17 @@ function PublicationForm({
     content: initial?.body ?? EMPTY_BODY,
     editable: !isPublished,
     editorProps: {
-      attributes: { "aria-label": "Текст публикации", role: "textbox" },
+      attributes: { "aria-label": t("publicationText"), role: "textbox" },
     },
     onUpdate: ({ editor: current }) =>
       setBody(current.getJSON() as RichTextNode),
   });
 
-  function audience(): Audience {
-    return {
-      everyone: audienceMode === "ALL",
-      org_units:
-        audienceMode === "ORG_UNIT" && audienceTarget ? [audienceTarget] : [],
-      employees:
-        audienceMode === "EMPLOYEE" && audienceTarget ? [audienceTarget] : [],
-      module_roles:
-        audienceMode === "MODULE_ROLE" && audienceTarget
-          ? [audienceTarget]
-          : [],
-    };
-  }
-
   async function save(publish: boolean) {
     setSaving(true);
     setError(undefined);
     try {
-      const payload = { title, summary, category, body, audience: audience() };
+      const payload = { title, summary, category, body, audience };
       const publication = initial
         ? await api.updatePublication(initial.id, payload)
         : await api.createPublication(payload);
@@ -157,8 +148,8 @@ function PublicationForm({
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Редакционное пространство</p>
-          <h1>{initial ? "Редактирование публикации" : "Новая публикация"}</h1>
+          <p className="overline">{t("editorialSpace")}</p>
+          <h1>{initial ? t("editPublication") : t("newPublication")}</h1>
         </div>
       </header>
       {error ? <PageState error={error} /> : null}
@@ -168,7 +159,7 @@ function PublicationForm({
       >
         <div className="editor-main">
           <label>
-            Заголовок
+            {t("title")}
             <input
               required
               maxLength={255}
@@ -178,7 +169,7 @@ function PublicationForm({
             />
           </label>
           <label>
-            Краткое описание
+            {t("summary")}
             <textarea
               required
               maxLength={1000}
@@ -188,21 +179,21 @@ function PublicationForm({
             />
           </label>
           <div className="editor-field">
-            <span className="field-label">Текст публикации</span>
+            <span className="field-label">{t("publicationText")}</span>
             {!isPublished && <EditorToolbar editor={editor} />}
             <EditorContent editor={editor} className="tiptap-editor" />
           </div>
         </div>
         <aside className="editor-sidebar">
           <label>
-            Категория
+            {t("category")}
             <select
               required
               value={category}
               onChange={(event) => setCategory(event.target.value)}
               disabled={isPublished}
             >
-              <option value="">Выберите</option>
+              <option value="">{t("choose")}</option>
               {categories.map((item) => (
                 <option key={item.slug} value={item.slug}>
                   {item.name}
@@ -211,30 +202,49 @@ function PublicationForm({
             </select>
           </label>
           <label>
-            Аудитория
+            {t("audience")}
             <select
               value={audienceMode}
               onChange={(event) => {
-                setAudienceMode(event.target.value as AudienceMode);
-                setAudienceTarget("");
+                const mode = event.target.value as AudienceMode;
+                setAudienceMode(mode);
+                setAudience((current) =>
+                  mode === "ALL"
+                    ? {
+                        everyone: true,
+                        org_units: [],
+                        employees: [],
+                        module_roles: [],
+                      }
+                    : { ...current, everyone: false },
+                );
               }}
               disabled={isPublished}
             >
-              <option value="ALL">Вся компания</option>
-              <option value="ORG_UNIT">Подразделение</option>
-              <option value="EMPLOYEE">Сотрудник</option>
-              <option value="MODULE_ROLE">Роль модуля</option>
+              <option value="ORG_UNIT">{t("audienceOrgUnit")}</option>
+              <option value="EMPLOYEE">{t("audienceEmployee")}</option>
+              <option value="MODULE_ROLE">{t("audienceRole")}</option>
+              <option value="ALL">{t("audienceAll")}</option>
             </select>
           </label>
           {audienceMode === "ORG_UNIT" && (
             <label>
-              Подразделение
+              {t("audienceOrgUnit")}
               <select
-                value={audienceTarget}
-                onChange={(event) => setAudienceTarget(event.target.value)}
+                multiple
+                size={Math.min(5, Math.max(2, units.data?.length ?? 2))}
+                value={audience.org_units}
+                onChange={(event) =>
+                  setAudience((current) => ({
+                    ...current,
+                    org_units: Array.from(
+                      event.target.selectedOptions,
+                      (option) => option.value,
+                    ),
+                  }))
+                }
                 disabled={isPublished}
               >
-                <option value="">Выберите</option>
                 {units.data?.map((unit) => (
                   <option key={unit.external_id} value={unit.external_id}>
                     {unit.name}
@@ -246,22 +256,31 @@ function PublicationForm({
           {audienceMode === "EMPLOYEE" && (
             <>
               <label>
-                Поиск сотрудника
+                {t("employeeSearch")}
                 <input
                   value={employeeSearch}
                   onChange={(event) => setEmployeeSearch(event.target.value)}
-                  placeholder="Введите минимум 2 символа"
+                  placeholder={t("employeeSearchHint")}
                   disabled={isPublished}
                 />
               </label>
               <label>
-                Сотрудник
+                {t("audienceEmployee")}
                 <select
-                  value={audienceTarget}
-                  onChange={(event) => setAudienceTarget(event.target.value)}
+                  multiple
+                  size={Math.min(5, Math.max(2, employees.data?.length ?? 2))}
+                  value={audience.employees}
+                  onChange={(event) =>
+                    setAudience((current) => ({
+                      ...current,
+                      employees: Array.from(
+                        event.target.selectedOptions,
+                        (option) => option.value,
+                      ),
+                    }))
+                  }
                   disabled={isPublished}
                 >
-                  <option value="">Выберите</option>
                   {employees.data?.map((employee) => (
                     <option key={employee.portal_id} value={employee.portal_id}>
                       {employee.full_name}
@@ -273,21 +292,38 @@ function PublicationForm({
           )}
           {audienceMode === "MODULE_ROLE" && (
             <label>
-              Роль модуля
+              {t("audienceRole")}
               <input
-                value={audienceTarget}
-                onChange={(event) => setAudienceTarget(event.target.value)}
+                value={audience.module_roles.join(", ")}
+                onChange={(event) =>
+                  setAudience((current) => ({
+                    ...current,
+                    module_roles: event.target.value
+                      .split(",")
+                      .map((role) => role.trim())
+                      .filter(Boolean),
+                  }))
+                }
                 placeholder="editor"
                 disabled={isPublished}
               />
             </label>
           )}
+          <p className="selected-targets">
+            {t("selectedTargets", {
+              count: audience.everyone
+                ? 1
+                : audience.org_units.length +
+                  audience.employees.length +
+                  audience.module_roles.length,
+            })}
+          </p>
           <button
             className="button button--secondary"
             type="button"
             onClick={() => setPreview(!preview)}
           >
-            {preview ? "Скрыть предпросмотр" : "Предпросмотр"}
+            {preview ? t("hidePreview") : t("preview")}
           </button>
           {!isPublished && (
             <>
@@ -297,7 +333,7 @@ function PublicationForm({
                 disabled={saving}
                 onClick={() => save(false)}
               >
-                Сохранить черновик
+                {t("saveDraft")}
               </button>
               <button
                 className="button"
@@ -305,7 +341,7 @@ function PublicationForm({
                 disabled={saving}
                 onClick={() => save(true)}
               >
-                Опубликовать
+                {t("publish")}
               </button>
             </>
           )}
@@ -313,8 +349,8 @@ function PublicationForm({
       </form>
       {preview && (
         <section className="preview">
-          <h2>Предпросмотр</h2>
-          <h1>{title || "Без заголовка"}</h1>
+          <h2>{t("preview")}</h2>
+          <h1>{title || t("untitled")}</h1>
           <p className="page-description">{summary}</p>
           <RichTextRenderer document={body} />
         </section>
@@ -327,7 +363,7 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   if (!editor) return null;
   const link = () => {
     const href = window.prompt(
-      "Адрес ссылки",
+      t("linkAddress"),
       editor.getAttributes("link").href as string,
     );
     if (href === null) return;
@@ -335,21 +371,21 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
     else editor.chain().focus().setLink({ href }).run();
   };
   const buttons = [
-    ["Абзац", () => editor.chain().focus().setParagraph().run()],
+    [t("paragraph"), () => editor.chain().focus().setParagraph().run()],
     ["H2", () => editor.chain().focus().toggleHeading({ level: 2 }).run()],
     ["H3", () => editor.chain().focus().toggleHeading({ level: 3 }).run()],
-    ["Жирный", () => editor.chain().focus().toggleBold().run()],
-    ["Курсив", () => editor.chain().focus().toggleItalic().run()],
-    ["Список", () => editor.chain().focus().toggleBulletList().run()],
-    ["Нумерация", () => editor.chain().focus().toggleOrderedList().run()],
-    ["Цитата", () => editor.chain().focus().toggleBlockquote().run()],
-    ["Ссылка", link],
+    [t("bold"), () => editor.chain().focus().toggleBold().run()],
+    [t("italic"), () => editor.chain().focus().toggleItalic().run()],
+    [t("bulletList"), () => editor.chain().focus().toggleBulletList().run()],
+    [t("orderedList"), () => editor.chain().focus().toggleOrderedList().run()],
+    [t("quote"), () => editor.chain().focus().toggleBlockquote().run()],
+    [t("link"), link],
   ] as const;
   return (
     <div
       className="editor-toolbar"
       role="toolbar"
-      aria-label="Форматирование текста"
+      aria-label={t("textFormatting")}
     >
       {buttons.map(([label, action]) => (
         <button key={label} type="button" onClick={action}>

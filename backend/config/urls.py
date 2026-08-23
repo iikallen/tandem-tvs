@@ -4,6 +4,13 @@ from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.core.views import LiveView, ReadyView, RuntimeMetaView
+from apps.discussions.views import (
+    CommentDetailView,
+    CommentListCreateView,
+    ReactionDetailView,
+    ReactionSummaryView,
+    RealtimeTicketView,
+)
 from apps.identity.views import MeView
 from apps.organization.views import EmployeeSearchView, OrgUnitListView
 from apps.publications.views import (
@@ -19,6 +26,27 @@ urlpatterns = [
     path("api/v1/news", NewsListView.as_view(), name="news-list"),
     path("api/v1/news/categories", CategoryListView.as_view(), name="news-category-list"),
     path("api/v1/news/<str:publication_id>", NewsDetailView.as_view(), name="news-detail"),
+    path(
+        "api/v1/news/<uuid:publication_id>/comments",
+        CommentListCreateView.as_view(),
+        name="comment-list",
+    ),
+    path(
+        "api/v1/news/<uuid:publication_id>/comments/<uuid:comment_id>",
+        CommentDetailView.as_view(),
+        name="comment-detail",
+    ),
+    path(
+        "api/v1/news/<uuid:publication_id>/reactions",
+        ReactionSummaryView.as_view(),
+        name="reaction-summary",
+    ),
+    path(
+        "api/v1/news/<uuid:publication_id>/reactions/<str:reaction_type>",
+        ReactionDetailView.as_view(),
+        name="reaction-detail",
+    ),
+    path("api/v1/realtime/tickets", RealtimeTicketView.as_view(), name="realtime-ticket"),
     path(
         "api/v1/editorial/publications",
         EditorialPublicationListCreateView.as_view(),

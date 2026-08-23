@@ -2,12 +2,13 @@ from typing import cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Count, Exists, OuterRef, Prefetch, Value
+from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Subquery, Value
+from django.db.models.functions import Coalesce
 from rest_framework import generics, serializers
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from apps.core.views import PrivateResponseMixin
+from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
 
 from .models import AudienceRule, Category, Publication, PublicationView
@@ -50,8 +51,9 @@ class EditorialPublicationDetailView(PrivateResponseMixin, generics.RetrieveUpda
         return editorial_queryset()
 
 
-class EditorialPublicationPublishView(PrivateResponseMixin, APIView):
+class EditorialPublicationPublishView(PrivateResponseMixin, generics.GenericAPIView):
     permission_classes = [IsEditorialRole]
+    serializer_class = EditorialPublicationSerializer
 
     def post(self, request, publication_id):
         publication = generics.get_object_or_404(Publication, pk=publication_id)
@@ -60,7 +62,7 @@ class EditorialPublicationPublishView(PrivateResponseMixin, APIView):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.messages) from exc
         publication = editorial_queryset().get(pk=publication.pk)
-        return Response(EditorialPublicationSerializer(publication).data)
+        return Response(self.get_serializer(publication).data)
 
 
 class CategoryListView(PrivateResponseMixin, generics.ListAPIView):
@@ -71,11 +73,33 @@ class CategoryListView(PrivateResponseMixin, generics.ListAPIView):
 
 def employee_news_queryset(user):
     viewed = PublicationView.objects.filter(publication=OuterRef("pk"), user=user)
+    view_count = (
+        PublicationView.objects.filter(publication=OuterRef("pk"))
+        .values("publication")
+        .annotate(total=Count("pk"))
+        .values("total")
+    )
+    comment_count = (
+        Comment.objects.filter(publication=OuterRef("pk"), status=Comment.Status.ACTIVE)
+        .values("publication")
+        .annotate(total=Count("pk"))
+        .values("total")
+    )
+    reaction_count = (
+        Reaction.objects.filter(publication=OuterRef("pk"))
+        .values("publication")
+        .annotate(total=Count("pk"))
+        .values("total")
+    )
     return (
         Publication.objects.visible_to(user)
         .select_related("category", "author")
         .annotate(
-            view_count=Count("views", distinct=True),
+            view_count=Coalesce(Subquery(view_count, output_field=IntegerField()), Value(0)),
+            comment_count=Coalesce(Subquery(comment_count, output_field=IntegerField()), Value(0)),
+            reaction_count=Coalesce(
+                Subquery(reaction_count, output_field=IntegerField()), Value(0)
+            ),
             is_read=Exists(viewed),
             search_rank=Value(0.0),
         )

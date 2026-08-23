@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "django.contrib.postgres",
+    "channels",
     "rest_framework",
     "drf_spectacular",
     "drf_spectacular_sidecar",
@@ -22,6 +23,7 @@ INSTALLED_APPS = [
     "apps.identity",
     "apps.organization",
     "apps.publications",
+    "apps.discussions",
 ]
 
 MIDDLEWARE = [
@@ -125,12 +127,37 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "identity.User"
+DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.identity.authentication.PortalAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
+    "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
+    "DEFAULT_THROTTLE_RATES": {
+        "comment_create": "20/min",
+        "comment_edit": "30/min",
+        "reaction": "60/min",
+        "realtime_ticket": "30/min",
+    },
+}
+
+REALTIME_REDIS_URL = os.getenv("REALTIME_REDIS_URL", "redis://localhost:6379/1")
+REALTIME_TICKET_TTL_SECONDS = 30
+REALTIME_SOCKET_LIFETIME_SECONDS = 900
+REALTIME_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "REALTIME_ALLOWED_ORIGINS", "http://localhost,http://127.0.0.1:8080"
+    ).split(",")
+    if origin.strip()
+]
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {"hosts": [REALTIME_REDIS_URL], "capacity": 100, "expiry": 60},
+    }
 }
 
 SPECTACULAR_SETTINGS = {

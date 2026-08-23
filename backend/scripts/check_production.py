@@ -9,6 +9,8 @@ environment = os.environ | {
     "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.invalid",
     "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
     "REDIS_URL": "redis://redis:6379/0",
+    "REALTIME_REDIS_URL": "redis://redis:6379/1",
+    "REALTIME_ALLOWED_ORIGINS": "https://portal.example.invalid",
     "PORTAL_ADAPTER": "unavailable",
 }
 

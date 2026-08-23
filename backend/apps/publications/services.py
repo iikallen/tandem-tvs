@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
+from rest_framework.generics import get_object_or_404
 
 from apps.identity.models import User
 from apps.identity.portal import get_portal_adapter
@@ -14,6 +15,11 @@ from apps.identity.services import provision_user
 from apps.organization.models import OrgUnit
 
 from .models import MODULE_ROLE_MAX_LENGTH, AudienceRule, AuditEvent, Publication, PublicationView
+
+
+def visible_publication_or_404(user: User, publication_id: object) -> Publication:
+    """The single authorization boundary for publication child resources."""
+    return get_object_or_404(Publication.objects.visible_to(user), pk=publication_id)
 
 
 class AudiencePayload(TypedDict):

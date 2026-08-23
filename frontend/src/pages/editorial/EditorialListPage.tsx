@@ -5,6 +5,7 @@ import { api } from "../../shared/api";
 import { Badge } from "../../shared/ui/Badge";
 import { Card } from "../../shared/ui/Card";
 import { PageState } from "../../shared/ui/PageState";
+import { t } from "../../shared/i18n";
 import { EditorialGuard } from "./EditorialGuard";
 
 export function EditorialListPage() {
@@ -26,20 +27,18 @@ function EditorialList() {
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Редакционное пространство</p>
-          <h1>Публикации</h1>
-          <p className="page-description">
-            Создавайте новости и задавайте адресатов.
-          </p>
+          <p className="overline">{t("editorialSpace")}</p>
+          <h1>{t("publications")}</h1>
+          <p className="page-description">{t("publicationsDescription")}</p>
         </div>
         <Link className="button" to="/editorial/publications/new">
-          Новая публикация
+          {t("newPublication")}
         </Link>
       </header>
       {publications.data.results.length === 0 ? (
         <div className="state">
           <div className="state__content">
-            <h2>Черновиков пока нет</h2>
+            <h2>{t("noDrafts")}</h2>
           </div>
         </div>
       ) : (
@@ -57,8 +56,8 @@ function EditorialList() {
                     }
                   >
                     {publication.status === "PUBLISHED"
-                      ? "Опубликовано"
-                      : "Черновик"}
+                      ? t("published")
+                      : t("draft")}
                   </Badge>
                 </div>
                 <h2>{publication.title}</h2>

@@ -19,4 +19,4 @@ RUN chmod +x /app/entrypoint.sh
 EXPOSE 8000
 USER app
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--ws-max-size", "512", "--no-access-log"]

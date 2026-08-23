@@ -137,10 +137,10 @@ class EditorialPublicationSerializer(serializers.ModelSerializer):
 class NewsPublicationSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     author = UserSummarySerializer(read_only=True)
-    cover = serializers.SerializerMethodField()
+    cover = serializers.CharField(read_only=True, allow_null=True, default=None)
     view_count = serializers.IntegerField(read_only=True)
-    comment_count = serializers.SerializerMethodField()
-    reaction_count = serializers.SerializerMethodField()
+    comment_count = serializers.IntegerField(read_only=True)
+    reaction_count = serializers.IntegerField(read_only=True)
     is_read = serializers.BooleanField(read_only=True)
 
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -159,15 +159,6 @@ class NewsPublicationSerializer(serializers.ModelSerializer):
             "reaction_count",
             "is_read",
         ]
-
-    def get_cover(self, obj):
-        return None
-
-    def get_comment_count(self, obj):
-        return 0
-
-    def get_reaction_count(self, obj):
-        return 0
 
 
 class NewsPublicationDetailSerializer(NewsPublicationSerializer):

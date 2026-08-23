@@ -8,7 +8,7 @@ import { EditIcon, HomeIcon, NewsIcon, UserIcon, UsersIcon } from "./icons";
 
 const links = [
   { to: "/", label: t("home"), icon: HomeIcon, end: true },
-  { to: "/news", label: "Новости", icon: NewsIcon },
+  { to: "/news", label: t("news"), icon: NewsIcon },
   { to: "/employees", label: t("employees"), icon: UsersIcon },
   { to: "/profile", label: t("profile"), icon: UserIcon },
 ];
@@ -22,7 +22,7 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
         ...links,
         {
           to: "/editorial/publications",
-          label: "Редакция",
+          label: t("editorial"),
           icon: EditIcon,
         },
       ]

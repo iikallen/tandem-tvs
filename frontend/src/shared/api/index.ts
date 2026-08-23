@@ -64,6 +64,23 @@ export interface PublicationDetail extends PublicationSummary {
   body: RichTextNode;
 }
 
+export interface Comment {
+  id: string;
+  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  body: string | null;
+  status: "ACTIVE" | "DELETED";
+  created_at: string;
+  updated_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
+}
+
+export interface ReactionSummary {
+  total: number;
+  counts: Record<string, number>;
+  mine: string[];
+}
+
 export interface EditorialPublication {
   id: string;
   slug: string;
@@ -128,6 +145,7 @@ async function request<T>(
       payload?.error?.message ?? response.statusText,
     );
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -161,6 +179,49 @@ export const api = {
     request<CursorPage<PublicationSummary>>(newsUrl(filters, cursor)),
   publication: (id: string) =>
     request<PublicationDetail>(`/api/v1/news/${encodeURIComponent(id)}`),
+  comments: (id: string, cursor?: string) =>
+    request<CursorPage<Comment>>(
+      `/api/v1/news/${encodeURIComponent(id)}/comments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  createComment: (id: string, body: string) =>
+    request<Comment>(
+      `/api/v1/news/${encodeURIComponent(id)}/comments`,
+      "POST",
+      { body },
+    ),
+  updateComment: (publicationId: string, commentId: string, body: string) =>
+    request<Comment>(
+      `/api/v1/news/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`,
+      "PATCH",
+      { body },
+    ),
+  deleteComment: (publicationId: string, commentId: string) =>
+    request<void>(
+      `/api/v1/news/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`,
+      "DELETE",
+    ),
+  reactions: (id: string) =>
+    request<ReactionSummary>(
+      `/api/v1/news/${encodeURIComponent(id)}/reactions`,
+    ),
+  putReaction: (id: string, type: string) =>
+    request<{ id: string; reaction_type: string }>(
+      `/api/v1/news/${encodeURIComponent(id)}/reactions/${encodeURIComponent(type)}`,
+      "PUT",
+    ),
+  deleteReaction: (id: string, type: string) =>
+    request<void>(
+      `/api/v1/news/${encodeURIComponent(id)}/reactions/${encodeURIComponent(type)}`,
+      "DELETE",
+    ),
+  realtimeTicket: (publicationId: string) =>
+    request<{ ticket: string; expires_in: number }>(
+      "/api/v1/realtime/tickets",
+      "POST",
+      {
+        publication_id: publicationId,
+      },
+    ),
   editorial: () =>
     request<CursorPage<EditorialPublication>>("/api/v1/editorial/publications"),
   editorialPublication: (id: string) =>

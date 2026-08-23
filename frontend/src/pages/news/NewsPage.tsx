@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 
 import { api, cursorFromUrl, type NewsFilters } from "../../shared/api";
+import { t } from "../../shared/i18n";
 import { Badge } from "../../shared/ui/Badge";
 import { Card } from "../../shared/ui/Card";
 import { SearchIcon } from "../../shared/ui/icons";
@@ -46,44 +47,44 @@ export function NewsPage() {
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Корпоративный портал</p>
-          <h1>Новости</h1>
-          <p className="page-description">Публикации, адресованные вам.</p>
+          <p className="overline">{t("portalOverline")}</p>
+          <h1>{t("news")}</h1>
+          <p className="page-description">{t("newsDescription")}</p>
         </div>
       </header>
-      <section className="news-filters" aria-label="Фильтры новостей">
+      <section className="news-filters" aria-label={t("newsFilters")}>
         <label className="search-field">
-          <span className="sr-only">Поиск новостей</span>
+          <span className="sr-only">{t("newsSearch")}</span>
           <SearchIcon />
           <input
             type="search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Поиск по заголовку и тексту"
+            placeholder={t("newsSearchPlaceholder")}
           />
         </label>
-        <div className="segmented" aria-label="Статус прочтения">
+        <div className="segmented" aria-label={t("readStatus")}>
           <button
             className={!unread ? "is-active" : ""}
             onClick={() => setUnread(false)}
           >
-            Все
+            {t("all")}
           </button>
           <button
             className={unread ? "is-active" : ""}
             onClick={() => setUnread(true)}
           >
-            Непрочитанные
+            {t("unread")}
           </button>
         </div>
         <div className="filter-grid">
           <label>
-            Категория
+            {t("category")}
             <select
               value={category}
               onChange={(event) => setCategory(event.target.value)}
             >
-              <option value="">Все категории</option>
+              <option value="">{t("allCategories")}</option>
               {categories.data?.map((item) => (
                 <option key={item.slug} value={item.slug}>
                   {item.name}
@@ -92,7 +93,7 @@ export function NewsPage() {
             </select>
           </label>
           <label>
-            Автор
+            {t("author")}
             <input
               value={author}
               onChange={(event) => setAuthor(event.target.value)}
@@ -100,7 +101,7 @@ export function NewsPage() {
             />
           </label>
           <label>
-            С даты
+            {t("fromDate")}
             <input
               type="date"
               value={dateFrom}
@@ -108,7 +109,7 @@ export function NewsPage() {
             />
           </label>
           <label>
-            По дату
+            {t("toDate")}
             <input
               type="date"
               value={dateTo}
@@ -125,13 +126,9 @@ export function NewsPage() {
         <div className="state">
           <div className="state__content">
             <h2>
-              {query
-                ? "Ничего не найдено"
-                : unread
-                  ? "Всё прочитано"
-                  : "Новостей пока нет"}
+              {query ? t("nothingFound") : unread ? t("allRead") : t("noNews")}
             </h2>
-            <p>Измените фильтры или вернитесь позже.</p>
+            <p>{t("changeFilters")}</p>
           </div>
         </div>
       ) : (
@@ -144,7 +141,7 @@ export function NewsPage() {
                 <div className="news-card__topline">
                   <Badge>{publication.category.name}</Badge>
                   {!publication.is_read && (
-                    <span className="unread-dot">Новое</span>
+                    <span className="unread-dot">{t("newItem")}</span>
                   )}
                 </div>
                 <h2>{publication.title}</h2>
@@ -156,7 +153,7 @@ export function NewsPage() {
                       "ru-RU",
                     )}
                   </time>
-                  <span>{publication.view_count} просмотров</span>
+                  <span>{t("views", { count: publication.view_count })}</span>
                 </footer>
               </Card>
             </Link>
@@ -167,7 +164,7 @@ export function NewsPage() {
               disabled={news.isFetchingNextPage}
               onClick={() => news.fetchNextPage()}
             >
-              {news.isFetchingNextPage ? "Загружаем…" : "Показать ещё"}
+              {news.isFetchingNextPage ? t("loadingMore") : t("loadMore")}
             </button>
           )}
         </div>

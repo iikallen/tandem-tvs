@@ -31,14 +31,16 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
-      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost}
+      DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       REDIS_URL: redis://redis:6379/0
+      REALTIME_REDIS_URL: redis://redis:6379/1
+      REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
       MOCK_PORTAL_USER_ID: ${MOCK_PORTAL_USER_ID:-employee-1}
     depends_on:

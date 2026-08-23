@@ -1,4 +1,5 @@
 import os
+from urllib.parse import parse_qs, urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -10,6 +11,19 @@ def required(name: str) -> str:
     if not value:
         raise ImproperlyConfigured(f"{name} is required in production")
     return value
+
+
+def redis_target(name: str, url: str) -> tuple[str, int, int]:
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+        raise ImproperlyConfigured(f"{name} must be a redis:// or rediss:// URL")
+    query_db = parse_qs(parsed.query).get("db")
+    raw_database = query_db[-1] if query_db else parsed.path.removeprefix("/") or "0"
+    try:
+        database = int(raw_database)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must select a numeric Redis database") from exc
+    return parsed.hostname.lower(), parsed.port or 6379, database
 
 
 DEBUG = False
@@ -24,7 +38,21 @@ CSRF_TRUSTED_ORIGINS = [
 if not os.getenv("DATABASE_URL"):
     for database_setting in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_HOST"):
         required(database_setting)
-required("REDIS_URL")
+REDIS_URL = required("REDIS_URL")
+REALTIME_REDIS_URL = required("REALTIME_REDIS_URL")
+cache_target = redis_target("REDIS_URL", REDIS_URL)
+realtime_target = redis_target("REALTIME_REDIS_URL", REALTIME_REDIS_URL)
+if cache_target[2] != 0:
+    raise ImproperlyConfigured("REDIS_URL must use logical Redis database 0")
+if realtime_target[2] != 1:
+    raise ImproperlyConfigured("REALTIME_REDIS_URL must use logical Redis database 1")
+if cache_target == realtime_target:
+    raise ImproperlyConfigured("REALTIME_REDIS_URL must be isolated from REDIS_URL")
+REALTIME_ALLOWED_ORIGINS = [
+    origin.strip() for origin in required("REALTIME_ALLOWED_ORIGINS").split(",") if origin.strip()
+]
+if not REALTIME_ALLOWED_ORIGINS:
+    raise ImproperlyConfigured("REALTIME_ALLOWED_ORIGINS is required in production")
 
 PORTAL_ADAPTER = required("PORTAL_ADAPTER")
 ALLOW_MOCK_PORTAL_ADAPTER = False
