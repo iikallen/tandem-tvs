@@ -6,8 +6,34 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from apps.core.views import LiveView, ReadyView, RuntimeMetaView
 from apps.identity.views import MeView
 from apps.organization.views import EmployeeSearchView, OrgUnitListView
+from apps.publications.views import (
+    CategoryListView,
+    EditorialPublicationDetailView,
+    EditorialPublicationListCreateView,
+    EditorialPublicationPublishView,
+    NewsDetailView,
+    NewsListView,
+)
 
 urlpatterns = [
+    path("api/v1/news", NewsListView.as_view(), name="news-list"),
+    path("api/v1/news/categories", CategoryListView.as_view(), name="news-category-list"),
+    path("api/v1/news/<str:publication_id>", NewsDetailView.as_view(), name="news-detail"),
+    path(
+        "api/v1/editorial/publications",
+        EditorialPublicationListCreateView.as_view(),
+        name="editorial-publication-list",
+    ),
+    path(
+        "api/v1/editorial/publications/<uuid:id>",
+        EditorialPublicationDetailView.as_view(),
+        name="editorial-publication-detail",
+    ),
+    path(
+        "api/v1/editorial/publications/<uuid:publication_id>/publish",
+        EditorialPublicationPublishView.as_view(),
+        name="editorial-publication-publish",
+    ),
     path("api/v1/me", MeView.as_view(), name="me"),
     path("api/v1/organization/units", OrgUnitListView.as_view(), name="org-unit-list"),
     path(

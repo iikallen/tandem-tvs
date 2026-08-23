@@ -1,6 +1,6 @@
-# Tandem TVS — Stage 1
+# Tandem TVS — Stage 2
 
-Production-shaped foundation for the Tandem portal module “Новости и коммуникации”. The current scope is only Stage 1: deployment, portal identity boundary, read-only employee profile, organization data, and the portal shell.
+Production-shaped Tandem portal module for addressed corporate publications. Stage 2 adds a role-protected editorial workspace, structured rich text, server-side audience authorization, news feed/detail, filters, unread state, unique views, and PostgreSQL full-text search while preserving the Stage 1 portal boundary.
 
 The real portal SSO/API contract is intentionally not invented. Development and tests use a deterministic `MockPortalAdapter`; production will reject that adapter.
 
@@ -51,5 +51,8 @@ The frontend is then available at `http://127.0.0.1:8080`. PostgreSQL, Redis, an
 - [Portal integration contract](docs/portal-integration-contract.md)
 - [Cloudflare deployment](docs/cloudflare-deployment.md)
 - [Stage 1 acceptance report](STAGE1_REPORT.md)
+- [Stage 2 plan](docs/stage2-plan.md)
+- [Stage 2 decisions](docs/stage2-decisions.md)
+- [Stage 2 acceptance contract](docs/stage2-acceptance.md)
 
 Source copies and their hashes are recorded in the Stage 1 plan under `references/source/`.

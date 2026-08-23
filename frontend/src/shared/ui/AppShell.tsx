@@ -1,22 +1,38 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { NavLink, Outlet } from "react-router-dom";
 
+import { api } from "../api";
 import { t } from "../i18n";
-import { HomeIcon, UserIcon, UsersIcon } from "./icons";
+import { EditIcon, HomeIcon, NewsIcon, UserIcon, UsersIcon } from "./icons";
 
 const links = [
   { to: "/", label: t("home"), icon: HomeIcon, end: true },
+  { to: "/news", label: "Новости", icon: NewsIcon },
   { to: "/employees", label: t("employees"), icon: UsersIcon },
   { to: "/profile", label: t("profile"), icon: UserIcon },
 ];
 
 function Navigation({ mobile = false }: { mobile?: boolean }) {
+  const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  const visibleLinks = me.data?.module_roles?.some((role) =>
+    ["editor", "admin", "administrator"].includes(role),
+  )
+    ? [
+        ...links,
+        {
+          to: "/editorial/publications",
+          label: "Редакция",
+          icon: EditIcon,
+        },
+      ]
+    : links;
   return (
     <nav
       className={mobile ? "mobile-nav" : "nav"}
       aria-label={mobile ? t("mobileNavigation") : t("navigation")}
     >
-      {links.map(({ to, label, icon: Icon, end }) => (
+      {visibleLinks.map(({ to, label, icon: Icon, end }) => (
         <NavLink key={to} to={to} end={end} className="nav__link">
           <Icon className="nav__icon" />
           <span>{label}</span>

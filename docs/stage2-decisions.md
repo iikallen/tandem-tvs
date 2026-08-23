@@ -130,3 +130,19 @@ later stage.
 The server derives authorship from the authenticated user and sets publish time. Create,
 update, and publish operations append immutable audit events inside the same transaction as
 the mutation. Clients cannot select an author or mutate audit history.
+
+### D2-015 — Search uses the PostgreSQL `simple` configuration
+
+Stage 2 uses weighted `SearchVector` values (`title=A`, `summary=B`, `body_text=C`) with the
+PostgreSQL `simple` configuration and a matching functional GIN index. This provides safe,
+case-normalized token search without pretending to deliver complete Russian or Kazakh
+morphology. Search rank is cast to a fixed decimal before cursor pagination so result order
+is stable. Language-specific dictionaries and unified cross-module search remain later-stage
+work.
+
+### D2-016 — Individual audience targets are provisioned authoritatively
+
+Selecting an employee does not assume that the employee has previously opened this module.
+The audience service resolves the immutable portal ID through `PortalAdapter`, rejects a
+missing or inactive employee, provisions the local projection, and only then stores the rule.
+Input lists are bounded to 100 employees, 100 organization units, and 20 module roles.

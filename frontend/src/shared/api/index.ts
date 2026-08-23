@@ -23,6 +23,77 @@ export interface Employee {
   org_unit_external_id: string | null;
 }
 
+export interface Category {
+  id: number;
+  slug: string;
+  name: string;
+  sort_order: number;
+}
+
+export interface RichTextNode {
+  type: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: Array<{ type: string; attrs?: Record<string, unknown> }>;
+  content?: RichTextNode[];
+}
+
+export interface Audience {
+  everyone: boolean;
+  org_units: string[];
+  employees: string[];
+  module_roles: string[];
+}
+
+export interface PublicationSummary {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  category: Category;
+  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  published_at: string;
+  cover: null;
+  view_count: number;
+  comment_count: number;
+  reaction_count: number;
+  is_read: boolean;
+}
+
+export interface PublicationDetail extends PublicationSummary {
+  body: RichTextNode;
+}
+
+export interface EditorialPublication {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  body: RichTextNode;
+  category: string;
+  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  status: "DRAFT" | "PUBLISHED";
+  published_at: string | null;
+  audience: Audience;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CursorPage<T> {
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+export interface NewsFilters {
+  q?: string;
+  unread?: boolean;
+  category?: string;
+  author?: string;
+  date_from?: string;
+  date_to?: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -33,28 +104,82 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string): Promise<T> {
+async function request<T>(
+  path: string,
+  method = "GET",
+  body?: unknown,
+): Promise<T> {
   const response = await fetch(path, {
+    method,
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: {
+      Accept: "application/json",
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as {
+    const payload = (await response.json().catch(() => null)) as {
       error?: { code?: string; message?: string };
     } | null;
     throw new ApiError(
       response.status,
-      body?.error?.code ?? "api_error",
-      body?.error?.message ?? response.statusText,
+      payload?.error?.code ?? "api_error",
+      payload?.error?.message ?? response.statusText,
     );
   }
   return response.json() as Promise<T>;
 }
 
+function newsUrl(filters: NewsFilters, cursor?: string): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== false && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  return `/api/v1/news${query ? `?${query}` : ""}`;
+}
+
+export function cursorFromUrl(url: string | null): string | undefined {
+  return url
+    ? (new URL(url).searchParams.get("cursor") ?? undefined)
+    : undefined;
+}
+
 export const api = {
-  me: () => get<Me>("/api/v1/me"),
+  me: () => request<Me>("/api/v1/me"),
+  orgUnits: () => request<OrgUnitSummary[]>("/api/v1/organization/units"),
   employees: (search: string) =>
-    get<Employee[]>(
+    request<Employee[]>(
       `/api/v1/organization/employees?search=${encodeURIComponent(search)}`,
+    ),
+  categories: () => request<Category[]>("/api/v1/news/categories"),
+  news: (filters: NewsFilters, cursor?: string) =>
+    request<CursorPage<PublicationSummary>>(newsUrl(filters, cursor)),
+  publication: (id: string) =>
+    request<PublicationDetail>(`/api/v1/news/${encodeURIComponent(id)}`),
+  editorial: () =>
+    request<CursorPage<EditorialPublication>>("/api/v1/editorial/publications"),
+  editorialPublication: (id: string) =>
+    request<EditorialPublication>(`/api/v1/editorial/publications/${id}`),
+  createPublication: (data: unknown) =>
+    request<EditorialPublication>(
+      "/api/v1/editorial/publications",
+      "POST",
+      data,
+    ),
+  updatePublication: (id: string, data: unknown) =>
+    request<EditorialPublication>(
+      `/api/v1/editorial/publications/${id}`,
+      "PATCH",
+      data,
+    ),
+  publishPublication: (id: string) =>
+    request<EditorialPublication>(
+      `/api/v1/editorial/publications/${id}/publish`,
+      "POST",
     ),
 };

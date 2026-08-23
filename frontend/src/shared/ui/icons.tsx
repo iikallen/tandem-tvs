@@ -57,3 +57,19 @@ export function AlertIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   );
 }
+
+export function NewsIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5" />
+    </svg>
+  );
+}
+
+export function EditIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" />
+    </svg>
+  );
+}

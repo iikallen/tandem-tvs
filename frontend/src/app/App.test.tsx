@@ -155,6 +155,7 @@ test("debounces employee search and renders results", async () => {
   window.history.pushState({}, "", "/employees");
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes("/api/v1/me")) return response(profile);
     return url.includes("%D0%9E%D1%80%D0%BB%D0%BE%D0%B2")
       ? response([
           {
@@ -176,6 +177,6 @@ test("debounces employee search and renders results", async () => {
   const search = screen.getByRole("searchbox");
   await userEvent.type(search, "Орлов");
   expect(await screen.findByText("Дмитрий Орлов")).toBeVisible();
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
   expect((await axe(container)).violations).toHaveLength(0);
 });

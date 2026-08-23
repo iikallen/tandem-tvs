@@ -24,6 +24,13 @@ def create_user(portal_id: str, *, active: bool = True) -> User:
     )
 
 
+def publish(publication: Publication) -> Publication:
+    publication.status = Publication.Status.PUBLISHED
+    publication.published_at = timezone.now()
+    publication.save(update_fields=["status", "published_at"])
+    return publication
+
+
 def rich_body() -> dict[str, object]:
     return {
         "type": "doc",
@@ -356,3 +363,71 @@ def test_publication_view_service_is_idempotent_and_preserves_first_view():
             first_viewed_at=second,
             last_viewed_at=second,
         )
+
+
+@pytest.mark.django_db
+def test_visible_to_enforces_publication_state_and_active_portal_identity():
+    active = create_user("active")
+    blocked = create_user("blocked", active=False)
+    draft = create_publication()
+    published = publish(
+        Publication.objects.create(
+            title="Published",
+            slug="published",
+            summary="Summary",
+            body=rich_body(),
+            category=draft.category,
+            author=draft.author,
+        )
+    )
+    replace_audience_rules(draft, everyone=True)
+    replace_audience_rules(published, everyone=True)
+
+    assert list(Publication.objects.visible_to(active)) == [published]
+    assert not Publication.objects.visible_to(blocked).exists()
+    assert not Publication.objects.visible_to(None).exists()
+
+
+@pytest.mark.django_db
+def test_visible_to_supports_all_employee_org_unit_and_module_role_union():
+    engineering = OrgUnit.objects.create(external_id="engineering", name="Engineering")
+    finance = OrgUnit.objects.create(external_id="finance", name="Finance")
+    engineer = create_user("engineer")
+    engineer.org_unit = engineering
+    engineer.module_roles = ["editor"]
+    engineer.save(update_fields=["org_unit", "module_roles"])
+    finance_user = create_user("finance")
+    finance_user.org_unit = finance
+    finance_user.save(update_fields=["org_unit"])
+    category = Category.objects.create(slug="audience", name="Audience")
+    author = create_user("audience-author")
+
+    def publication(slug: str) -> Publication:
+        return publish(
+            Publication.objects.create(
+                title=slug,
+                slug=slug,
+                summary=slug,
+                body=rich_body(),
+                category=category,
+                author=author,
+            )
+        )
+
+    everyone = publication("everyone")
+    employee = publication("employee")
+    org = publication("org")
+    role = publication("role")
+    replace_audience_rules(everyone, everyone=True)
+    replace_audience_rules(employee, employees=[engineer])
+    replace_audience_rules(org, org_units=[engineering])
+    replace_audience_rules(role, module_roles=["editor"])
+
+    assert set(Publication.objects.visible_to(engineer)) == {everyone, employee, org, role}
+    assert set(Publication.objects.visible_to(finance_user)) == {everyone}
+
+    engineering.is_active = False
+    engineering.save(update_fields=["is_active"])
+    engineer.module_roles = []
+    engineer.save(update_fields=["module_roles"])
+    assert set(Publication.objects.visible_to(engineer)) == {everyone, employee}

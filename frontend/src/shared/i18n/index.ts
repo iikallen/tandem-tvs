@@ -1,6 +1,6 @@
 const ru = {
   appName: "Tandem Portal",
-  stage: "Этап 1 · Основа и стык с порталом",
+  stage: "Этап 2 · Публикации и лента",
   home: "Главная",
   employees: "Сотрудники",
   profile: "Профиль",

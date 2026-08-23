@@ -16,13 +16,19 @@ class PublicAPIView(APIView):
     permission_classes = [AllowAny]
 
 
-class PrivateAPIView(APIView):
+class PrivateResponseMixin:
     """Authenticated API base that prevents user-specific responses being cached."""
 
     def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
+        response = super().finalize_response(  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+            request, response, *args, **kwargs
+        )
         patch_cache_control(response, private=True, no_store=True, max_age=0)
         return response
+
+
+class PrivateAPIView(PrivateResponseMixin, APIView):
+    pass
 
 
 class LiveView(PublicAPIView):

@@ -61,7 +61,7 @@ locally, and the branch CI must execute literal `make prod` after this commit.
 Phase 2.0 changes harden existing surfaces only. No publication, comment, reaction, or later
 stage domain code is introduced in this phase.
 
-## Planned delivery phases
+## Delivered implementation phases
 
 ### 2.1 — Publication domain
 
@@ -119,7 +119,8 @@ hostname checks, and an independent repository review. Fix every Critical and Ma
 rerun CI, and record factual evidence in `STAGE2_REPORT.md`. Only then merge to `main` and tag
 `stage-2-complete`; do not start Stage 3 automatically.
 
-## Stop line
+## Release line
 
-This document and the Phase 2.0 hardening commit are the end of the current task. Broad
-publication work begins only after this plan is reviewed.
+Phases 2.1–2.8 are implemented on `stage-2-publications-feed`. Stage 2 is complete only after
+the Phase 2.9 clean release gate, public Cloudflare acceptance, independent review, final
+green CI, merge to `main`, and `stage-2-complete` tag. Stage 3 must not start automatically.
