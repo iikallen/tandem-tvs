@@ -37,7 +37,7 @@ test-stage4:
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage4.py verify
 
 test-realtime:
-	cd backend && $(UV) run pytest tests/test_realtime.py --no-cov
+	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
 e2e:
 	docker compose exec -T backend uv run --no-sync python manage.py seed_stage2_demo
