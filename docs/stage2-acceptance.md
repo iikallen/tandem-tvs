@@ -96,14 +96,14 @@ separately because it is complete before publication work starts.
 
 ## Release gate
 
-- [ ] `docker compose down --volumes`, no-cache builds, migrations, and healthy startup pass.
-- [ ] Literal `make prod` passes on a clean local/CI environment.
-- [ ] Backend, frontend, E2E, accessibility, lint, type, format, audit, production-settings,
+- [x] `docker compose down --volumes`, no-cache builds, migrations, and healthy startup pass.
+- [x] Literal `make prod` passes on a clean local/CI environment.
+- [x] Backend, frontend, E2E, accessibility, lint, type, format, audit, production-settings,
       migration-drift, build, and Compose checks pass.
-- [ ] PostgreSQL data survives service restart.
-- [ ] Cloudflare Access and the public hostname pass the addressed-user flows.
-- [ ] Backend, PostgreSQL, and Redis remain unreachable directly from the Internet.
-- [ ] Independent repository review leaves zero Critical and Major findings.
-- [ ] `STAGE2_REPORT.md` contains factual commands and observed evidence only.
-- [ ] Green CI runs on the final commit and `stage-2-complete` tag.
-- [ ] Stage 3 does not start automatically.
+- [x] PostgreSQL data survives service restart.
+- [x] Cloudflare Access and the public hostname pass the addressed-user flows.
+- [x] Backend, PostgreSQL, and Redis remain unreachable directly from the Internet.
+- [x] Independent repository review leaves zero Critical and Major findings.
+- [x] `STAGE2_REPORT.md` contains factual commands and observed evidence only.
+- [x] Green CI runs on the final commit and `stage-2-complete` tag.
+- [x] Stage 3 does not start automatically.
