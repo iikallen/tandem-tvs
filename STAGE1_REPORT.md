@@ -2,7 +2,7 @@
 
 Date: 2026-08-23
 Scope: Stage 1 — «Основа и стык с порталом»
-Result: **PASS for every mandatory repository and local-deployment criterion.** The optional live Cloudflare hostname check was not run because no tunnel token, hostname, DNS, or Access policy was supplied.
+Result: **PASS for the Stage 1 release gate.** Repository checks, a clean GitHub Actions deployment, independent review, a clean local Docker rebuild, and the live Cloudflare Tunnel/Access acceptance all passed.
 
 ## Source and discovery evidence
 
@@ -50,19 +50,19 @@ Discovery, scope/non-goals, architecture, and unresolved integration facts are r
 
 ## Quality-gate evidence
 
-The final unified run was:
+The authoritative unified run was:
 
 ```text
 make prod
 ```
 
-On the acceptance host the `uv` executable is bundled rather than on `PATH`, so the equivalent explicit override was used: `make prod UV="<bundled-python> -m uv"`. The target itself completed with exit code 0 and ran:
+GitHub Actions executed the target literally on a clean Ubuntu runner at commit `b0e19b246d00636ea9927beab499e68cca643f0f`. Run `32625579516` completed successfully in 1 minute 54 seconds after building and starting the clean Compose deployment. On the Windows acceptance host GNU Make was unavailable, so the same component commands were also executed individually against a no-cache rebuild.
 
-- Ruff format/check: 47 files formatted; all checks passed.
+- Ruff format/check: 50 files formatted; all checks passed.
 - basedpyright: 0 errors, 0 warnings, 0 notes.
 - ty: all checks passed.
 - Django system check and migration drift: no issues; no changes detected.
-- Backend: 22 behavior tests passed; total coverage 84.49%, enforced minimum 80%.
+- Backend: 28 behavior tests passed; total coverage 84.58%, enforced minimum 80%.
 - Prettier, ESLint, TypeScript: passed with zero warnings/errors.
 - `npm audit --audit-level=high`: 0 vulnerabilities.
 - Frontend: 9 component/state/accessibility tests passed.
@@ -97,13 +97,30 @@ Readiness evidence:
 {"status":"ok","components":{"database":"ok","cache":"ok","portal":"ok"}}
 ```
 
-All four final services are left running and healthy. The local entry point is `http://127.0.0.1:8080`.
+PostgreSQL, Redis, backend, and frontend are running and healthy. The `cloudflared` connector is also running. The local entry point remains `http://127.0.0.1:8080`.
 
-## Optional external Cloudflare check
+## External Cloudflare release check
 
-Result: **NOT RUN — external credentials/state unavailable; non-blocking for the explicitly optional tunnel deployment.**
+Result: **PASS.**
 
-The `cloudflared` Compose profile is implemented with an environment-only token, targets `http://frontend:80`, publishes no database/cache/backend ports, and is documented in `docs/cloudflare-deployment.md`. A live hostname cannot be honestly verified without `CLOUDFLARE_TUNNEL_TOKEN`, a named tunnel, DNS mapping, and an Access allow policy. No token was present during acceptance. When those are supplied, run `docker compose --profile tunnel up -d --build` and record hostname/certificate/Access evidence here.
+- Named tunnel: `tandem-tvs`; one healthy `cloudflared` replica, version `2026.5.2`.
+- Public hostname: `https://tandem-tvs.chatlink.kz`.
+- Tunnel route: `http://frontend:80`; DNS CNAME was created by Cloudflare.
+- Access application: `Tandem TVS Stage 1`.
+- Access policy: `Allow Berikov account`; exact-email allow rule for `Berikov.200466@gmail.com`.
+- An unauthenticated clean HTTP client received `302` to the Cloudflare Access login and no application payload.
+- An authenticated allowed browser session received `HTTP 200` from `/`, `/api/v1/health/live`, `/api/v1/health/ready`, `/api/v1/me`, and `/api/v1/organization/units`.
+- Readiness through the external hostname reported PostgreSQL, Redis cache, and portal adapter as `ok`.
+- Compose publishes only Nginx on `127.0.0.1:8080`; backend, PostgreSQL, and Redis have no host bindings. The public tunnel route targets only the frontend service.
+- The tunnel token was transferred through the browser clipboard into the Compose process environment. It was not printed, added to Git, or written to a project file.
+
+This is a Stage 1 integration proof using the deterministic development mock. Production settings still reject that mock. Until the authoritative portal contract is supplied, the supported `unavailable` production adapter fails closed with stable `503 portal_unavailable` JSON and readiness remains unavailable.
+
+## Independent review
+
+An independent full-repository review found no Critical issues. Six Major findings were fixed during the review: portal identity substitution, implicit active status, rejected external hosts/missing Compose production variables, the production readiness probe redirect, broken database URL/Compose password handling, and unmapped portal outages. The reviewer rechecked the remediation worktree and reported **0 Critical and 0 Major remaining**.
+
+Six non-blocking Minor items remain tracked for later hardening: employee-directory query limits/privacy, explicit private/no-store API caching, self-hosted or protected Swagger assets, non-root/read-only containers, deletion semantics for stale organization projections, and automated responsive evidence at every planned breakpoint. These do not change the Stage 1 release verdict and must be revisited before their affected production surfaces expand.
 
 ## Deliberate integration boundary
 
