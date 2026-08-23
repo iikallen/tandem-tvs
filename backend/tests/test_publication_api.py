@@ -118,7 +118,7 @@ def test_editor_update_publish_and_audit_are_transactional_and_append_only(
         "editor-1",
         "patch",
         f"/api/v1/editorial/publications/{publication_id}",
-        {"title": "Новый регламент VPN"},
+        {"title": "Новый регламент VPN", "expected_revision": created.data["edit_revision"]},
     )
     assert updated.status_code == 200
     assert updated.data["title"] == "Новый регламент VPN"
@@ -144,9 +144,12 @@ def test_editor_update_publish_and_audit_are_transactional_and_append_only(
         "editor-1",
         "patch",
         f"/api/v1/editorial/publications/{publication_id}",
-        {"title": "Forbidden"},
+        {
+            "title": "Разрешённая правка редактора",
+            "expected_revision": published.data["edit_revision"],
+        },
     )
-    assert update_after_publish.status_code == 400
+    assert update_after_publish.status_code == 200
     assert (
         as_user(
             client,
@@ -169,7 +172,7 @@ def test_editor_update_publish_and_audit_are_transactional_and_append_only(
         AuditEvent.objects.update(previous_state={"tampered": True})
     with pytest.raises(ValidationError, match="append-only"):
         AuditEvent.objects.all().delete()
-    assert AuditEvent.objects.count() == 3
+    assert AuditEvent.objects.count() == 4
 
 
 @pytest.mark.django_db

@@ -10,7 +10,7 @@ export function EditorialGuard({ children }: { children: ReactNode }) {
   if (me.isError) return <PageState error={me.error} />;
   if (
     !me.data.module_roles.some((role) =>
-      ["editor", "admin", "administrator"].includes(role),
+      ["author", "editor", "admin", "administrator"].includes(role),
     )
   ) {
     return <PageState error={new Error("Editorial role required")} />;

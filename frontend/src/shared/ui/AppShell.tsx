@@ -16,7 +16,7 @@ const links = [
 function Navigation({ mobile = false }: { mobile?: boolean }) {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const visibleLinks = me.data?.module_roles?.some((role) =>
-    ["editor", "admin", "administrator"].includes(role),
+    ["author", "editor", "admin", "administrator"].includes(role),
   )
     ? [
         ...links,

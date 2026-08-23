@@ -1,6 +1,6 @@
 from rest_framework.permissions import BasePermission
 
-EDITORIAL_ROLES = {"editor", "admin", "administrator"}
+EDITORIAL_ROLES = {"author", "editor", "admin", "administrator"}
 
 
 class IsEditorialRole(BasePermission):

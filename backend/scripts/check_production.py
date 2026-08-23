@@ -10,6 +10,8 @@ environment = os.environ | {
     "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
     "REDIS_URL": "redis://redis:6379/0",
     "REALTIME_REDIS_URL": "redis://redis:6379/1",
+    "CELERY_BROKER_URL": "redis://redis:6379/2",
+    "CELERY_RESULT_BACKEND": "redis://redis:6379/2",
     "REALTIME_ALLOWED_ORIGINS": "https://portal.example.invalid",
     "PORTAL_ADAPTER": "unavailable",
 }

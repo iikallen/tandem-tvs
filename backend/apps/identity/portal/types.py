@@ -16,6 +16,8 @@ class PortalEmployee:
     phone: str = ""
     avatar_url: str = ""
     org_unit_external_id: str | None = None
+    position_group_external_id: str = ""
+    position_group_name: str = ""
     roles: tuple[str, ...] = ("employee",)
 
 

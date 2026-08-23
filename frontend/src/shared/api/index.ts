@@ -16,6 +16,11 @@ export interface Me {
   module_roles: string[];
 }
 
+export interface PositionGroup {
+  external_id: string;
+  name: string;
+}
+
 export interface Employee {
   portal_id: string;
   full_name: string;
@@ -28,6 +33,28 @@ export interface Category {
   slug: string;
   name: string;
   sort_order: number;
+  is_active?: boolean;
+}
+
+export interface Tag {
+  id: number;
+  slug: string;
+  name: string;
+  is_active: boolean;
+}
+
+export interface MediaAsset {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  sha256: string;
+  kind: "IMAGE" | "VIDEO" | "DOCUMENT";
+  width: number | null;
+  height: number | null;
+  status: "READY" | "REJECTED";
+  created_at: string;
+  content_url: string;
 }
 
 export interface RichTextNode {
@@ -41,8 +68,10 @@ export interface RichTextNode {
 export interface Audience {
   everyone: boolean;
   org_units: string[];
+  org_unit_subtrees?: string[];
   employees: string[];
   module_roles: string[];
+  position_groups?: PositionGroup[];
 }
 
 export interface PublicationSummary {
@@ -53,7 +82,10 @@ export interface PublicationSummary {
   category: Category;
   author: Pick<Me, "portal_id" | "full_name" | "job_title">;
   published_at: string;
-  cover: null;
+  tags?: Tag[];
+  cover: MediaAsset | null;
+  pin_slot?: number | null;
+  expires_at?: string | null;
   view_count: number;
   comment_count: number;
   reaction_count: number;
@@ -62,6 +94,7 @@ export interface PublicationSummary {
 
 export interface PublicationDetail extends PublicationSummary {
   body: RichTextNode;
+  media?: Array<{ asset: MediaAsset; purpose: string }>;
 }
 
 export interface Comment {
@@ -88,12 +121,38 @@ export interface EditorialPublication {
   summary: string;
   body: RichTextNode;
   category: string;
+  tags?: string[];
+  cover?: string | null;
   author: Pick<Me, "portal_id" | "full_name" | "job_title">;
-  status: "DRAFT" | "PUBLISHED";
+  status:
+    | "DRAFT"
+    | "IN_REVIEW"
+    | "SCHEDULED"
+    | "PUBLISHED"
+    | "UNPUBLISHED"
+    | "ARCHIVED";
   published_at: string | null;
+  scheduled_for?: string | null;
+  expires_at?: string | null;
+  unpublished_at?: string | null;
+  archived_at?: string | null;
+  edit_revision?: number;
+  last_autosaved_at?: string | null;
   audience: Audience;
+  media?: Array<{ asset: MediaAsset; purpose: string }>;
+  pin_slot?: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PublicationVersion {
+  version_number: number;
+  actor: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  reason: string;
+  snapshot: Record<string, unknown>;
+  changed_fields: string[];
+  content_hash: string;
+  created_at: string;
 }
 
 export interface CursorPage<T> {
@@ -116,6 +175,7 @@ export class ApiError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public currentRevision?: number,
   ) {
     super(message);
   }
@@ -131,18 +191,30 @@ async function request<T>(
     credentials: "include",
     headers: {
       Accept: "application/json",
-      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(body === undefined || body instanceof FormData
+        ? {}
+        : { "Content-Type": "application/json" }),
     },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      body === undefined
+        ? undefined
+        : body instanceof FormData
+          ? body
+          : JSON.stringify(body),
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
-      error?: { code?: string; message?: string };
+      error?: {
+        code?: string;
+        message?: string;
+        current_revision?: number;
+      };
     } | null;
     throw new ApiError(
       response.status,
       payload?.error?.code ?? "api_error",
       payload?.error?.message ?? response.statusText,
+      payload?.error?.current_revision,
     );
   }
   if (response.status === 204) return undefined as T;
@@ -170,11 +242,14 @@ export function cursorFromUrl(url: string | null): string | undefined {
 export const api = {
   me: () => request<Me>("/api/v1/me"),
   orgUnits: () => request<OrgUnitSummary[]>("/api/v1/organization/units"),
+  positionGroups: () =>
+    request<PositionGroup[]>("/api/v1/organization/position-groups"),
   employees: (search: string) =>
     request<Employee[]>(
       `/api/v1/organization/employees?search=${encodeURIComponent(search)}`,
     ),
   categories: () => request<Category[]>("/api/v1/news/categories"),
+  pinned: () => request<PublicationSummary[]>("/api/v1/news/pinned"),
   news: (filters: NewsFilters, cursor?: string) =>
     request<CursorPage<PublicationSummary>>(newsUrl(filters, cursor)),
   publication: (id: string) =>
@@ -222,8 +297,12 @@ export const api = {
         publication_id: publicationId,
       },
     ),
-  editorial: () =>
-    request<CursorPage<EditorialPublication>>("/api/v1/editorial/publications"),
+  editorial: (status?: EditorialPublication["status"]) =>
+    request<CursorPage<EditorialPublication>>(
+      `/api/v1/editorial/publications${status ? `?status=${status}` : ""}`,
+    ),
+  review: () =>
+    request<CursorPage<EditorialPublication>>("/api/v1/editorial/review"),
   editorialPublication: (id: string) =>
     request<EditorialPublication>(`/api/v1/editorial/publications/${id}`),
   createPublication: (data: unknown) =>
@@ -243,4 +322,51 @@ export const api = {
       `/api/v1/editorial/publications/${id}/publish`,
       "POST",
     ),
+  transitionPublication: (
+    id: string,
+    action: string,
+    data: Record<string, unknown> = {},
+  ) =>
+    request<EditorialPublication>(
+      `/api/v1/editorial/publications/${id}/${action}`,
+      "POST",
+      data,
+    ),
+  duplicatePublication: (id: string) =>
+    request<EditorialPublication>(
+      `/api/v1/editorial/publications/${id}/duplicate`,
+      "POST",
+      {},
+    ),
+  versions: (id: string) =>
+    request<PublicationVersion[]>(
+      `/api/v1/editorial/publications/${id}/versions`,
+    ),
+  media: () => request<CursorPage<MediaAsset>>("/api/v1/editorial/media"),
+  uploadMedia: (file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return request<MediaAsset>("/api/v1/editorial/media", "POST", data);
+  },
+  deleteMedia: (id: string) =>
+    request<void>(`/api/v1/editorial/media/${id}`, "DELETE"),
+  editorialCategories: () =>
+    request<Category[]>("/api/v1/editorial/categories"),
+  createCategory: (data: Partial<Category>) =>
+    request<Category>("/api/v1/editorial/categories", "POST", data),
+  updateCategory: (id: number, data: Partial<Category>) =>
+    request<Category>(`/api/v1/editorial/categories/${id}`, "PATCH", data),
+  tags: () => request<Tag[]>("/api/v1/editorial/tags"),
+  createTag: (data: Partial<Tag>) =>
+    request<Tag>("/api/v1/editorial/tags", "POST", data),
+  updateTag: (id: number, data: Partial<Tag>) =>
+    request<Tag>(`/api/v1/editorial/tags/${id}`, "PATCH", data),
+  pinPublication: (id: string, slot: number) =>
+    request<{ publication_id: string; slot: number }>(
+      `/api/v1/news/${id}/pin`,
+      "PUT",
+      { slot },
+    ),
+  unpinPublication: (id: string) =>
+    request<void>(`/api/v1/news/${id}/pin`, "DELETE"),
 };

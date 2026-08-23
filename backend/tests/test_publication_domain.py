@@ -116,7 +116,14 @@ def test_publication_uses_uuid_minimal_statuses_and_server_generated_body_text()
     publication = create_publication()
 
     assert isinstance(publication.pk, UUID)
-    assert Publication.Status.values == ["DRAFT", "PUBLISHED"]
+    assert Publication.Status.values == [
+        "DRAFT",
+        "IN_REVIEW",
+        "SCHEDULED",
+        "PUBLISHED",
+        "UNPUBLISHED",
+        "ARCHIVED",
+    ]
     assert publication.status == Publication.Status.DRAFT
     assert publication.published_at is None
     assert publication.body_text == (

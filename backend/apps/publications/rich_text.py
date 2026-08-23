@@ -1,5 +1,6 @@
 import re
 import unicodedata
+import uuid
 from collections.abc import Mapping
 from typing import Never, cast
 from urllib.parse import urlsplit
@@ -11,10 +12,22 @@ MAX_DOCUMENT_NODES = 5_000
 MAX_DOCUMENT_TEXT = 100_000
 MAX_LINK_LENGTH = 2_048
 
-BLOCK_NODES = {"paragraph", "heading", "bulletList", "orderedList", "blockquote"}
+BLOCK_NODES = {
+    "paragraph",
+    "heading",
+    "bulletList",
+    "orderedList",
+    "blockquote",
+    "table",
+    "assetImage",
+    "internalVideo",
+    "attachment",
+}
 INLINE_NODES = {"text", "hardBreak"}
 LIST_NODES = {"listItem"}
 LIST_ITEM_NODES = {"paragraph", "bulletList", "orderedList"}
+TABLE_ROW_NODES = {"tableRow"}
+TABLE_CELL_NODES = {"tableCell", "tableHeader"}
 MARKS = {"bold", "italic", "link"}
 
 
@@ -32,6 +45,13 @@ def rich_text_to_plain_text(value: object) -> str:
     parts: list[str] = []
     _collect_text(value, parts)
     return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", " ".join(parts))).strip()
+
+
+def rich_text_asset_ids(value: object) -> set[uuid.UUID]:
+    validate_rich_text_document(value)
+    found: set[uuid.UUID] = set()
+    _collect_asset_ids(value, found)
+    return found
 
 
 def _validate_node(
@@ -83,6 +103,29 @@ def _validate_node(
     elif node_type == "blockquote":
         _require_keys(node, required={"type", "content"}, optional=set())
         _validate_children(node, allowed=BLOCK_NODES, depth=depth, state=state)
+    elif node_type == "table":
+        _require_keys(node, required={"type", "content"}, optional=set())
+        _validate_children(node, allowed=TABLE_ROW_NODES, depth=depth, state=state)
+    elif node_type == "tableRow":
+        _require_keys(node, required={"type", "content"}, optional=set())
+        _validate_children(node, allowed=TABLE_CELL_NODES, depth=depth, state=state)
+    elif node_type in {"tableCell", "tableHeader"}:
+        _require_keys(node, required={"type", "content"}, optional={"attrs"})
+        if "attrs" in node:
+            attrs = _mapping(node["attrs"], "Table cell attributes must be an object.")
+            _require_keys(attrs, required=set(), optional={"colspan", "rowspan", "colwidth"})
+        _validate_children(node, allowed=BLOCK_NODES - {"table"}, depth=depth, state=state)
+    elif node_type in {"assetImage", "internalVideo", "attachment"}:
+        _require_keys(node, required={"type", "attrs"}, optional=set())
+        attrs = _mapping(node["attrs"], "Media attributes must be an object.")
+        _require_keys(attrs, required={"asset_id"}, optional=set())
+        asset_id = attrs["asset_id"]
+        if not isinstance(asset_id, str):
+            _invalid("Media asset identifier must be a UUID.")
+        try:
+            uuid.UUID(asset_id)
+        except ValueError:
+            _invalid("Media asset identifier must be a UUID.")
     elif node_type == "text":
         _require_keys(node, required={"type", "text"}, optional={"marks"})
         text = node["text"]
@@ -185,6 +228,20 @@ def _collect_text(value: object, parts: list[str]) -> None:
         return
     for child in cast("list[object]", content):
         _collect_text(child, parts)
+
+
+def _collect_asset_ids(value: object, found: set[uuid.UUID]) -> None:
+    if not isinstance(value, Mapping):
+        return
+    node = cast("Mapping[str, object]", value)
+    if node.get("type") in {"assetImage", "internalVideo", "attachment"}:
+        attrs = node.get("attrs")
+        if isinstance(attrs, Mapping) and isinstance(attrs.get("asset_id"), str):
+            found.add(uuid.UUID(cast("str", attrs["asset_id"])))
+    content = node.get("content", [])
+    if isinstance(content, list):
+        for child in cast("list[object]", content):
+            _collect_asset_ids(child, found)
 
 
 def _mapping(value: object, message: str) -> Mapping[str, object]:

@@ -40,14 +40,22 @@ if not os.getenv("DATABASE_URL"):
         required(database_setting)
 REDIS_URL = required("REDIS_URL")
 REALTIME_REDIS_URL = required("REALTIME_REDIS_URL")
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/2")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 cache_target = redis_target("REDIS_URL", REDIS_URL)
 realtime_target = redis_target("REALTIME_REDIS_URL", REALTIME_REDIS_URL)
+celery_broker_target = redis_target("CELERY_BROKER_URL", CELERY_BROKER_URL)
+celery_result_target = redis_target("CELERY_RESULT_BACKEND", CELERY_RESULT_BACKEND)
 if cache_target[2] != 0:
     raise ImproperlyConfigured("REDIS_URL must use logical Redis database 0")
 if realtime_target[2] != 1:
     raise ImproperlyConfigured("REALTIME_REDIS_URL must use logical Redis database 1")
 if cache_target == realtime_target:
     raise ImproperlyConfigured("REALTIME_REDIS_URL must be isolated from REDIS_URL")
+if celery_broker_target[2] != 2 or celery_result_target[2] != 2:
+    raise ImproperlyConfigured("Celery broker and result backend must use Redis database 2")
+if celery_broker_target in {cache_target, realtime_target}:
+    raise ImproperlyConfigured("CELERY_BROKER_URL must be isolated from cache and realtime")
 REALTIME_ALLOWED_ORIGINS = [
     origin.strip() for origin in required("REALTIME_ALLOWED_ORIGINS").split(",") if origin.strip()
 ]

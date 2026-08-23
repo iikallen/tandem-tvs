@@ -19,3 +19,8 @@ class EmployeeSerializer(serializers.Serializer):
 
     def to_representation(self, instance: PortalEmployee):
         return super().to_representation(instance)
+
+
+class PositionGroupSerializer(serializers.Serializer):
+    external_id = serializers.CharField()
+    name = serializers.CharField()

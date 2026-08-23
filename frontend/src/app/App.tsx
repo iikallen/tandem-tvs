@@ -3,7 +3,13 @@ import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import { EmployeeDirectoryPage } from "../pages/employees/EmployeeDirectoryPage";
-import { EditorialListPage } from "../pages/editorial/EditorialListPage";
+import {
+  EditorialListPage,
+  EditorialReviewPage,
+} from "../pages/editorial/EditorialListPage";
+import { MediaLibraryPage } from "../pages/editorial/MediaLibraryPage";
+import { TaxonomyPage } from "../pages/editorial/TaxonomyPage";
+import { VersionHistoryPage } from "../pages/editorial/VersionHistoryPage";
 import { HomePage } from "../pages/home/HomePage";
 import { NewsDetailPage } from "../pages/news/NewsDetailPage";
 import { NewsPage } from "../pages/news/NewsPage";
@@ -46,6 +52,16 @@ export function App() {
               <Route
                 path="editorial/publications/:publicationId"
                 element={<PublicationEditorPage />}
+              />
+              <Route
+                path="editorial/review"
+                element={<EditorialReviewPage />}
+              />
+              <Route path="editorial/media" element={<MediaLibraryPage />} />
+              <Route path="editorial/taxonomy" element={<TaxonomyPage />} />
+              <Route
+                path="editorial/publications/:publicationId/versions"
+                element={<VersionHistoryPage />}
               />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>

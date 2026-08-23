@@ -1,4 +1,4 @@
-name: Stage 3 CI
+name: Stage 4 CI
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
