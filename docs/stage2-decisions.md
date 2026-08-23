@@ -65,6 +65,11 @@ misleading.
 - `MODULE_ROLE` matches an exact value in the user's portal-projected `module_roles`.
 - no rule, an inactive target, a draft, or an inactive user grants no employee access.
 
+Audience mutations go through one transactionally locked replacement service. It removes
+duplicates, rejects inactive targets, and enforces the exclusivity of `ALL` before replacing
+the stored union. Organization and employee foreign keys use the immutable portal-facing
+`external_id` and `portal_id` values rather than local surrogate IDs.
+
 Exact-unit matching avoids silently guessing portal hierarchy policy. If subtree targeting is
 required later, it must become an explicit rule option with tests rather than changing the
 meaning of stored rules.
@@ -85,6 +90,11 @@ Publication body content is stored as validated ProseMirror-compatible JSON. Sta
 only the nodes and marks exposed by its limited toolbar. Arbitrary HTML, scriptable markup,
 unknown nodes, and unsafe URL schemes are rejected server-side. Rendering consumes the
 structured document and does not use raw `dangerouslySetInnerHTML`.
+
+The persisted Stage 2 whitelist is paragraph, H2, H3, bold, italic, bullet list, ordered
+list, blockquote, hard break, and safe link. Documents are bounded to 5,000 nodes, 100,000
+text characters, and nesting depth 16. Links allow HTTP(S), mail, portal-relative, and
+fragment targets; new-window links require `noopener`.
 
 A normalized plain-text representation is generated server-side for search; clients cannot
 supply or override it.
