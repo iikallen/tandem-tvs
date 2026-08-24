@@ -21,6 +21,7 @@ def create_ticket(
     *,
     user_id: int,
     security_epoch: int,
+    session_key: str,
     scope: RealtimeScope,
     resource_id: object | None = None,
 ) -> tuple[str, int]:
@@ -28,10 +29,15 @@ def create_ticket(
     client = _client()
     for _ in range(3):
         token = secrets.token_urlsafe(32)
+        from .session_security import session_fingerprint
+
+        fingerprint = session_fingerprint(session_key)
         payload = json.dumps(
             {
                 "user_id": user_id,
                 "security_epoch": security_epoch,
+                "session_key": session_key,
+                "session_fingerprint": fingerprint,
                 "scope": scope,
                 "resource_id": str(resource_id) if resource_id is not None else None,
                 "expires_at": int(time.time()) + ttl,
@@ -48,7 +54,7 @@ def consume_ticket(token: str) -> RealtimeTicket | None:
     if not token or len(token) > 256:
         return None
     payload = _client().getdel(_key(token))
-    if not isinstance(payload, (str, bytes, bytearray)):
+    if not isinstance(payload, str | bytes | bytearray):
         return None
     try:
         claims = json.loads(payload)
@@ -59,6 +65,8 @@ def consume_ticket(token: str) -> RealtimeTicket | None:
         return RealtimeTicket(
             user_id=int(claims["user_id"]),
             security_epoch=int(claims["security_epoch"]),
+            session_key=str(claims["session_key"]),
+            session_fingerprint=str(claims["session_fingerprint"]),
             scope=RealtimeScope(claims["scope"]),
             resource_id=str(claims["resource_id"])
             if claims.get("resource_id") is not None

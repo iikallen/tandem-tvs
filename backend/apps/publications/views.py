@@ -9,6 +9,7 @@ from django.http import Http404, HttpResponse
 from django.utils.http import content_disposition_header
 from rest_framework import generics, serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.core.views import PrivateResponseMixin
@@ -270,7 +271,7 @@ class EditorialMediaListUploadView(PrivateResponseMixin, generics.ListCreateAPIV
     serializer_class = MediaAssetSerializer
     pagination_class = EditorialPagination
     parser_classes = [MultiPartParser, FormParser]
-    queryset = MediaAsset.objects.select_related("uploader")
+    queryset = MediaAsset.objects.filter(is_messenger_only=False).select_related("uploader")
 
     def create(self, request, *args, **kwargs):
         upload = request.FILES.get("file")
@@ -285,7 +286,7 @@ class EditorialMediaListUploadView(PrivateResponseMixin, generics.ListCreateAPIV
 
 class EditorialMediaDeleteView(PrivateResponseMixin, generics.DestroyAPIView):
     permission_classes = [IsEditorialRole]
-    queryset = MediaAsset.objects.all()
+    queryset = MediaAsset.objects.filter(is_messenger_only=False)
     lookup_url_kwarg = "asset_id"
 
     def perform_destroy(self, instance):
@@ -296,7 +297,7 @@ class EditorialMediaDeleteView(PrivateResponseMixin, generics.DestroyAPIView):
 
 
 class MediaContentView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [HasNewsAccess]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, asset_id):
         asset = generics.get_object_or_404(MediaAsset, pk=asset_id, status=MediaAsset.Status.READY)

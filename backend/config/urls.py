@@ -44,11 +44,21 @@ from apps.identity.views import (
     SessionView,
 )
 from apps.messenger.views import (
+    ConversationAttachmentUploadView,
     ConversationDetailView,
+    ConversationLeaveView,
     ConversationListView,
+    ConversationMemberDetailView,
+    ConversationMemberListView,
+    ConversationSearchView,
+    ConversationStateView,
+    DeliveredView,
     DirectConversationView,
     GroupConversationView,
+    MessageDetailView,
     MessageListCreateView,
+    MessagePinView,
+    MessageReactionView,
     PeopleView,
     ReadView,
 )
@@ -151,6 +161,56 @@ urlpatterns = [
         "api/v1/messenger/conversations/<uuid:conversation_id>/read",
         ReadView.as_view(),
         name="messenger-read",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/delivered",
+        DeliveredView.as_view(),
+        name="messenger-delivered",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/members",
+        ConversationMemberListView.as_view(),
+        name="messenger-members",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/members/<int:user_id>",
+        ConversationMemberDetailView.as_view(),
+        name="messenger-member-detail",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/leave",
+        ConversationLeaveView.as_view(),
+        name="messenger-leave",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/state",
+        ConversationStateView.as_view(),
+        name="messenger-state",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/attachments",
+        ConversationAttachmentUploadView.as_view(),
+        name="messenger-attachment-upload",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/search",
+        ConversationSearchView.as_view(),
+        name="messenger-search",
+    ),
+    path(
+        "api/v1/messenger/messages/<uuid:message_id>",
+        MessageDetailView.as_view(),
+        name="messenger-message-detail",
+    ),
+    path(
+        "api/v1/messenger/messages/<uuid:message_id>/reaction",
+        MessageReactionView.as_view(),
+        name="messenger-message-reaction",
+    ),
+    path(
+        "api/v1/messenger/messages/<uuid:message_id>/pin",
+        MessagePinView.as_view(),
+        name="messenger-message-pin",
     ),
     path("api/v1/news", NewsListView.as_view(), name="news-list"),
     path("api/v1/news/pinned", NewsPinnedListView.as_view(), name="news-pinned-list"),

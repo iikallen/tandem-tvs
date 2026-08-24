@@ -11,6 +11,8 @@ class RealtimeScope(StrEnum):
 class RealtimeTicket:
     user_id: int
     security_epoch: int
+    session_key: str
+    session_fingerprint: str
     scope: RealtimeScope
     resource_id: str | None = None
     expires_at: int = 0

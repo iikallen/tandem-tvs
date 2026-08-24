@@ -98,7 +98,7 @@ test("logs in with the CSRF header and password-manager-compatible fields", asyn
 });
 
 test("activates an account with matching long passwords and the URL token", async () => {
-  window.history.pushState({}, "", "/activate?token=one-time-token");
+  window.history.pushState({}, "", "/activate#token=one-time-token");
   let activationBody = "";
   vi.stubGlobal(
     "fetch",
@@ -158,7 +158,7 @@ test("platform admin creates one shared News and Messenger account", async () =>
         return response(created, 201);
       }
       if (url.endsWith("/api/v1/platform/users/3/invitation"))
-        return response({ activation_url: "/activate?token=invite" });
+        return response({ activation_url: "/activate#token=invite" });
       if (url.endsWith("/api/v1/platform/users/2/grants/NEWS/MEMBER")) {
         accessRequest = init?.method ?? "";
         return response(null, 204);
@@ -184,7 +184,7 @@ test("platform admin creates one shared News and Messenger account", async () =>
   );
 
   expect(await screen.findByLabelText("Одноразовая ссылка")).toHaveValue(
-    "http://localhost:3000/activate?token=invite",
+    "http://localhost:3000/activate#token=invite",
   );
   expect(JSON.parse(createBody).grants).toEqual([
     { module: "NEWS", role: "MEMBER" },

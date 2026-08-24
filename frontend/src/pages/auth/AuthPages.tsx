@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, type ReactNode, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 import { api } from "../../shared/api";
 import { t } from "../../shared/i18n";
@@ -158,31 +158,39 @@ function PasswordPairForm({
 }
 
 export function ActivatePage() {
-  const [params] = useSearchParams();
+  const token = useCapabilityToken();
   return (
     <PasswordPairForm
       title={t("activateAccount")}
       description={t("activateDescription")}
       submitLabel={t("activateAccount")}
-      submit={(password, confirm) =>
-        api.activate(params.get("token") ?? "", password, confirm)
-      }
+      submit={(password, confirm) => api.activate(token, password, confirm)}
     />
   );
 }
 
 export function ResetPasswordPage() {
-  const [params] = useSearchParams();
+  const token = useCapabilityToken();
   return (
     <PasswordPairForm
       title={t("resetPassword")}
       description={t("resetDescription")}
       submitLabel={t("savePassword")}
       submit={(password, confirm) =>
-        api.resetPassword(params.get("token") ?? "", password, confirm)
+        api.resetPassword(token, password, confirm)
       }
     />
   );
+}
+
+function useCapabilityToken(): string {
+  const [token] = useState(
+    () => new URLSearchParams(window.location.hash.slice(1)).get("token") ?? "",
+  );
+  useEffect(() => {
+    window.history.replaceState({}, "", window.location.pathname);
+  }, []);
+  return token;
 }
 
 export function ForgotPasswordPage() {

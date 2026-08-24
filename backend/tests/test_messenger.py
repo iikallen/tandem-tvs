@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -6,6 +7,7 @@ import pytest
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from channels.testing.websocket import WebsocketCommunicator
+from django.contrib.sessions.backends.db import SessionStore
 from django.db import close_old_connections, connection, connections
 from django.test.utils import CaptureQueriesContext
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -23,6 +25,8 @@ from apps.messenger.serializers import MessageBodyField
 from apps.messenger.services import create_direct_conversation, send_message
 from apps.realtime.claims import RealtimeScope, RealtimeTicket
 from apps.realtime.groups import conversation_group, user_control_group
+from apps.realtime.models import RealtimeOutboxEvent
+from apps.realtime.session_security import session_fingerprint
 from config.asgi import application
 
 
@@ -38,6 +42,22 @@ def client_for(user: User) -> APIClient:
     client = APIClient()
     client.force_authenticate(user=user)
     return client
+
+
+def realtime_claims(user: User) -> RealtimeTicket:
+    session = SessionStore()
+    session["_auth_user_id"] = str(user.pk)
+    session["_auth_user_backend"] = "django.contrib.auth.backends.ModelBackend"
+    session["security_epoch"] = user.security_epoch
+    session.save()
+    assert session.session_key
+    return RealtimeTicket(
+        user_id=user.pk,
+        security_epoch=user.security_epoch,
+        session_key=session.session_key,
+        session_fingerprint=session_fingerprint(session.session_key),
+        scope=RealtimeScope.MESSENGER,
+    )
 
 
 def direct(client: APIClient, other: User):
@@ -199,17 +219,19 @@ def test_message_sequence_idempotency_body_and_history_pagination():
     client = client_for(alice)
     client_id = str(uuid.uuid4())
     first = client.post(path, {"client_message_id": client_id, "body": " A\x00B "}, format="json")
-    retry = client.post(
-        path, {"client_message_id": client_id, "body": "ignored retry body"}, format="json"
+    retry = client.post(path, {"client_message_id": client_id, "body": " A\x00B "}, format="json")
+    conflict = client.post(
+        path, {"client_message_id": client_id, "body": "different"}, format="json"
     )
     second = client.post(
         path, {"client_message_id": str(uuid.uuid4()), "body": "Second"}, format="json"
     )
     assert first.status_code == 201 and retry.status_code == 200 and second.status_code == 201
+    assert conflict.status_code == 422
     assert first.data["id"] == retry.data["id"]
     assert first.data["body"] == "AB"
     assert list(Message.objects.values_list("sequence", flat=True)) == [1, 2]
-    assert client.get("/api/v1/messenger/conversations").data[0]["unread_count"] == 0
+    assert client.get("/api/v1/messenger/conversations").data["results"][0]["unread_count"] == 0
     page = client.get(f"{path}?page_size=1")
     assert [item["sequence"] for item in page.data["messages"]] == [2]
     assert page.data["has_more"] is True
@@ -288,7 +310,7 @@ def test_read_pointer_unread_and_receipts():
         )
     bob_client = client_for(bob)
     inbox = bob_client.get("/api/v1/messenger/conversations")
-    assert inbox.data[0]["unread_count"] == 3
+    assert inbox.data["results"][0]["unread_count"] == 3
     read_path = f"/api/v1/messenger/conversations/{conversation_id}/read"
     assert bob_client.post(read_path, {"sequence": 2}, format="json").status_code == 200
     assert (
@@ -297,12 +319,14 @@ def test_read_pointer_unread_and_receipts():
     assert bob_client.post(read_path, {"sequence": 4}, format="json").status_code == 400
     history = client_for(alice).get(messages_path)
     assert history.data["messages"][0]["receipt"] == {
+        "delivered_count": 1,
         "read_count": 1,
         "recipient_count": 1,
+        "delivered": True,
         "read": True,
     }
     assert history.data["messages"][2]["receipt"]["read"] is False
-    assert bob_client.get("/api/v1/messenger/conversations").data[0]["unread_count"] == 1
+    assert bob_client.get("/api/v1/messenger/conversations").data["results"][0]["unread_count"] == 1
 
 
 @pytest.mark.django_db
@@ -335,7 +359,7 @@ def test_group_read_count_excludes_author():
         format="json",
     )
     receipt = client_for(author).get(path).data["messages"][0]["receipt"]
-    assert receipt == {"read_count": 1, "recipient_count": 2}
+    assert receipt == {"delivered_count": 1, "read_count": 1, "recipient_count": 2}
 
 
 @pytest.mark.django_db
@@ -354,8 +378,13 @@ def test_no_grant_is_denied_and_inbox_is_bounded_to_ten_queries():
         )
     with CaptureQueriesContext(connection) as queries:
         response = client_for(owner).get("/api/v1/messenger/conversations")
-    assert response.status_code == 200 and len(response.data) == 50
+    assert response.status_code == 200 and len(response.data["results"]) == 30
     assert len(queries) <= 10, [query["sql"] for query in queries]
+    seen = {row["id"] for row in response.data["results"]}
+    while response.data["next"]:
+        response = client_for(owner).get(response.data["next"])
+        seen.update(row["id"] for row in response.data["results"])
+    assert len(seen) == 50
 
 
 @pytest.mark.django_db(transaction=True)
@@ -363,11 +392,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
     alice = messenger_user("socket-alice")
     bob = messenger_user("socket-bob")
     conversation, _ = create_direct_conversation(alice, bob)
-    claims = RealtimeTicket(
-        user_id=bob.pk,
-        security_epoch=bob.security_epoch,
-        scope=RealtimeScope.MESSENGER,
-    )
+    claims = realtime_claims(bob)
     monkeypatch.setattr("apps.realtime.middleware.consume_ticket", lambda _token: claims)
 
     async def scenario():
@@ -376,14 +401,46 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
             "/ws/v1/messenger?ticket=valid",
             headers=[(b"origin", b"http://localhost")],
         )
-        connected, _ = await socket.connect()
+        connected, _ = await socket.connect(timeout=3)
         assert connected
+        assert await socket.receive_json_from(timeout=5) == {
+            "type": "messenger.presence.changed",
+            "user_id": bob.pk,
+            "online": True,
+        }
         await socket.send_json_to({"type": "ping"})
-        assert await socket.receive_json_from() == {"type": "pong"}
+        assert await socket.receive_json_from(timeout=5) == {"type": "pong"}
+        await socket.send_json_to(
+            {
+                "type": "typing",
+                "conversation_id": str(conversation.pk),
+                "is_typing": True,
+            }
+        )
+        assert await socket.receive_json_from(timeout=5) == {
+            "type": "messenger.typing.started",
+            "conversation_id": str(conversation.pk),
+            "user_id": bob.pk,
+            "is_typing": True,
+        }
+        await asyncio.sleep(0.51)
+        await socket.send_json_to(
+            {
+                "type": "typing",
+                "conversation_id": str(conversation.pk),
+                "is_typing": False,
+            }
+        )
+        assert await socket.receive_json_from(timeout=5) == {
+            "type": "messenger.typing.stopped",
+            "conversation_id": str(conversation.pk),
+            "user_id": bob.pk,
+            "is_typing": False,
+        }
         layer = get_channel_layer()
         assert layer is not None
         event = {
-            "version": 1,
+            "version": 2,
             "event_id": str(uuid.uuid4()),
             "type": "messenger.message.created",
             "conversation_id": str(conversation.pk),
@@ -395,7 +452,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
             conversation_group(conversation.pk),
             {"type": "messenger.message.created", "event": event},
         )
-        assert await socket.receive_json_from() == event
+        assert await socket.receive_json_from(timeout=5) == event
         assert "body" not in event
         added_conversation_id = uuid.uuid4()
         added = {
@@ -409,7 +466,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
             user_control_group(bob.pk),
             {"type": "messenger.membership.added", "event": added},
         )
-        assert await socket.receive_json_from() == added
+        assert await socket.receive_json_from(timeout=5) == added
         read = {
             **added,
             "event_id": str(uuid.uuid4()),
@@ -420,15 +477,15 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
             conversation_group(added_conversation_id),
             {"type": "messenger.read.changed", "event": read},
         )
-        assert await socket.receive_json_from() == read
+        assert await socket.receive_json_from(timeout=5) == read
         removed = {**added, "event_id": str(uuid.uuid4()), "type": "messenger.membership.removed"}
         await layer.group_send(
             user_control_group(bob.pk),
             {"type": "messenger.membership.removed", "event": removed},
         )
-        assert await socket.receive_json_from() == removed
+        assert await socket.receive_json_from(timeout=5) == removed
         await layer.group_send(user_control_group(bob.pk), {"type": "auth.invalidate"})
-        assert await socket.receive_output(timeout=1) == {
+        assert await socket.receive_output(timeout=5) == {
             "type": "websocket.close",
             "code": 4403,
         }
@@ -440,11 +497,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
 @pytest.mark.django_db(transaction=True)
 def test_messenger_socket_rejects_bad_ticket_input_and_expires(settings, monkeypatch):
     user = messenger_user("socket-branches")
-    claims = RealtimeTicket(
-        user_id=user.pk,
-        security_epoch=user.security_epoch,
-        scope=RealtimeScope.MESSENGER,
-    )
+    claims = realtime_claims(user)
     monkeypatch.setattr(
         "apps.realtime.middleware.consume_ticket",
         lambda token: claims if token == "valid" else None,
@@ -456,7 +509,7 @@ def test_messenger_socket_rejects_bad_ticket_input_and_expires(settings, monkeyp
             "/ws/v1/messenger?ticket=bad",
             headers=[(b"origin", b"http://localhost")],
         )
-        connected, code = await denied.connect()
+        connected, code = await denied.connect(timeout=3)
         assert not connected and code == 4403
 
         for invalid in ("not-json", '{"type":"mutation"}'):
@@ -465,21 +518,63 @@ def test_messenger_socket_rejects_bad_ticket_input_and_expires(settings, monkeyp
                 "/ws/v1/messenger?ticket=valid",
                 headers=[(b"origin", b"http://localhost")],
             )
-            connected, _ = await socket.connect()
+            connected, _ = await socket.connect(timeout=3)
             assert connected
             await socket.send_to(text_data=invalid)
-            assert await socket.receive_output() == {"type": "websocket.close", "code": 4400}
+            assert await socket.receive_output(timeout=5) == {
+                "type": "websocket.close",
+                "code": 4400,
+            }
             await socket.disconnect()
+
+        invalid_uuid = WebsocketCommunicator(
+            application,
+            "/ws/v1/messenger?ticket=valid",
+            headers=[(b"origin", b"http://localhost")],
+        )
+        connected, _ = await invalid_uuid.connect(timeout=3)
+        assert connected
+        await invalid_uuid.send_json_to(
+            {"type": "typing", "conversation_id": "invalid", "is_typing": True}
+        )
+        assert await invalid_uuid.receive_output(timeout=5) == {
+            "type": "websocket.close",
+            "code": 4400,
+        }
+        await invalid_uuid.disconnect()
+
+        unauthorized = WebsocketCommunicator(
+            application,
+            "/ws/v1/messenger?ticket=valid",
+            headers=[(b"origin", b"http://localhost")],
+        )
+        connected, _ = await unauthorized.connect(timeout=3)
+        assert connected
+        await unauthorized.send_json_to(
+            {
+                "type": "typing",
+                "conversation_id": str(uuid.uuid4()),
+                "is_typing": True,
+            }
+        )
+        assert await unauthorized.receive_output(timeout=5) == {
+            "type": "websocket.close",
+            "code": 4403,
+        }
+        await unauthorized.disconnect()
 
         binary = WebsocketCommunicator(
             application,
             "/ws/v1/messenger?ticket=valid",
             headers=[(b"origin", b"http://localhost")],
         )
-        connected, _ = await binary.connect()
+        connected, _ = await binary.connect(timeout=3)
         assert connected
         await binary.send_to(bytes_data=b"forbidden")
-        assert await binary.receive_output() == {"type": "websocket.close", "code": 4400}
+        assert await binary.receive_output(timeout=5) == {
+            "type": "websocket.close",
+            "code": 4400,
+        }
         await binary.disconnect()
 
         settings.REALTIME_SOCKET_LIFETIME_SECONDS = 0
@@ -488,9 +583,9 @@ def test_messenger_socket_rejects_bad_ticket_input_and_expires(settings, monkeyp
             "/ws/v1/messenger?ticket=valid",
             headers=[(b"origin", b"http://localhost")],
         )
-        connected, _ = await expiring.connect()
+        connected, _ = await expiring.connect(timeout=3)
         assert connected
-        assert await expiring.receive_output(timeout=1) == {
+        assert await expiring.receive_output(timeout=5) == {
             "type": "websocket.close",
             "code": 4000,
         }
@@ -523,7 +618,7 @@ def test_membership_event_and_model_strings(monkeypatch):
         async def group_send(self, group, event):
             sent.append((group, event))
 
-    monkeypatch.setattr("apps.messenger.events.get_channel_layer", lambda: Layer())
+    monkeypatch.setattr("apps.realtime.outbox.get_channel_layer", lambda: Layer())
     membership_changed_after_commit("messenger.membership.added", conversation.pk, bob.pk)
     assert sent[0][0] == user_control_group(bob.pk)
     assert sent[0][1]["event"]["type"] == "messenger.membership.added"
@@ -539,7 +634,7 @@ def test_redis_event_failure_cannot_rollback_message(monkeypatch):
         async def group_send(self, _group, _event):
             raise RuntimeError("Redis unavailable")
 
-    monkeypatch.setattr("apps.messenger.events.get_channel_layer", lambda: FailingLayer())
+    monkeypatch.setattr("apps.realtime.outbox.get_channel_layer", lambda: FailingLayer())
     message, created = send_message(
         conversation,
         author=alice,
@@ -548,6 +643,7 @@ def test_redis_event_failure_cannot_rollback_message(monkeypatch):
     )
     assert created is True
     assert Message.objects.filter(pk=message.pk, body="Persist despite Redis").exists()
+    assert RealtimeOutboxEvent.objects.filter(delivered_at__isnull=True).exists()
 
 
 @pytest.mark.django_db
@@ -565,6 +661,8 @@ def test_ticket_endpoint_requires_messenger_grant_and_returns_scoped_ticket(monk
         "/api/v1/realtime/tickets", {"scope": "MESSENGER"}, format="json"
     )
     assert response.status_code == 200 and response.data == {"ticket": "token", "expires_in": 30}
+    session_key = observed.pop("session_key")
+    assert session_key
     assert observed == {
         "user_id": allowed.pk,
         "security_epoch": allowed.security_epoch,

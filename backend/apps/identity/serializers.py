@@ -126,6 +126,12 @@ class PlatformUserCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Username is already in use.")
         return value
 
+    def validate_email(self, value):
+        value = value.strip().casefold()
+        if value and User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Email is already in use.")
+        return value
+
     def validate_portal_id(self, value):
         return value or None
 
@@ -139,3 +145,13 @@ class PlatformUserUpdateSerializer(serializers.Serializer):
         queryset=OrgUnit.objects.filter(is_active=True), required=False, allow_null=True
     )
     is_active = serializers.BooleanField(required=False)
+
+    def validate_email(self, value):
+        value = value.strip().casefold()
+        queryset = User.objects.filter(email__iexact=value)
+        user_id = self.context.get("user_id")
+        if user_id is not None:
+            queryset = queryset.exclude(pk=user_id)
+        if value and queryset.exists():
+            raise serializers.ValidationError("Email is already in use.")
+        return value

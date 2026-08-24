@@ -25,16 +25,12 @@ async function openConversation(page: Page, title: string) {
 async function directConversation(request: APIRequestContext) {
   const response = await request.get("/api/v1/messenger/conversations");
   expect(response.status()).toBe(200);
-  const conversations = await response.json();
+  const payload = await response.json();
+  const conversations = payload.results ?? payload;
   return conversations.find(
-    (conversation: {
-      type: string;
-      members: Array<{ user: { username: string } }>;
-    }) =>
+    (conversation: { type: string; peer?: { username: string } | null }) =>
       conversation.type === "DIRECT" &&
-      conversation.members.some(
-        (membership) => membership.user.username === "stage7-bob",
-      ),
+      conversation.peer?.username === "stage7-bob",
   );
 }
 

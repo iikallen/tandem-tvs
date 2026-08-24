@@ -44,7 +44,12 @@ class User(AbstractBaseUser):
     class Meta:
         ordering = ["full_name", "username"]
         constraints = [
-            models.UniqueConstraint(Lower("username"), name="identity_username_ci_unique")
+            models.UniqueConstraint(Lower("username"), name="identity_username_ci_unique"),
+            models.UniqueConstraint(
+                Lower("email"),
+                condition=~models.Q(email=""),
+                name="identity_email_ci_unique",
+            ),
         ]
 
     def __init__(self, *args, **kwargs):
@@ -60,6 +65,7 @@ class User(AbstractBaseUser):
         if not self.username and self.portal_id:
             self.username = self.portal_id
         self.username = UserManager.normalize_username(self.username)
+        self.email = self.email.strip().casefold()
         super().save(*args, **kwargs)
         self._original_portal_id = self.portal_id
 

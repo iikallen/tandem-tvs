@@ -191,7 +191,11 @@ CELERY_BEAT_SCHEDULE = {
     "reconcile-publications": {
         "task": "publications.reconcile",
         "schedule": 15.0,
-    }
+    },
+    "dispatch-realtime-outbox": {
+        "task": "realtime.dispatch-outbox",
+        "schedule": 2.0,
+    },
 }
 
 REST_FRAMEWORK = {
@@ -216,6 +220,11 @@ REST_FRAMEWORK = {
 REALTIME_REDIS_URL = os.getenv("REALTIME_REDIS_URL", "redis://localhost:6379/1")
 REALTIME_TICKET_TTL_SECONDS = 30
 REALTIME_SOCKET_LIFETIME_SECONDS = 900
+REALTIME_MAX_SOCKETS_PER_USER = int(os.getenv("REALTIME_MAX_SOCKETS_PER_USER", "5"))
+REALTIME_MAX_CLIENT_FRAMES_PER_SECOND = int(
+    os.getenv("REALTIME_MAX_CLIENT_FRAMES_PER_SECOND", "30")
+)
+REALTIME_SOCKET_LEASE_SECONDS = REALTIME_SOCKET_LIFETIME_SECONDS + 30
 REALTIME_ALLOWED_ORIGINS = [
     origin.strip()
     for origin in os.getenv(

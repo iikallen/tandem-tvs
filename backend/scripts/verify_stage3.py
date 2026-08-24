@@ -15,6 +15,7 @@ import django  # noqa: E402
 django.setup()
 
 from django.conf import settings  # noqa: E402
+from django.contrib.sessions.backends.db import SessionStore  # noqa: E402
 from django.db import close_old_connections, connection  # noqa: E402
 from rest_framework.test import APIClient  # noqa: E402
 
@@ -99,14 +100,23 @@ assert detail.data["comment_count"] == 1
 assert detail.data["reaction_count"] == 1
 
 user_id = Comment.objects.get(pk=comment_id).author.pk
-ticket, _ = create_ticket(user_id=user_id, publication_id=publication_id)
+session = SessionStore()
+session["_auth_user_id"] = str(user_id)
+session["security_epoch"] = User.objects.get(pk=user_id).security_epoch
+session.save()
+assert session.session_key
+ticket, _ = create_ticket(
+    user_id=user_id, publication_id=publication_id, session_key=session.session_key
+)
 assert consume_ticket(ticket) is not None
 assert consume_ticket(ticket) is None
 
 original_ttl = settings.REALTIME_TICKET_TTL_SECONDS
 settings.REALTIME_TICKET_TTL_SECONDS = 1
 try:
-    expired_ticket, _ = create_ticket(user_id=user_id, publication_id=publication_id)
+    expired_ticket, _ = create_ticket(
+        user_id=user_id, publication_id=publication_id, session_key=session.session_key
+    )
     time.sleep(1.1)
     assert consume_ticket(expired_ticket) is None
 finally:
