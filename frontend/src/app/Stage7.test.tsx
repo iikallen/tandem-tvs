@@ -300,3 +300,20 @@ test("creates direct and group conversations from the local Messenger directory"
     expect(created[1]).toEqual({ title: "Команда", member_ids: [charlie.id] }),
   );
 });
+
+test("keeps keyboard focus in the new-conversation dialog and restores it on Escape", async () => {
+  vi.stubGlobal("fetch", baseFetch({ conversations: [], people: [bob] }));
+  render(<App />);
+  const user = userEvent.setup();
+  const openButton = await screen.findByRole("button", {
+    name: "Новое сообщение",
+  });
+  await user.click(openButton);
+  const search = screen.getByLabelText("Поиск сотрудника");
+  expect(search).toHaveFocus();
+  await user.keyboard("{Shift>}{Tab}{/Shift}");
+  expect(screen.getByRole("button", { name: "Закрыть" })).toHaveFocus();
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(openButton).toHaveFocus();
+});

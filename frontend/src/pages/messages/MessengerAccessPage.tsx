@@ -120,6 +120,28 @@ function NewConversationDialog({
     if (title.trim() && members.length) create.mutate(undefined);
   }
 
+  function handleDialogKey(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      onClose();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const focusable = Array.from(
+      event.currentTarget.querySelectorAll<HTMLElement>(
+        "button:not([disabled]), input:not([disabled])",
+      ),
+    );
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
+
   return (
     <div className="dialog-scrim" role="presentation" onMouseDown={onClose}>
       <section
@@ -128,9 +150,7 @@ function NewConversationDialog({
         aria-modal="true"
         aria-labelledby="messenger-dialog-title"
         onMouseDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
+        onKeyDown={handleDialogKey}
       >
         <header className="messenger-dialog__header">
           <div>
@@ -269,6 +289,12 @@ export function MessengerAccessPage() {
     let stopped = false;
     let socket: WebSocket | undefined;
     let reconnectTimer = 0;
+    let reconnectDelay = 1_000;
+
+    function reconnect() {
+      reconnectTimer = window.setTimeout(connect, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, 15_000);
+    }
 
     async function connect() {
       setRealtime("connecting");
@@ -279,7 +305,10 @@ export function MessengerAccessPage() {
         socket = new WebSocket(
           `${protocol}//${window.location.host}/ws/v1/messenger?ticket=${encodeURIComponent(ticket)}`,
         );
-        socket.onopen = () => setRealtime("connected");
+        socket.onopen = () => {
+          reconnectDelay = 1_000;
+          setRealtime("connected");
+        };
         socket.onmessage = (event) => {
           let hint: { type?: string; conversation_id?: string };
           try {
@@ -306,10 +335,10 @@ export function MessengerAccessPage() {
             return;
           }
           setRealtime("connecting");
-          reconnectTimer = window.setTimeout(connect, 1_000);
+          reconnect();
         };
       } catch {
-        if (!stopped) reconnectTimer = window.setTimeout(connect, 1_000);
+        if (!stopped) reconnect();
       }
     }
 
