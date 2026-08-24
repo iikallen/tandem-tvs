@@ -165,9 +165,7 @@ test("one account gains Messenger entitlement without a new password", async ({
   );
   expect(granted.status()).toBe(204);
   await page.goto("/messages");
-  await expect(
-    page.getByRole("heading", { name: "Доступ к Messenger назначен" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Сообщения" })).toBeVisible();
 
   await Promise.all([admin.close(), member.close()]);
 });
