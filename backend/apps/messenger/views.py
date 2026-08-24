@@ -1,10 +1,12 @@
 from typing import Any, cast
 
+from django.core.cache import caches
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Prefetch, Q
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers, status
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from apps.core.views import PrivateResponseMixin
 from apps.identity.models import AccessGrant, User
@@ -43,6 +45,11 @@ def conversation_queryset():
 
 class MessengerAPIView(PrivateResponseMixin, generics.GenericAPIView):
     permission_classes = [HasMessengerAccess]
+
+
+class MessengerMessageThrottle(ScopedRateThrottle):
+    scope = "messenger_message"
+    cache = caches["sessions"]
 
 
 class PeopleView(MessengerAPIView):
@@ -130,10 +137,10 @@ class ConversationDetailView(MessengerAPIView):
 
 class MessageListCreateView(MessengerAPIView):
     serializer_class = MessageWriteSerializer
+    throttle_classes = [MessengerMessageThrottle]
 
     def get_throttles(self):
-        self.throttle_scope = "messenger_message" if self.request.method == "POST" else None
-        return super().get_throttles()
+        return super().get_throttles() if self.request.method == "POST" else []
 
     def get(self, request, conversation_id):
         conversation = member_conversation(request.user, conversation_id)

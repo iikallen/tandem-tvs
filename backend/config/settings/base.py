@@ -62,7 +62,11 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "tandem-stage1",
-    }
+    },
+    "sessions": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "tandem-sessions",
+    },
 }
 
 
@@ -118,7 +122,15 @@ if redis_url := os.getenv("REDIS_URL"):
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": redis_url,
             "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        }
+        },
+        "sessions": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": redis_url,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": True,
+            },
+        },
     }
 
 LANGUAGE_CODE = "ru"
@@ -145,6 +157,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "apps.identity.validators.LocalPasswordBlocklistValidator"},
 ]
 SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_CACHE_ALIAS = "sessions"
 SESSION_COOKIE_NAME: str = "tandem_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
