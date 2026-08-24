@@ -15,8 +15,6 @@ from rest_framework.generics import get_object_or_404
 
 from apps.identity.models import AccessGrant, User
 from apps.identity.permissions import has_any_role
-from apps.identity.portal import get_portal_adapter
-from apps.identity.services import provision_user
 from apps.organization.models import OrgUnit
 
 from .models import (
@@ -63,7 +61,7 @@ class AudiencePayload(TypedDict):
     everyone: bool
     org_units: list[str]
     org_unit_subtrees: list[str]
-    employees: list[str]
+    employees: list[int]
     module_roles: list[str]
     position_groups: list[PositionGroupPayload]
 
@@ -101,7 +99,7 @@ def replace_audience_rules(
     publication = Publication.objects.select_for_update().get(pk=publication.pk)
     exact_units = {unit.external_id: unit for unit in org_units}
     subtree_units = {unit.external_id: unit for unit in org_unit_subtrees}
-    users = {user.portal_id: user for user in employees}
+    users = {user.pk: user for user in employees}
     roles = {role.strip() for role in module_roles if role.strip()}
     groups = {
         group["external_id"].strip(): group["name"].strip()
@@ -313,17 +311,12 @@ def _audience_targets(payload: AudiencePayload):
     unit_ids = set(payload["org_units"]) | set(payload["org_unit_subtrees"])
     employee_ids = set(payload["employees"])
     units = list(OrgUnit.objects.filter(external_id__in=unit_ids, is_active=True))
-    users = []
-    if employee_ids:
-        adapter = get_portal_adapter()
-        for portal_id in employee_ids:
-            employee = adapter.get_employee(portal_id)
-            if employee is None or employee.portal_id != portal_id or not employee.is_active:
-                raise ValidationError("Unknown or inactive employee audience target.")
-            users.append(provision_user(adapter, employee))
+    users = list(User.objects.filter(pk__in=employee_ids, is_active=True))
     unit_map = {unit.external_id: unit for unit in units}
     if set(unit_map) != unit_ids:
         raise ValidationError("Unknown or inactive organization audience target.")
+    if {user.pk for user in users} != employee_ids:
+        raise ValidationError("Unknown or inactive employee audience target.")
     return unit_map, users
 
 
@@ -775,7 +768,7 @@ def audience_payload(publication: Publication) -> AudiencePayload:
             if rule.kind == AudienceRule.Kind.ORG_UNIT and rule.include_descendants
         ],
         "employees": [
-            rule.employee.portal_id
+            rule.employee.pk
             for rule in rules
             if rule.kind == AudienceRule.Kind.EMPLOYEE and rule.employee is not None
         ],

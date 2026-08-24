@@ -272,8 +272,6 @@ class AudienceRule(models.Model):
     )
     employee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        to_field="portal_id",
-        db_column="employee_portal_id",
         null=True,
         blank=True,
         on_delete=models.PROTECT,

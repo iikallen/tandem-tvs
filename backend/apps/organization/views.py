@@ -1,8 +1,9 @@
+from django.db.models import Q
 from rest_framework import serializers
 from rest_framework.response import Response
 
 from apps.core.views import PrivateAPIView
-from apps.identity.portal import get_portal_adapter
+from apps.identity.models import User
 
 from .models import OrgUnit
 from .serializers import EmployeeSerializer, OrgUnitSerializer, PositionGroupSerializer
@@ -35,14 +36,11 @@ class EmployeeSearchView(PrivateAPIView):
             raise serializers.ValidationError(query_serializer.errors)
 
         query = query_serializer.validated_data["search"]
-        employees = [
-            employee
-            for employee in get_portal_adapter().search_employees(
-                query,
-                limit=EMPLOYEE_SEARCH_LIMIT,
-            )
-            if employee.is_active
-        ][:EMPLOYEE_SEARCH_LIMIT]
+        employees = (
+            User.objects.filter(is_active=True)
+            .filter(Q(full_name__icontains=query) | Q(username__icontains=query))
+            .select_related("org_unit")[:EMPLOYEE_SEARCH_LIMIT]
+        )
         return Response(self.serializer_class(employees, many=True).data)
 
 
@@ -50,8 +48,17 @@ class PositionGroupListView(PrivateAPIView):
     serializer_class = PositionGroupSerializer
 
     def get(self, request):
-        groups = sorted(
-            (group for group in get_portal_adapter().list_position_groups() if group.is_active),
-            key=lambda group: group.name,
+        groups = list(
+            {
+                row["position_group_external_id"]: {
+                    "external_id": row["position_group_external_id"],
+                    "name": row["position_group_name"],
+                }
+                for row in User.objects.filter(is_active=True)
+                .exclude(position_group_external_id="")
+                .exclude(position_group_name="")
+                .order_by("position_group_name", "pk")
+                .values("position_group_external_id", "position_group_name")
+            }.values()
         )
         return Response(self.serializer_class(groups, many=True).data)

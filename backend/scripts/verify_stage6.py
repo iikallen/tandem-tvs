@@ -217,7 +217,17 @@ def verify() -> None:
     )
     pending.is_active = True
     pending.set_unusable_password()
-    pending.save(update_fields=["is_active", "password", "updated_at"])
+    pending.activated_at = None
+    pending.password_changed_at = None
+    pending.save(
+        update_fields=[
+            "is_active",
+            "password",
+            "activated_at",
+            "password_changed_at",
+            "updated_at",
+        ]
+    )
     invitation, invitation_token = issue_invitation(pending, actor=actor)
     activate_account(invitation_token, settings.STAGE6_DEMO_PASSWORD)
     try:
@@ -225,7 +235,29 @@ def verify() -> None:
         raise AssertionError("Invitation replay was accepted")
     except ValidationError:
         pass
-    expired, expired_token = issue_invitation(pending, actor=actor)
+    try:
+        issue_invitation(pending, actor=actor)
+        raise AssertionError("Activated account received another invitation")
+    except ValidationError:
+        pass
+    expired_pending, _ = User.objects.get_or_create(
+        username="stage6-expired-pending",
+        defaults={"full_name": "Stage 6 Expired Pending"},
+    )
+    expired_pending.is_active = True
+    expired_pending.set_unusable_password()
+    expired_pending.activated_at = None
+    expired_pending.password_changed_at = None
+    expired_pending.save(
+        update_fields=[
+            "is_active",
+            "password",
+            "activated_at",
+            "password_changed_at",
+            "updated_at",
+        ]
+    )
+    expired, expired_token = issue_invitation(expired_pending, actor=actor)
     AccountInvitation.objects.filter(pk=expired.pk).update(
         expires_at=timezone.now() - timedelta(seconds=1)
     )
@@ -335,6 +367,8 @@ def verify() -> None:
     user.save(update_fields=["is_active", "updated_at"])
     pending.is_active = False
     pending.save(update_fields=["is_active", "updated_at"])
+    expired_pending.is_active = False
+    expired_pending.save(update_fields=["is_active", "updated_at"])
     STATE_FILE.unlink(missing_ok=True)
     print(
         json.dumps(

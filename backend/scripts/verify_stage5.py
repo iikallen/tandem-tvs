@@ -3,6 +3,7 @@
 import os
 import sys
 from datetime import timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 import django
@@ -145,16 +146,26 @@ def verify() -> None:
     assert (
         CommentReport.objects.filter(comment=reply, status=CommentReport.Status.OPEN).count() == 1
     )
-    assert (
-        PublicationRecipient.objects.filter(publication=publication, is_current=True).count() == 4
+    recipient_ids = set(
+        PublicationRecipient.objects.filter(publication=publication, is_current=True).values_list(
+            "user_id", flat=True
+        )
     )
+    assert recipient_ids == set(User.objects.filter(is_active=True).values_list("pk", flat=True))
+    recipient_count = len(recipient_ids)
+
+    def percent(numerator: int) -> Decimal:
+        return (Decimal(numerator) * 100 / Decimal(recipient_count)).quantize(
+            Decimal("0.1"), rounding=ROUND_HALF_UP
+        )
+
     metrics = publication_metrics(publication)
-    assert metrics["recipients"] == 4
+    assert metrics["recipients"] == recipient_count
     assert metrics["unique_views"] == 3
-    assert str(metrics["reach_percent"]) == "75.0"
+    assert metrics["reach_percent"] == percent(3)
     assert metrics["unique_engaged"] == 3
-    assert str(metrics["engagement_percent"]) == "75.0"
-    assert str(metrics["acknowledgement_percent"]) == "50.0"
+    assert metrics["engagement_percent"] == percent(3)
+    assert metrics["acknowledgement_percent"] == percent(2)
     assert (
         AuditEvent.objects.filter(
             target_type=AuditEvent.TargetType.COMMENT, target_id=str(reply.pk)

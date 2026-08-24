@@ -2,7 +2,6 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.identity.models import User
-from apps.identity.portal import get_portal_adapter
 
 from .models import (
     Acknowledgement,
@@ -51,7 +50,7 @@ class AudienceSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=128), required=False, default=list, max_length=100
     )
     employees = serializers.ListField(
-        child=serializers.CharField(max_length=128), required=False, default=list, max_length=100
+        child=serializers.IntegerField(min_value=1), required=False, default=list, max_length=100
     )
     module_roles = serializers.ListField(
         child=serializers.CharField(max_length=64), required=False, default=list, max_length=20
@@ -78,9 +77,13 @@ class AudienceSerializer(serializers.Serializer):
             raise serializers.ValidationError("Position groups must be unique.")
         if group_ids:
             active_groups = {
-                group.external_id: group.name
-                for group in get_portal_adapter().list_position_groups()
-                if group.is_active
+                row["position_group_external_id"]: row["position_group_name"]
+                for row in User.objects.filter(
+                    is_active=True, position_group_external_id__in=group_ids
+                )
+                .exclude(position_group_name="")
+                .order_by("pk")
+                .values("position_group_external_id", "position_group_name")
             }
             unknown = set(group_ids) - active_groups.keys()
             if unknown:

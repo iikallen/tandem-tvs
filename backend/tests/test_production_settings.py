@@ -135,6 +135,46 @@ def test_production_requires_an_isolated_celery_redis_database():
     assert "Celery broker and result backend must use Redis database 2" in result.stderr
 
 
+def test_production_smtp_recovery_requires_absolute_https_public_url():
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.production",
+        "DJANGO_SECRET_KEY": "test-only-production-check",
+        "DJANGO_ALLOWED_HOSTS": "portal.example.invalid",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.invalid",
+        "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
+        "REDIS_URL": "redis://redis:6379/0",
+        "REALTIME_REDIS_URL": "redis://redis:6379/1",
+        "REALTIME_ALLOWED_ORIGINS": "https://portal.example.invalid",
+        "CELERY_BROKER_URL": "redis://redis:6379/2",
+        "CELERY_RESULT_BACKEND": "redis://redis:6379/2",
+        "PORTAL_ADAPTER": "unavailable",
+        "AUTH_RECOVERY_MODE": "SMTP",
+        "AUTH_PUBLIC_BASE_URL": "http://portal.example.invalid",
+    }
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "AUTH_PUBLIC_BASE_URL must be an absolute HTTPS URL" in result.stderr
+
+    environment["AUTH_PUBLIC_BASE_URL"] = "https://portal.example.invalid"
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+
+
 def test_compose_celery_healthchecks_are_targeted_and_heartbeat_based():
     compose = (Path(__file__).resolve().parents[2] / "compose.yaml").read_text()
 
@@ -143,3 +183,14 @@ def test_compose_celery_healthchecks_are_targeted_and_heartbeat_based():
     assert "time.time()-heartbeat < 60" in compose
     assert "interval: 15s" in compose
     assert "start_period: 45s" in compose
+
+
+def test_cloudflare_client_ip_is_trusted_only_on_dedicated_tunnel_network():
+    root = Path(__file__).resolve().parents[2]
+    compose = (root / "compose.yaml").read_text()
+    nginx = (root / "frontend" / "infra" / "nginx.conf").read_text()
+
+    assert "172.31.250.0/29" in compose
+    assert "172.31.250.0/29 1;" in nginx
+    assert "172.16.0.0/12 1;" not in nginx
+    assert "~^1:(.+)$ $1;" in nginx

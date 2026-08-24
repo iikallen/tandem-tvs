@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.identity.portal.types import PortalEmployee
+from apps.identity.models import User
 
 
 class OrgUnitSerializer(serializers.Serializer):
@@ -11,14 +11,12 @@ class OrgUnitSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
 
 
-class EmployeeSerializer(serializers.Serializer):
-    portal_id = serializers.CharField()
-    full_name = serializers.CharField()
-    job_title = serializers.CharField(allow_blank=True)
-    org_unit_external_id = serializers.CharField(allow_null=True)
+class EmployeeSerializer(serializers.ModelSerializer):
+    org_unit_external_id = serializers.CharField(source="org_unit.external_id", allow_null=True)
 
-    def to_representation(self, instance: PortalEmployee):
-        return super().to_representation(instance)
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
+        model = User
+        fields = ["id", "portal_id", "full_name", "job_title", "org_unit_external_id"]
 
 
 class PositionGroupSerializer(serializers.Serializer):

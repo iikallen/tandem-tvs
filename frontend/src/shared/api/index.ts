@@ -48,7 +48,8 @@ export interface PositionGroup {
 }
 
 export interface Employee {
-  portal_id: string;
+  id: number;
+  portal_id: string | null;
   full_name: string;
   job_title: string;
   org_unit_external_id: string | null;
@@ -96,7 +97,7 @@ export interface Audience {
   everyone: boolean;
   org_units: string[];
   org_unit_subtrees?: string[];
-  employees: string[];
+  employees: number[];
   module_roles: string[];
   position_groups?: PositionGroup[];
 }

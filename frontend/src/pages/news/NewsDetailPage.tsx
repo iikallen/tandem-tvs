@@ -331,26 +331,30 @@ function Comments({
             </label>
             {candidates.data?.length ? (
               <div className="mention-candidates">
-                {candidates.data.map((candidate) => (
-                  <button
-                    type="button"
-                    key={candidate.portal_id}
-                    onClick={() => {
-                      setMentions((current) =>
-                        current.includes(candidate.portal_id)
-                          ? current
-                          : [...current, candidate.portal_id],
-                      );
-                      setBody(
-                        (current) =>
-                          `${current}${current ? " " : ""}@${candidate.full_name} `,
-                      );
-                      setMentionSearch("");
-                    }}
-                  >
-                    @{candidate.full_name}
-                  </button>
-                ))}
+                {candidates.data.map((candidate) => {
+                  const portalId = candidate.portal_id;
+                  if (!portalId) return null;
+                  return (
+                    <button
+                      type="button"
+                      key={portalId}
+                      onClick={() => {
+                        setMentions((current) =>
+                          current.includes(portalId)
+                            ? current
+                            : [...current, portalId],
+                        );
+                        setBody(
+                          (current) =>
+                            `${current}${current ? " " : ""}@${candidate.full_name} `,
+                        );
+                        setMentionSearch("");
+                      }}
+                    >
+                      @{candidate.full_name}
+                    </button>
+                  );
+                })}
               </div>
             ) : null}
             {attachmentsEnabled ? (

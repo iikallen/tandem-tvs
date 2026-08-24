@@ -29,6 +29,7 @@ class User(AbstractBaseUser):
     )
     module_roles = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
+    security_epoch = models.PositiveBigIntegerField(default=1)
     activated_at = models.DateTimeField(null=True, blank=True)
     password_changed_at = models.DateTimeField(null=True, blank=True)
     last_portal_sync_at = models.DateTimeField(null=True, blank=True)
@@ -93,7 +94,18 @@ class AccessGrant(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["user", "module", "role"], name="identity_access_grant_unique"
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(module="PLATFORM", role="ADMIN")
+                    | models.Q(
+                        module="NEWS",
+                        role__in=["MEMBER", "AUTHOR", "EDITOR", "MODERATOR", "ADMIN"],
+                    )
+                    | models.Q(module="MESSENGER", role__in=["MEMBER", "ADMIN"])
+                ),
+                name="identity_access_grant_valid_pair",
+            ),
         ]
 
     def __str__(self) -> str:

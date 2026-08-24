@@ -1,5 +1,4 @@
 from datetime import timedelta
-from types import SimpleNamespace
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -8,7 +7,6 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.identity.models import User
-from apps.publications import services as publication_services
 from apps.publications.models import (
     AudienceRule,
     AuditEvent,
@@ -276,13 +274,15 @@ def test_addressed_feed_detail_search_unread_and_unique_views(client, category, 
 
 
 @pytest.mark.django_db
-def test_employee_audience_provisions_portal_target_before_first_visit(client, category, settings):
+def test_employee_audience_uses_previously_imported_local_identity(client, category, settings):
+    as_user(client, settings, "employee-1", "get", "/api/v1/me")
+    target = User.objects.get(portal_id="employee-1")
     payload = draft_payload(
         title="Личное сообщение",
         audience={
             "everyone": False,
             "org_units": [],
-            "employees": ["employee-1"],
+            "employees": [target.pk],
             "module_roles": [],
         },
     )
@@ -313,18 +313,7 @@ def test_employee_audience_provisions_portal_target_before_first_visit(client, c
 
 
 @pytest.mark.django_db
-def test_employee_audience_rejects_adapter_identity_substitution(
-    client, category, settings, monkeypatch
-):
-    class SubstitutingAdapter:
-        def get_employee(self, portal_id):
-            return SimpleNamespace(portal_id="admin-1", is_active=True)
-
-    monkeypatch.setattr(
-        publication_services,
-        "get_portal_adapter",
-        lambda: SubstitutingAdapter(),
-    )
+def test_employee_audience_rejects_unknown_local_identity(client, category, settings):
     response = as_user(
         client,
         settings,
@@ -335,7 +324,7 @@ def test_employee_audience_rejects_adapter_identity_substitution(
             audience={
                 "everyone": False,
                 "org_units": [],
-                "employees": ["employee-1"],
+                "employees": [2_147_483_647],
                 "module_roles": [],
             }
         ),

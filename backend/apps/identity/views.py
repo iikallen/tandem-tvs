@@ -1,4 +1,5 @@
-from typing import cast
+import logging
+from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth import (
@@ -26,17 +27,18 @@ from apps.core.views import PrivateAPIView, PrivateResponseMixin, PublicAPIView
 
 from .auth_services import (
     activate_account,
+    bump_security_epoch,
     grant,
-    invalidate_user_sessions,
     issue_invitation,
     issue_password_reset,
     login_is_limited,
     record_auth_event,
     record_login_failure,
     request_ip,
+    reserve_password_reset,
     reset_password,
+    revoke_grant,
 )
-from .delivery import SMTPAuthDelivery
 from .managers import UserManager
 from .models import AccessGrant, User
 from .permissions import HasMessengerAccess, IsPlatformAdmin
@@ -51,6 +53,9 @@ from .serializers import (
     PlatformUserCreateSerializer,
     PlatformUserUpdateSerializer,
 )
+from .tasks import deliver_password_reset_task
+
+logger = logging.getLogger(__name__)
 
 
 class MeView(PrivateAPIView):
@@ -97,6 +102,7 @@ class LoginView(PublicAPIView):
         now = int(timezone.now().timestamp())
         request.session["auth_started_at"] = now
         request.session["auth_last_seen_at"] = now
+        request.session["security_epoch"] = user.security_epoch
         record_auth_event(request, "auth.login.success", user=user, username=username)
         return Response({"user": AccountSerializer(user).data, "csrf_token": get_token(request)})
 
@@ -129,6 +135,7 @@ class PasswordChangeView(PrivateAPIView):
         request.user.set_password(payload.validated_data["new_password"])
         request.user.password_changed_at = timezone.now()
         request.user.save(update_fields=["password", "password_changed_at", "updated_at"])
+        request.session["security_epoch"] = bump_security_epoch(request.user)
         update_session_auth_hash(request, request.user)
         record_auth_event(
             request, "auth.password.changed", user=request.user, username=request.user.username
@@ -158,21 +165,18 @@ class PasswordResetRequestView(PublicAPIView):
     def post(self, request):
         payload = self.serializer_class(data=request.data)
         payload.is_valid(raise_exception=True)
-        user = User.objects.filter(
-            email__iexact=payload.validated_data["email"], is_active=True
-        ).first()
-        if user is not None and settings.AUTH_RECOVERY_MODE == "SMTP":
-            _row, token = issue_password_reset(user)
-            SMTPAuthDelivery().deliver(
-                recipient=user.email,
-                purpose="password reset",
-                url=f"{settings.AUTH_PUBLIC_BASE_URL}/reset-password?token={token}",
-            )
+        email = payload.validated_data["email"].strip().casefold()
+        allowed = reserve_password_reset(email, request_ip(request))
+        if allowed and settings.AUTH_RECOVERY_MODE == "SMTP":
+            try:
+                cast(Any, deliver_password_reset_task).delay(email)
+            except Exception:
+                logger.exception("Could not enqueue password reset delivery")
         record_auth_event(
             request,
             "auth.password.reset_requested",
-            user=user,
-            username=payload.validated_data["email"],
+            username=email,
+            metadata={"accepted": allowed},
         )
         return Response({"detail": "If the account exists, instructions were sent."})
 
@@ -241,7 +245,7 @@ class PlatformUserDetailView(PrivateResponseMixin, generics.GenericAPIView):
         user.save(update_fields=[*payload.validated_data, "updated_at"])
         if "is_active" in payload.validated_data:
             if not user.is_active:
-                transaction.on_commit(lambda: invalidate_user_sessions(user.pk))
+                bump_security_epoch(user)
             record_auth_event(
                 request,
                 "auth.account.enabled" if user.is_active else "auth.account.disabled",
@@ -282,7 +286,7 @@ class PlatformGrantView(PrivateAPIView):
             and values["role"] == AccessGrant.Role.ADMIN
         ):
             raise serializers.ValidationError("You cannot revoke your own platform-admin grant.")
-        deleted, _ = AccessGrant.objects.filter(user=user, **values).delete()
+        deleted = revoke_grant(user, **values)
         if deleted:
             record_auth_event(
                 request,
@@ -298,7 +302,9 @@ class PlatformInvitationView(PrivateAPIView):
     permission_classes = [IsPlatformAdmin]
 
     def post(self, request, user_id):
-        user = generics.get_object_or_404(User, pk=user_id, is_active=True)
+        user = generics.get_object_or_404(
+            User, pk=user_id, is_active=True, activated_at__isnull=True
+        )
         _row, token = issue_invitation(user, actor=request.user)
         record_auth_event(request, "auth.invite.created", user=user, username=user.username)
         return Response({"activation_url": f"/activate?token={token}"})
@@ -308,7 +314,9 @@ class PlatformPasswordResetView(PrivateAPIView):
     permission_classes = [IsPlatformAdmin]
 
     def post(self, request, user_id):
-        user = generics.get_object_or_404(User, pk=user_id, is_active=True)
+        user = generics.get_object_or_404(
+            User, pk=user_id, is_active=True, activated_at__isnull=False
+        )
         _row, token = issue_password_reset(user, actor=request.user)
         record_auth_event(
             request, "auth.password.reset_requested", user=user, username=user.username

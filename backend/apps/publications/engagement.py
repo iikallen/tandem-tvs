@@ -40,7 +40,7 @@ def resolve_recipient_users(publication: Publication):
         return list(User.objects.filter(is_active=True).select_related("org_unit"))
 
     employee_ids = {
-        rule.employee.portal_id
+        rule.employee.pk
         for rule in rules
         if rule.kind == AudienceRule.Kind.EMPLOYEE and rule.employee is not None
     }
@@ -60,7 +60,7 @@ def resolve_recipient_users(publication: Publication):
     org_units = {row.pk: row for row in OrgUnit.objects.all()}
 
     def matches(user: User) -> bool:
-        if user.portal_id in employee_ids:
+        if user.pk in employee_ids:
             return True
         if roles.intersection(legacy_news_roles(user)):
             return True

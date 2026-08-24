@@ -1,11 +1,13 @@
+from typing import Any, cast
+
 import pytest
 from django.test import override_settings
 from rest_framework.test import APIClient
 
 from apps.identity.managers import UserManager
 from apps.identity.models import AccessGrant, User
-from apps.identity.portal.types import PortalEmployee, PortalPositionGroup
-from apps.organization import views as organization_views
+from apps.organization.models import OrgUnit
+from apps.publications.models import Category, Publication
 from tests.helpers import force_authenticate_portal_fixture
 
 
@@ -78,6 +80,20 @@ def test_unavailable_adapter_does_not_break_local_session(client):
 @override_settings(MOCK_PORTAL_USER_ID="employee-1")
 def test_organization_units_and_employee_search_are_authenticated(client):
     force_authenticate_portal_fixture(client, "employee-1")
+    communications = OrgUnit.objects.get(external_id="communications")
+    editor = User.objects.create(
+        username="editor-1",
+        portal_id="editor-1",
+        full_name="Дмитрий Орлов",
+        job_title="Редактор",
+        org_unit=communications,
+    )
+    User.objects.create(
+        username="blocked-1",
+        portal_id="blocked-1",
+        full_name="Заблокированный Орлов",
+        is_active=False,
+    )
     units_response = client.get("/api/v1/organization/units")
     assert units_response.status_code == 200
     assert {unit["external_id"] for unit in units_response.data} == {
@@ -96,6 +112,7 @@ def test_organization_units_and_employee_search_are_authenticated(client):
     assert all(employee["portal_id"] != "blocked-1" for employee in employees_response.data)
     assert employees_response.data == [
         {
+            "id": editor.pk,
             "portal_id": "editor-1",
             "full_name": "Дмитрий Орлов",
             "job_title": "Редактор",
@@ -107,26 +124,11 @@ def test_organization_units_and_employee_search_are_authenticated(client):
 
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="employee-1")
-def test_employee_search_is_query_bounded_and_data_minimized(client, monkeypatch):
+def test_employee_search_is_local_query_bounded_and_data_minimized(client):
     force_authenticate_portal_fixture(client, "employee-1")
-    captured: dict[str, object] = {}
-
-    class SearchAdapter:
-        def search_employees(self, query, *, limit):
-            captured.update(query=query, limit=limit)
-            return tuple(
-                PortalEmployee(
-                    portal_id=f"employee-{index}",
-                    full_name=f"Employee {index}",
-                    is_active=True,
-                    email=f"employee-{index}@example.invalid",
-                    phone="secret",
-                    roles=("employee", "private-role"),
-                )
-                for index in range(25)
-            )
-
-    monkeypatch.setattr(organization_views, "get_portal_adapter", SearchAdapter)
+    User.objects.bulk_create(
+        [User(username=f"directory-{index}", full_name=f"Employee {index}") for index in range(25)]
+    )
 
     assert client.get("/api/v1/organization/employees").data == []
     assert client.get("/api/v1/organization/employees", {"search": "x"}).data == []
@@ -142,8 +144,8 @@ def test_employee_search_is_query_bounded_and_data_minimized(client, monkeypatch
 
     assert response.status_code == 200
     assert len(response.data) == 20
-    assert captured == {"query": "Employee", "limit": 20}
     assert set(response.data[0]) == {
+        "id",
         "portal_id",
         "full_name",
         "job_title",
@@ -153,32 +155,65 @@ def test_employee_search_is_query_bounded_and_data_minimized(client, monkeypatch
 
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="employee-1")
-def test_position_groups_are_portal_only_active_and_canonical(client, monkeypatch):
+def test_position_groups_are_local_active_and_canonical(client):
     force_authenticate_portal_fixture(client, "employee-1")
     User.objects.create(
+        username="local-only",
         portal_id="local-only",
         full_name="Local only",
         position_group_external_id="local-group",
         position_group_name="Local group",
     )
-
-    class GroupAdapter:
-        def list_position_groups(self):
-            return (
-                PortalPositionGroup("editors", "Редакторы"),
-                PortalPositionGroup("inactive", "Неактивные", is_active=False),
-                PortalPositionGroup("authors", "Авторы"),
-            )
-
-    monkeypatch.setattr(organization_views, "get_portal_adapter", GroupAdapter)
+    User.objects.create(
+        username="inactive-group-user",
+        full_name="Inactive group user",
+        position_group_external_id="inactive-group",
+        position_group_name="Inactive group",
+        is_active=False,
+    )
     response = client.get("/api/v1/organization/position-groups")
 
     assert response.status_code == 200
-    assert response.data == [
-        {"external_id": "authors", "name": "Авторы"},
-        {"external_id": "editors", "name": "Редакторы"},
-    ]
-    assert "local-group" not in str(response.data)
+    assert {item["external_id"]: item["name"] for item in response.data}["local-group"] == (
+        "Local group"
+    )
+    assert "inactive-group" not in str(response.data)
+
+
+@pytest.mark.django_db
+@override_settings(PORTAL_ADAPTER="unavailable", ALLOW_MOCK_PORTAL_ADAPTER=False)
+def test_publication_employee_targeting_uses_only_local_user_id(client):
+    editor = User.objects.create(username="local-editor", full_name="Local editor")
+    target = User.objects.create(username="local-target", full_name="Local target")
+    AccessGrant.objects.create(user=editor, module="NEWS", role="EDITOR")
+    AccessGrant.objects.create(user=target, module="NEWS", role="MEMBER")
+    category = Category.objects.create(slug="local-audience", name="Local audience")
+    client.force_authenticate(editor)
+
+    response = client.post(
+        "/api/v1/editorial/publications",
+        {
+            "title": "Local audience publication",
+            "summary": "No portal lookup",
+            "body": {"type": "doc", "content": [{"type": "paragraph", "content": []}]},
+            "category": category.slug,
+            "audience": {
+                "everyone": False,
+                "org_units": [],
+                "org_unit_subtrees": [],
+                "employees": [target.pk],
+                "module_roles": [],
+                "position_groups": [],
+            },
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["audience"]["employees"] == [target.pk]
+    publication = Publication.objects.get(pk=response.data["id"])
+    rule = cast(Any, publication.audience_rules.get())
+    assert rule.employee_id == target.pk
 
 
 @pytest.mark.django_db
