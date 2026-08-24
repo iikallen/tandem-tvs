@@ -2,8 +2,8 @@
 
 Date: 2026-08-24
 Scope: Stage 6 security hardening and Messenger Core
-Result: **LOCAL RELEASE GATE PASS. External authenticated WSS acceptance and protected release are
-pending. Stage 8 was not started.**
+Result: **LOCAL AND CLEAN CI RELEASE GATES PASS. External authenticated WSS acceptance and the
+protected merge are pending. Stage 8 was not started.**
 
 ## Delivered
 
@@ -35,7 +35,7 @@ pending. Stage 8 was not started.**
 
 ## Automated evidence
 
-- Backend: **160 passed**; **93.86% overall coverage**, **95.72% identity**, **95.35%
+- Backend: **160 passed**; **93.84% overall coverage**, **95.72% identity**, **95.35%
   discussions**, **95.51% publications**, **99.76% Messenger**.
 - Ruff format/check, basedpyright (0 errors), `ty check`, Django check, migration drift and the
   production deployment check: PASS. The production schema generator still emits its pre-existing
@@ -54,15 +54,15 @@ All Stage 2–7 verifiers passed against PostgreSQL, Redis, Django/Channels and 
 
 - Stage 2: PASS.
 - Stage 3: PASS.
-- Stage 4 two-phase restart: PASS; `publish_delay_seconds=9.143`,
-  `unpublish_delay_seconds=14.140` (both inside 0–60 seconds).
+- Stage 4 two-phase restart: PASS; `publish_delay_seconds=1.779`,
+  `unpublish_delay_seconds=6.748` (both inside 0–60 seconds).
 - Stage 5 two-phase restart: PASS; recipients `10`, reach `30%`, engagement `30%`,
   acknowledgement `20%`.
 - Stage 6 two-phase Redis/backend restart: PASS; the intended session survived, another session was
   invalidated and the disabled account was denied.
 - Stage 7 three-phase acceptance: PASS. Direct uniqueness, group membership, ordering,
   idempotency, pagination, read state, privacy, immediate grant/account revocation and actual
-  WebSocket delivery passed; measured delivery latency was `0.0899` seconds.
+  WebSocket delivery passed; measured delivery latency was `0.0265` seconds.
 - With Redis stopped, the REST send committed to PostgreSQL. After Redis and backend restart, the
   same message and session remained, the Redis run ID and backend boot time changed, and reconnect
   synchronization found the missed message.
@@ -95,7 +95,8 @@ were clean. **0 unresolved Critical, High or Major findings remain in the local 
 
 ## Release boundary
 
-The workflow is named `Stage 7 CI` and its `release-gate` job runs the exact `make prod` command on
-a clean Ubuntu runner. The branch will be merged through a PR only after that check is green, then
-the exact post-merge commit will be verified before creating `stage-7-complete`. The immutable
-`stage-6-complete` and all earlier tags are unchanged. Stage 8 is out of scope.
+The branch workflow is named `Stage 7 CI`; its `release-gate` job ran the exact `make prod` command
+on clean Ubuntu runners for commit `463add09c48829102645c8846677ef96891f2867`. Both the push and
+PR runs passed. The branch will be merged through the protected PR only after external WSS
+acceptance, then the exact post-merge commit will be verified before creating `stage-7-complete`.
+The immutable `stage-6-complete` and all earlier tags are unchanged. Stage 8 is out of scope.
