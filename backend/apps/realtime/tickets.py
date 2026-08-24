@@ -1,6 +1,7 @@
 import hashlib
 import json
 import secrets
+import time
 
 import redis
 from django.conf import settings
@@ -24,18 +25,20 @@ def create_ticket(
     resource_id: object | None = None,
 ) -> tuple[str, int]:
     ttl = int(settings.REALTIME_TICKET_TTL_SECONDS)
-    payload = json.dumps(
-        {
-            "user_id": user_id,
-            "security_epoch": security_epoch,
-            "scope": scope,
-            "resource_id": str(resource_id) if resource_id is not None else None,
-        },
-        separators=(",", ":"),
-    )
     client = _client()
     for _ in range(3):
         token = secrets.token_urlsafe(32)
+        payload = json.dumps(
+            {
+                "user_id": user_id,
+                "security_epoch": security_epoch,
+                "scope": scope,
+                "resource_id": str(resource_id) if resource_id is not None else None,
+                "expires_at": int(time.time()) + ttl,
+                "nonce": secrets.token_urlsafe(16),
+            },
+            separators=(",", ":"),
+        )
         if client.set(_key(token), payload, ex=ttl, nx=True):
             return token, ttl
     raise RuntimeError("Could not allocate a realtime ticket.")
@@ -49,6 +52,10 @@ def consume_ticket(token: str) -> RealtimeTicket | None:
         return None
     try:
         claims = json.loads(payload)
+        expires_at = int(claims["expires_at"])
+        nonce = str(claims["nonce"])
+        if expires_at < int(time.time()) or not nonce:
+            return None
         return RealtimeTicket(
             user_id=int(claims["user_id"]),
             security_epoch=int(claims["security_epoch"]),
@@ -56,6 +63,8 @@ def consume_ticket(token: str) -> RealtimeTicket | None:
             resource_id=str(claims["resource_id"])
             if claims.get("resource_id") is not None
             else None,
+            expires_at=expires_at,
+            nonce=nonce,
         )
     except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None

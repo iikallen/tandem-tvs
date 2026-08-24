@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "apps.publications",
     "apps.discussions",
     "apps.realtime",
+    "apps.messenger",
 ]
 
 MIDDLEWARE = [
@@ -192,6 +193,10 @@ REST_FRAMEWORK = {
         "comment_upload": "10/min",
         "reaction": "60/min",
         "realtime_ticket": "30/min",
+        "messenger_message": "120/min",
+        "messenger_direct": "20/hour",
+        "messenger_group": "10/hour",
+        "messenger_people": "60/min",
     },
 }
 

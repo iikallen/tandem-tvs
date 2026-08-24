@@ -133,12 +133,14 @@ def test_ticket_is_hashed_scoped_and_one_time(settings, monkeypatch):
     token, ttl = create_ticket(user_id=user.pk, publication_id="publication")
     assert ttl == 30
     assert token not in next(iter(fake.values))
-    assert consume_ticket(token) == TicketClaims(
-        user_id=user.pk,
-        security_epoch=user.security_epoch,
-        scope=RealtimeScope.NEWS_PUBLICATION,
-        resource_id="publication",
-    )
+    claims = consume_ticket(token)
+    assert claims is not None
+    assert claims.user_id == user.pk
+    assert claims.security_epoch == user.security_epoch
+    assert claims.scope == RealtimeScope.NEWS_PUBLICATION
+    assert claims.resource_id == "publication"
+    assert claims.expires_at > 0
+    assert claims.nonce
     assert consume_ticket(token) is None
     assert consume_ticket("") is None
     fake.values["realtime-ticket:bad"] = "not-json"

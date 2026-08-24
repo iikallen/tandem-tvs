@@ -26,6 +26,7 @@ test:
 	cd backend && $(UV) run coverage report --include="apps/identity/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/discussions/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/publications/*" --fail-under=95
+	cd backend && $(UV) run coverage report --include="apps/messenger/*" --fail-under=95
 	cd frontend && $(NPM) test
 
 test-postgres:

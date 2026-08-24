@@ -13,3 +13,5 @@ class RealtimeTicket:
     security_epoch: int
     scope: RealtimeScope
     resource_id: str | None = None
+    expires_at: int = 0
+    nonce: str = ""
