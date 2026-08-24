@@ -20,4 +20,25 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ["src/**/*.tsx"],
+    ignores: ["src/**/*.test.tsx"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "Literal[value=/[А-Яа-яЁё]/]",
+          message: "Move visible Cyrillic text to shared/i18n.",
+        },
+        {
+          selector: "TemplateElement[value.raw=/[А-Яа-яЁё]/]",
+          message: "Move visible Cyrillic text to shared/i18n.",
+        },
+        {
+          selector: "JSXText[value=/[А-Яа-яЁё]/]",
+          message: "Move visible Cyrillic text to shared/i18n.",
+        },
+      ],
+    },
+  },
 );

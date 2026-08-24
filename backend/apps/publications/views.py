@@ -2,6 +2,7 @@ from typing import cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, Prefetch, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
@@ -17,6 +18,7 @@ from apps.identity.models import User
 from .media import can_read_media, create_media_asset, delete_media_asset
 from .models import (
     AudienceRule,
+    AuditEvent,
     Category,
     MediaAsset,
     Publication,
@@ -42,6 +44,7 @@ from .services import (
     duplicate_publication,
     is_editor,
     pin_publication,
+    record_audit_event,
     record_publication_view,
     transition_publication,
     unpin_publication,
@@ -64,6 +67,13 @@ def editorial_queryset():
 def _editorial_for(user: object):
     queryset = editorial_queryset()
     return queryset if is_editor(user) else queryset.filter(author=user)
+
+
+def _taxonomy_state(instance: Category | Tag) -> dict[str, object]:
+    fields = ["slug", "name", "is_active"]
+    if isinstance(instance, Category):
+        fields.append("sort_order")
+    return {field: getattr(instance, field) for field in fields}
 
 
 class EditorialPublicationListCreateView(PrivateResponseMixin, generics.ListCreateAPIView):
@@ -170,7 +180,15 @@ class EditorialCategoryListCreateView(PrivateResponseMixin, generics.ListCreateA
     def perform_create(self, serializer):
         if not is_editor(self.request.user):
             raise serializers.ValidationError("An editor role is required.")
-        serializer.save()
+        with transaction.atomic():
+            category = serializer.save()
+            record_audit_event(
+                actor=cast(User, self.request.user),
+                event_type=AuditEvent.Type.CATEGORY_CREATED,
+                target_type=AuditEvent.TargetType.CATEGORY,
+                target_id=category.pk,
+                new_state=_taxonomy_state(category),
+            )
 
 
 class EditorialCategoryDetailView(PrivateResponseMixin, generics.UpdateAPIView):
@@ -181,7 +199,17 @@ class EditorialCategoryDetailView(PrivateResponseMixin, generics.UpdateAPIView):
     def perform_update(self, serializer):
         if not is_editor(self.request.user):
             raise serializers.ValidationError("An editor role is required.")
-        serializer.save()
+        previous = _taxonomy_state(cast(Category, serializer.instance))
+        with transaction.atomic():
+            category = serializer.save()
+            record_audit_event(
+                actor=cast(User, self.request.user),
+                event_type=AuditEvent.Type.CATEGORY_UPDATED,
+                target_type=AuditEvent.TargetType.CATEGORY,
+                target_id=category.pk,
+                previous_state=previous,
+                new_state=_taxonomy_state(category),
+            )
 
 
 class EditorialTagListCreateView(PrivateResponseMixin, generics.ListCreateAPIView):
@@ -193,7 +221,15 @@ class EditorialTagListCreateView(PrivateResponseMixin, generics.ListCreateAPIVie
     def perform_create(self, serializer):
         if not is_editor(self.request.user):
             raise serializers.ValidationError("An editor role is required.")
-        serializer.save()
+        with transaction.atomic():
+            tag = serializer.save()
+            record_audit_event(
+                actor=cast(User, self.request.user),
+                event_type=AuditEvent.Type.TAG_CREATED,
+                target_type=AuditEvent.TargetType.TAG,
+                target_id=tag.pk,
+                new_state=_taxonomy_state(tag),
+            )
 
 
 class EditorialTagDetailView(PrivateResponseMixin, generics.UpdateAPIView):
@@ -204,7 +240,17 @@ class EditorialTagDetailView(PrivateResponseMixin, generics.UpdateAPIView):
     def perform_update(self, serializer):
         if not is_editor(self.request.user):
             raise serializers.ValidationError("An editor role is required.")
-        serializer.save()
+        previous = _taxonomy_state(cast(Tag, serializer.instance))
+        with transaction.atomic():
+            tag = serializer.save()
+            record_audit_event(
+                actor=cast(User, self.request.user),
+                event_type=AuditEvent.Type.TAG_UPDATED,
+                target_type=AuditEvent.TargetType.TAG,
+                target_id=tag.pk,
+                previous_state=previous,
+                new_state=_taxonomy_state(tag),
+            )
 
 
 class EditorialMediaListUploadView(PrivateResponseMixin, generics.ListCreateAPIView):

@@ -24,8 +24,13 @@
   --color-success-border: #bfe8d2;
   --color-danger: #c53b3b;
   --color-danger-bg: #fff0f0;
+  --color-danger-border: #f3c1c1;
   --color-warning: #a16207;
   --color-warning-bg: #fff8df;
+  --color-warning-border: #efdfa7;
+  --color-info: #2563eb;
+  --color-info-bg: #eaf0fe;
+  --color-info-border: #c9d8fd;
   --color-neutral: #4b5566;
   --color-neutral-bg: #f1f3f8;
   --color-neutral-border: #d5d9e0;
@@ -38,6 +43,7 @@
   --shadow-card: 0 1px 2px rgba(20, 23, 31, 0.05);
   --shadow-card-hover: 0 10px 24px -12px rgba(20, 23, 31, 0.16);
   --shadow-popover: 0 12px 28px rgba(20, 23, 31, 0.12);
+  --shadow-modal: 0 24px 48px -12px rgba(20, 23, 31, 0.35);
   color-scheme: light;
 }
 
@@ -67,8 +73,13 @@
   --color-success-border: #245c39;
   --color-danger: #f87171;
   --color-danger-bg: #35191c;
+  --color-danger-border: #71343b;
   --color-warning: #facc15;
   --color-warning-bg: #332b12;
+  --color-warning-border: #67581c;
+  --color-info: #7c97fe;
+  --color-info-bg: #1c2440;
+  --color-info-border: #334781;
   --color-neutral: #b7bcc6;
   --color-neutral-bg: #262b36;
   --color-neutral-border: #3a4150;
@@ -81,5 +92,6 @@
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-card-hover: 0 10px 24px -12px rgba(0, 0, 0, 0.5);
   --shadow-popover: 0 12px 28px rgba(0, 0, 0, 0.55);
+  --shadow-modal: 0 24px 48px -12px rgba(0, 0, 0, 0.65);
   color-scheme: dark;
 }

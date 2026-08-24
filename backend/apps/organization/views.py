@@ -50,23 +50,8 @@ class PositionGroupListView(PrivateAPIView):
     serializer_class = PositionGroupSerializer
 
     def get(self, request):
-        groups = {
-            employee.position_group_external_id: employee.position_group_name
-            for employee in get_portal_adapter().search_employees("", limit=1_000)
-            if employee.is_active
-            and employee.position_group_external_id
-            and employee.position_group_name
-        }
-        if not groups:
-            from apps.identity.models import User
-
-            groups = dict(
-                User.objects.filter(is_active=True)
-                .exclude(position_group_external_id="")
-                .values_list("position_group_external_id", "position_group_name")
-            )
-        payload = [
-            {"external_id": external_id, "name": name}
-            for external_id, name in sorted(groups.items(), key=lambda item: item[1])
-        ]
-        return Response(self.serializer_class(payload, many=True).data)
+        groups = sorted(
+            (group for group in get_portal_adapter().list_position_groups() if group.is_active),
+            key=lambda group: group.name,
+        )
+        return Response(self.serializer_class(groups, many=True).data)

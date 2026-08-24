@@ -133,3 +133,13 @@ def test_production_requires_an_isolated_celery_redis_database():
     )
     assert result.returncode != 0
     assert "Celery broker and result backend must use Redis database 2" in result.stderr
+
+
+def test_compose_celery_healthchecks_are_targeted_and_heartbeat_based():
+    compose = (Path(__file__).resolve().parents[2] / "compose.yaml").read_text()
+
+    assert "inspect ping --destination celery@$$HOSTNAME --timeout 5" in compose
+    assert "tandem:celery:reconcile-heartbeat" in compose
+    assert "time.time()-heartbeat < 60" in compose
+    assert "interval: 15s" in compose
+    assert "start_period: 45s" in compose

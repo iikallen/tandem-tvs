@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from apps.identity.portal.mock import EMPLOYEES, MockPortalAdapter
@@ -53,7 +53,8 @@ class Command(BaseCommand):
             },
         )
         engineering = users["admin-1"].org_unit
-        assert engineering is not None
+        if engineering is None:
+            raise CommandError("Mock administrator must belong to an organization unit.")
         replace_audience_rules(publication, org_units=[engineering])
         PublicationView.objects.filter(publication=publication).delete()
         self.stdout.write(self.style.SUCCESS(f"Seeded publication {publication.id}"))

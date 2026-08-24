@@ -31,6 +31,13 @@ class PortalOrgUnit:
 
 
 @dataclass(frozen=True, slots=True)
+class PortalPositionGroup:
+    external_id: str
+    name: str
+    is_active: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class PortalHealth:
     available: bool
     detail: str = ""

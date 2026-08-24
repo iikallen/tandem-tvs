@@ -43,18 +43,20 @@ class PublicationQuerySet(models.QuerySet):
         audience = Q(kind="ALL") | Q(kind="EMPLOYEE", employee=user)
         org_unit = getattr(user, "org_unit", None)
         if org_unit is not None and org_unit.is_active:
-            audience |= Q(kind="ORG_UNIT", org_unit=org_unit)
+            audience |= Q(kind="ORG_UNIT", org_unit=org_unit, org_unit__is_active=True)
             ancestor_ids: list[str] = []
             current = org_unit.parent
             seen: set[int] = set()
             while current is not None and current.pk not in seen:
                 seen.add(current.pk)
-                ancestor_ids.append(current.external_id)
+                if current.is_active:
+                    ancestor_ids.append(current.external_id)
                 current = current.parent
             if ancestor_ids:
                 audience |= Q(
                     kind="ORG_UNIT",
                     org_unit_id__in=ancestor_ids,
+                    org_unit__is_active=True,
                     include_descendants=True,
                 )
         roles = [role for role in getattr(user, "module_roles", []) if isinstance(role, str)]
@@ -411,19 +413,42 @@ class AuditEventManager(models.Manager["AuditEvent"]):
 
 
 class AuditEvent(models.Model):
+    class TargetType(models.TextChoices):
+        PUBLICATION = "publication", "Publication"
+        CATEGORY = "category", "Category"
+        TAG = "tag", "Tag"
+        MEDIA = "media", "Media"
+
     class Type(models.TextChoices):
         CREATED = "publication.created", "Publication created"
         UPDATED = "publication.updated", "Publication updated"
         PUBLISHED = "publication.published", "Publication published"
         TRANSITIONED = "publication.transitioned", "Publication transitioned"
+        SUBMITTED_FOR_REVIEW = (
+            "publication.submitted_for_review",
+            "Publication submitted for review",
+        )
+        RETURNED_TO_DRAFT = "publication.returned_to_draft", "Publication returned to draft"
+        SCHEDULED = "publication.scheduled", "Publication scheduled"
+        SCHEDULE_CANCELLED = "publication.schedule_cancelled", "Publication schedule cancelled"
+        UNPUBLISHED = "publication.unpublished", "Publication unpublished"
+        ARCHIVED = "publication.archived", "Publication archived"
         DUPLICATED = "publication.duplicated", "Publication duplicated"
         PINNED = "publication.pinned", "Publication pinned"
         UNPINNED = "publication.unpinned", "Publication unpinned"
+        CATEGORY_CREATED = "taxonomy.category.created", "Category created"
+        CATEGORY_UPDATED = "taxonomy.category.updated", "Category updated"
+        TAG_CREATED = "taxonomy.tag.created", "Tag created"
+        TAG_UPDATED = "taxonomy.tag.updated", "Tag updated"
+        MEDIA_UPLOADED = "media.uploaded", "Media uploaded"
+        MEDIA_DELETED = "media.deleted", "Media deleted"
 
     publication = models.ForeignKey(
         Publication,
         on_delete=models.PROTECT,
         related_name="audit_events",
+        null=True,
+        blank=True,
     )
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -431,21 +456,38 @@ class AuditEvent(models.Model):
         related_name="publication_audit_events",
     )
     event_type = models.CharField(max_length=64, choices=Type)
+    target_type = models.CharField(
+        max_length=32,
+        choices=TargetType,
+        default=TargetType.PUBLICATION,
+    )
+    target_id = models.CharField(max_length=255, blank=True)
     previous_state = models.JSONField(default=dict)
+    new_state = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = AuditEventManager()
 
     class Meta:
         ordering = ["created_at", "id"]
-        indexes = [models.Index(fields=["publication", "created_at"], name="publication_audit_idx")]
+        indexes = [
+            models.Index(fields=["publication", "created_at"], name="publication_audit_idx"),
+            models.Index(
+                fields=["target_type", "target_id", "created_at"],
+                name="module_audit_target_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.event_type}: {self.publication.pk}"
+        return f"{self.event_type}: {self.target_type}/{self.target_id}"
 
     def save(self, *args, **kwargs):
         if self.pk:
             raise ValidationError("Audit events are append-only.")
+        publication_id = getattr(self, "publication_id", None)
+        if publication_id and not self.target_id:
+            self.target_type = self.TargetType.PUBLICATION
+            self.target_id = str(publication_id)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

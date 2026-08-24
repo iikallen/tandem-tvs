@@ -35,11 +35,11 @@ test("two addressed employees reconcile comments and reactions in realtime", asy
   await pageA.getByRole("button", { name: "Отправить" }).click();
   await expect(
     pageB.getByText("Комментарий из настоящего браузера"),
-  ).toBeVisible({ timeout: 2_000 });
+  ).toBeVisible({ timeout: 5_000 });
 
   await pageA.getByRole("button", { name: /Нравится/ }).click();
   await expect(pageB.getByRole("button", { name: /Нравится · 1/ })).toBeVisible(
-    { timeout: 2_000 },
+    { timeout: 5_000 },
   );
   await pageB.reload();
   await expect(

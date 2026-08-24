@@ -2,7 +2,13 @@ from typing import Protocol
 
 from django.http import HttpRequest
 
-from .types import PortalEmployee, PortalHealth, PortalIdentity, PortalOrgUnit
+from .types import (
+    PortalEmployee,
+    PortalHealth,
+    PortalIdentity,
+    PortalOrgUnit,
+    PortalPositionGroup,
+)
 
 
 class PortalAdapter(Protocol):
@@ -18,5 +24,7 @@ class PortalAdapter(Protocol):
     ) -> tuple[PortalEmployee, ...]: ...
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]: ...
+
+    def list_position_groups(self) -> tuple[PortalPositionGroup, ...]: ...
 
     def healthcheck(self) -> PortalHealth: ...

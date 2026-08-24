@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 
 import { api } from "../../shared/api";
+import { t } from "../../shared/i18n";
 import { Card } from "../../shared/ui/Card";
 import { PageState } from "../../shared/ui/PageState";
 import { EditorialGuard } from "./EditorialGuard";
@@ -26,25 +27,29 @@ function VersionHistory() {
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Редакция</p>
-          <h1>История версий</h1>
+          <p className="overline">{t("editorial")}</p>
+          <h1>{t("versionHistory")}</h1>
         </div>
       </header>
       <div className="version-list">
         {versions.data.map((version) => (
           <Card key={version.version_number}>
             <div className="editorial-card__meta">
-              <strong>Версия {version.version_number}</strong>
+              <strong>
+                {t("versionNumber", { number: version.version_number })}
+              </strong>
               <span>{new Date(version.created_at).toLocaleString()}</span>
             </div>
             <p>
               {version.actor.full_name} · {version.reason}
             </p>
             <p>
-              Изменено: {version.changed_fields.join(", ") || "первый снимок"}
+              {t("changedFields", {
+                fields: version.changed_fields.join(", ") || t("firstSnapshot"),
+              })}
             </p>
             <details>
-              <summary>Снимок</summary>
+              <summary>{t("snapshot")}</summary>
               <pre className="version-json">
                 {JSON.stringify(version.snapshot, null, 2)}
               </pre>

@@ -1,7 +1,13 @@
 from django.http import HttpRequest
 
 from .exceptions import PortalUnavailableError
-from .types import PortalEmployee, PortalHealth, PortalIdentity, PortalOrgUnit
+from .types import (
+    PortalEmployee,
+    PortalHealth,
+    PortalIdentity,
+    PortalOrgUnit,
+    PortalPositionGroup,
+)
 
 
 class UnavailablePortalAdapter:
@@ -17,6 +23,9 @@ class UnavailablePortalAdapter:
         raise PortalUnavailableError
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]:
+        raise PortalUnavailableError
+
+    def list_position_groups(self) -> tuple[PortalPositionGroup, ...]:
         raise PortalUnavailableError
 
     def healthcheck(self) -> PortalHealth:

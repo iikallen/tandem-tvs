@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import TypedDict, cast
 
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Max
 from django.utils import timezone
 from django.utils.text import slugify
@@ -225,6 +225,27 @@ def publication_snapshot(publication: Publication) -> dict[str, object]:
     }
 
 
+def record_audit_event(
+    *,
+    actor: User,
+    event_type: str,
+    target_type: str,
+    target_id: object,
+    previous_state: dict[str, object] | None = None,
+    new_state: dict[str, object] | None = None,
+    publication: Publication | None = None,
+) -> AuditEvent:
+    return AuditEvent.objects.create(
+        actor=actor,
+        event_type=event_type,
+        target_type=target_type,
+        target_id=str(target_id),
+        previous_state=previous_state or {},
+        new_state=new_state or {},
+        publication=publication,
+    )
+
+
 def _iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
@@ -371,8 +392,13 @@ def create_publication(*, actor: User, data: dict[str, object]) -> Publication:
     _set_tags(publication, tags)
     set_publication_audience(publication, audience)
     _set_media_usages(publication, cover=cover, body_assets=body_assets, attachments=attachments)
-    AuditEvent.objects.create(
-        publication=publication, actor=actor, event_type=AuditEvent.Type.CREATED
+    record_audit_event(
+        publication=publication,
+        actor=actor,
+        event_type=AuditEvent.Type.CREATED,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=publication.pk,
+        new_state=publication_snapshot(publication),
     )
     create_version(publication, actor=actor, reason="created")
     return publication
@@ -425,11 +451,14 @@ def update_publication(
             body_assets=body_assets if body_assets is not None else current.get("BODY", []),
             attachments=(attachments if attachments is not None else current.get("ATTACHMENT", [])),
         )
-    AuditEvent.objects.create(
+    record_audit_event(
         publication=publication,
         actor=actor,
         event_type=AuditEvent.Type.UPDATED,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=publication.pk,
         previous_state=previous,
+        new_state=publication_snapshot(publication),
     )
     create_version(
         publication,
@@ -525,13 +554,23 @@ def _apply_transition_locked(
         PublicationPin.objects.filter(publication=publication).delete()
     publication.full_clean()
     publication.save()
-    AuditEvent.objects.create(
+    event_type = {
+        "publish": AuditEvent.Type.PUBLISHED,
+        "submit-review": AuditEvent.Type.SUBMITTED_FOR_REVIEW,
+        "return-to-draft": AuditEvent.Type.RETURNED_TO_DRAFT,
+        "schedule": AuditEvent.Type.SCHEDULED,
+        "cancel-schedule": AuditEvent.Type.SCHEDULE_CANCELLED,
+        "unpublish": AuditEvent.Type.UNPUBLISHED,
+        "archive": AuditEvent.Type.ARCHIVED,
+    }[action]
+    record_audit_event(
         publication=publication,
         actor=actor,
-        event_type=(
-            AuditEvent.Type.PUBLISHED if action == "publish" else AuditEvent.Type.TRANSITIONED
-        ),
+        event_type=event_type,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=publication.pk,
         previous_state=previous,
+        new_state=publication_snapshot(publication),
     )
     create_version(publication, actor=actor, reason=f"lifecycle:{action}", previous=previous)
     return publication
@@ -615,11 +654,22 @@ def pin_publication(publication: Publication, *, actor: User, slot: int) -> Publ
     occupied = PublicationPin.objects.select_for_update().filter(slot=slot).first()
     if occupied is not None and occupied.publication.pk != publication.pk:
         raise ValidationError("Pin slot is already occupied.")
-    pin, _ = PublicationPin.objects.update_or_create(
-        publication=publication, defaults={"slot": slot, "pinned_by": actor}
-    )
-    AuditEvent.objects.create(
-        publication=publication, actor=actor, event_type=AuditEvent.Type.PINNED
+    previous = PublicationPin.objects.filter(publication=publication).values("slot").first() or {}
+    try:
+        with transaction.atomic():
+            pin, _ = PublicationPin.objects.update_or_create(
+                publication=publication, defaults={"slot": slot, "pinned_by": actor}
+            )
+    except IntegrityError as exc:
+        raise ValidationError("Pin slot is already occupied.") from exc
+    record_audit_event(
+        publication=publication,
+        actor=actor,
+        event_type=AuditEvent.Type.PINNED,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=publication.pk,
+        previous_state=previous,
+        new_state={"slot": pin.slot},
     )
     return pin
 
@@ -629,9 +679,15 @@ def unpin_publication(publication: Publication, *, actor: User) -> None:
     if not is_editor(actor):
         raise PermissionDenied("An editor role is required.")
     publication = Publication.objects.select_for_update().get(pk=publication.pk)
+    previous = PublicationPin.objects.filter(publication=publication).values("slot").first() or {}
     PublicationPin.objects.filter(publication=publication).delete()
-    AuditEvent.objects.create(
-        publication=publication, actor=actor, event_type=AuditEvent.Type.UNPINNED
+    record_audit_event(
+        publication=publication,
+        actor=actor,
+        event_type=AuditEvent.Type.UNPINNED,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=publication.pk,
+        previous_state=previous,
     )
 
 
@@ -660,11 +716,14 @@ def duplicate_publication(publication: Publication, *, actor: User) -> Publicati
             "attachments": [u.asset for u in usages if u.purpose == MediaUsage.Purpose.ATTACHMENT],
         },
     )
-    AuditEvent.objects.create(
+    record_audit_event(
         publication=clone,
         actor=actor,
         event_type=AuditEvent.Type.DUPLICATED,
+        target_type=AuditEvent.TargetType.PUBLICATION,
+        target_id=clone.pk,
         previous_state={"source_publication_id": str(source.pk)},
+        new_state=publication_snapshot(clone),
     )
     return clone
 
