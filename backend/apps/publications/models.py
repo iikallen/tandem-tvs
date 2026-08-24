@@ -11,6 +11,7 @@ from django.db.models import Q
 from django.db.models.functions import Cast, Concat
 from django.utils import timezone
 
+from apps.identity.permissions import legacy_news_roles
 from apps.organization.models import OrgUnit
 
 from .rich_text import (
@@ -59,7 +60,7 @@ class PublicationQuerySet(models.QuerySet):
                     org_unit__is_active=True,
                     include_descendants=True,
                 )
-        roles = [role for role in getattr(user, "module_roles", []) if isinstance(role, str)]
+        roles = legacy_news_roles(user)
         if roles:
             audience |= Q(kind="MODULE_ROLE", module_role__in=roles)
         position_group_id = getattr(user, "position_group_external_id", "")
@@ -404,7 +405,7 @@ class PublicationView(models.Model):
 
 
 class PublicationRecipient(models.Model):
-    """Portal identity snapshot used as the exact analytics/ack denominator."""
+    """Identity snapshot used as the exact analytics/ack denominator."""
 
     publication = models.ForeignKey(
         Publication, on_delete=models.PROTECT, related_name="recipient_snapshots"
@@ -412,7 +413,7 @@ class PublicationRecipient(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="publication_recipients"
     )
-    portal_id = models.CharField(max_length=128)
+    portal_id = models.CharField(max_length=128, blank=True, default="")
     full_name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     org_unit_external_id = models.CharField(max_length=128, blank=True)
@@ -428,12 +429,12 @@ class PublicationRecipient(models.Model):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["publication", "portal_id"], name="pub_recipient_unique"
+                fields=["publication", "user"], name="pub_recipient_user_unique"
             )
         ]
 
     def __str__(self) -> str:
-        return f"{self.publication.pk}: {self.portal_id}"
+        return f"{self.publication.pk}: {self.portal_id or self.user.pk}"
 
 
 class AcknowledgementQuerySet(models.QuerySet):

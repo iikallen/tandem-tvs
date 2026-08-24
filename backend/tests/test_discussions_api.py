@@ -8,10 +8,11 @@ from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
 from apps.publications.models import AudienceRule, Category, Publication, PublicationView
 from apps.publications.views import employee_news_queryset
+from tests.helpers import force_authenticate_portal_fixture
 
 
 def as_user(client: APIClient, settings, portal_id: str, method: str, path: str, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    force_authenticate_portal_fixture(client, portal_id)
     return getattr(client, method)(path, data, format="json")
 
 

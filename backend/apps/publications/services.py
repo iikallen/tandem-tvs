@@ -13,7 +13,8 @@ from django.utils.text import slugify
 from rest_framework.exceptions import APIException
 from rest_framework.generics import get_object_or_404
 
-from apps.identity.models import User
+from apps.identity.models import AccessGrant, User
+from apps.identity.permissions import has_any_role
 from apps.identity.portal import get_portal_adapter
 from apps.identity.services import provision_user
 from apps.organization.models import OrgUnit
@@ -33,7 +34,6 @@ from .models import (
     Tag,
 )
 
-EDITORIAL_ROLES = {"editor", "admin", "administrator"}
 EDITABLE_BY_AUTHOR = {Publication.Status.DRAFT, Publication.Status.UNPUBLISHED}
 EDITABLE_BY_EDITOR = {
     Publication.Status.DRAFT,
@@ -69,7 +69,11 @@ class AudiencePayload(TypedDict):
 
 
 def is_editor(user: object) -> bool:
-    return bool(EDITORIAL_ROLES.intersection(getattr(user, "module_roles", [])))
+    return has_any_role(
+        user,
+        AccessGrant.Module.NEWS,
+        {AccessGrant.Role.EDITOR, AccessGrant.Role.ADMIN},
+    )
 
 
 def can_edit_publication(user: User, publication: Publication) -> bool:

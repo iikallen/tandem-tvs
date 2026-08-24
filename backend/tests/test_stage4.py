@@ -17,6 +17,7 @@ from rest_framework.test import APIClient
 
 from apps.identity.managers import UserManager
 from apps.identity.models import User
+from apps.identity.services import grant_legacy_roles
 from apps.organization.models import OrgUnit
 from apps.publications import services as publication_services
 from apps.publications.media import (
@@ -108,6 +109,10 @@ def stage4_domain():
         module_roles=["employee"],
         org_unit=root,
     )
+    grant_legacy_roles(author, ["author"])
+    grant_legacy_roles(editor, ["editor"])
+    grant_legacy_roles(employee, ["employee"])
+    grant_legacy_roles(outsider, ["employee"])
     category = Category.objects.create(slug="stage4", name="Stage 4")
     return author, editor, employee, outsider, category, root, branch, department
 

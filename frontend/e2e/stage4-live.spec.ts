@@ -1,5 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
+import { authenticateContext, authenticatedContext } from "./auth";
+
 test.describe.configure({ mode: "serial" });
 
 const body = (text: string) => ({
@@ -32,9 +34,7 @@ test("author autosaves and editor publishes the review", async ({
   browser,
 }) => {
   const suffix = Date.now().toString();
-  const author = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "author-1" },
-  });
+  const author = await authenticatedContext(browser, "author-1");
   const authorPage = await author.newPage();
   const draft = await createDraft(author.request, suffix);
   await authorPage.goto(`/editorial/publications/${draft.id}`);
@@ -48,9 +48,7 @@ test("author autosaves and editor publishes the review", async ({
   await authorPage.getByRole("button", { name: "На согласование" }).click();
   await expect(authorPage).toHaveURL(/\/editorial\/publications$/);
 
-  const editor = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "editor-1" },
-  });
+  const editor = await authenticatedContext(browser, "editor-1");
   const editorPage = await editor.newPage();
   await editorPage.goto("/editorial/review");
   await expect(editorPage.getByText(revisedTitle)).toBeVisible();
@@ -58,16 +56,12 @@ test("author autosaves and editor publishes the review", async ({
   await editorPage.getByRole("button", { name: "Опубликовать" }).click();
   await expect(editorPage).toHaveURL(/\/editorial\/publications$/);
 
-  const addressed = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "employee-1" },
-  });
+  const addressed = await authenticatedContext(browser, "employee-1");
   const addressedPage = await addressed.newPage();
   await addressedPage.goto(`/news/${draft.id}`);
   await expect(addressedPage.getByText(revisedTitle)).toBeVisible();
 
-  const outsider = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "admin-1" },
-  });
+  const outsider = await authenticatedContext(browser, "admin-1");
   const outsiderPage = await outsider.newPage();
   await outsiderPage.goto(`/news/${draft.id}`);
   await expect(outsiderPage.getByRole("alert")).toBeVisible();
@@ -83,9 +77,7 @@ test("author autosaves and editor publishes the review", async ({
 test("protected media survives HTTP delivery and Stage 4 layouts do not overflow", async ({
   browser,
 }) => {
-  const editor = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "editor-1" },
-  });
+  const editor = await authenticatedContext(browser, "editor-1");
   const upload = await editor.request.post("/api/v1/editorial/media", {
     multipart: {
       file: {
@@ -102,9 +94,7 @@ test("protected media survives HTTP delivery and Stage 4 layouts do not overflow
   const asset = await upload.json();
   expect((await editor.request.get(asset.content_url)).status()).toBe(200);
 
-  const outsider = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "employee-1" },
-  });
+  const outsider = await authenticatedContext(browser, "employee-1");
   expect((await outsider.request.get(asset.content_url)).status()).toBe(404);
   await outsider.close();
   await editor.close();
@@ -112,8 +102,8 @@ test("protected media survives HTTP delivery and Stage 4 layouts do not overflow
   for (const width of [360, 390, 768, 1440]) {
     const context = await browser.newContext({
       viewport: { width, height: 900 },
-      extraHTTPHeaders: { "X-Mock-Portal-User": "editor-1" },
     });
+    await authenticateContext(context, "editor-1");
     const page = await context.newPage();
     await page.goto("/editorial/publications/new");
     await expect(

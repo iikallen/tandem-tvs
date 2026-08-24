@@ -14,7 +14,6 @@ import django  # noqa: E402
 
 django.setup()
 
-from django.conf import settings  # noqa: E402
 from django.utils import timezone  # noqa: E402
 from rest_framework.test import APIClient  # noqa: E402
 
@@ -26,7 +25,10 @@ client = APIClient()
 
 
 def request(portal_id: str, method: str, path: str, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    client.force_authenticate(user=None)
+    user = User.objects.get(portal_id=portal_id)
+    if user.is_active:
+        client.force_authenticate(user=user)
     response = getattr(client, method)(path, data, format="json", HTTP_HOST="localhost")
     return response
 

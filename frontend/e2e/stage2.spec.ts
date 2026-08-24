@@ -1,6 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
 
 const employee = {
+  id: 4,
+  username: "admin-1",
   portal_id: "admin-1",
   full_name: "Нурлан Касымов",
   email: "n@example.invalid",
@@ -14,6 +16,13 @@ const employee = {
     parent_external_id: "company",
   },
   module_roles: ["employee", "admin"],
+  is_active: true,
+  activated_at: "2026-08-23T08:00:00Z",
+  access: {
+    platform: ["ADMIN"],
+    news: ["MEMBER", "ADMIN"],
+    messenger: ["MEMBER"],
+  },
 };
 const publication = {
   id: "b7a9e052-b4e6-4f58-8bbf-fc64257261e9",
@@ -35,6 +44,13 @@ const publication = {
 };
 
 async function mockProfile(page: Page, profile = employee) {
+  await page.route("**/api/v1/auth/session", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ authenticated: true, user: profile }),
+    }),
+  );
   await page.route("**/api/v1/me", (route) =>
     route.fulfill({
       status: 200,
@@ -47,9 +63,16 @@ async function mockProfile(page: Page, profile = employee) {
 test("editor creates and publishes Регламент VPN", async ({ page }) => {
   await mockProfile(page, {
     ...employee,
+    id: 3,
+    username: "editor-1",
     portal_id: "editor-1",
     full_name: "Дмитрий Орлов",
     module_roles: ["employee", "editor"],
+    access: {
+      platform: [],
+      news: ["MEMBER", "EDITOR"],
+      messenger: ["MEMBER"],
+    },
   });
   await page.route("**/api/v1/news/categories", (route) =>
     route.fulfill({

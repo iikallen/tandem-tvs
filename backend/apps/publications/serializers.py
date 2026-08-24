@@ -20,7 +20,7 @@ from .services import audience_payload, create_publication, update_publication
 class UserSummarySerializer(serializers.ModelSerializer):
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = User
-        fields = ["portal_id", "full_name", "job_title"]
+        fields = ["id", "username", "portal_id", "full_name", "job_title"]
 
 
 class CategorySerializer(serializers.ModelSerializer):

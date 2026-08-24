@@ -515,7 +515,10 @@ function CommentItem({
         window.prompt(t("reportReason")) ?? "",
       ),
   });
-  const own = me.data?.portal_id === comment.author.portal_id;
+  const own =
+    (comment.author.id != null && me.data?.id === comment.author.id) ||
+    (comment.author.portal_id != null &&
+      me.data?.portal_id === comment.author.portal_id);
   const canEdit = comment.can_edit ?? own;
   const canDelete = comment.can_delete ?? own;
   const tombstone = comment.status !== "ACTIVE";

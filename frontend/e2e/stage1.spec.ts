@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+import { authenticatePage } from "./auth";
+
+test.beforeEach(async ({ page }) => {
+  await authenticatePage(page);
+});
+
 test("loads the portal projection and navigates to an employee search result", async ({
   page,
 }) => {
@@ -8,7 +14,7 @@ test("loads the portal projection and navigates to an employee search result", a
   await expect(
     page.getByRole("heading", { name: "Здравствуйте, Алия" }),
   ).toBeVisible();
-  await expect(page.getByText("SSO подключён")).toBeVisible();
+  await expect(page.getByText("Локальная сессия защищена")).toBeVisible();
 
   await page
     .getByRole("navigation", { name: "Основная навигация" })
@@ -64,30 +70,27 @@ test("supports theme switching", async ({ page }) => {
   );
 });
 
-test("does not expose local authentication routes", async ({ request }) => {
-  for (const path of ["/login", "/register", "/password-reset", "/api/token"]) {
+test("does not expose registration or token authentication APIs", async ({
+  request,
+}) => {
+  for (const path of ["/api/v1/auth/register", "/api/token"]) {
     const response = await request.get(path);
     expect(response.status(), path).toBe(404);
   }
+  expect((await request.get("/api/v1/auth/session")).status()).toBe(200);
 });
 
-test("renders a stable blocked-account screen", async ({ page }) => {
-  await page.route("**/api/v1/me", (route) =>
+test("renders the login screen when the local session is unavailable", async ({
+  page,
+}) => {
+  await page.route("**/api/v1/auth/session", (route) =>
     route.fulfill({
-      status: 403,
+      status: 200,
       contentType: "application/json",
-      body: JSON.stringify({
-        error: {
-          code: "portal_account_blocked",
-          message: "Portal account is blocked.",
-        },
-      }),
+      body: JSON.stringify({ authenticated: false, user: null }),
     }),
   );
 
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Доступ заблокирован" }),
-  ).toBeVisible();
-  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Войти" })).toBeVisible();
 });

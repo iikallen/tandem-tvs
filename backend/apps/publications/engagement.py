@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
+from apps.identity.permissions import legacy_news_roles
 from apps.organization.models import OrgUnit
 
 from .models import (
@@ -61,7 +62,7 @@ def resolve_recipient_users(publication: Publication):
     def matches(user: User) -> bool:
         if user.portal_id in employee_ids:
             return True
-        if roles.intersection(role for role in user.module_roles if isinstance(role, str)):
+        if roles.intersection(legacy_news_roles(user)):
             return True
         if user.position_group_external_id in position_groups:
             return True
@@ -81,7 +82,9 @@ def resolve_recipient_users(publication: Publication):
 
     return [
         user
-        for user in User.objects.filter(is_active=True).select_related("org_unit")
+        for user in User.objects.filter(is_active=True)
+        .select_related("org_unit")
+        .prefetch_related("access_grants")
         if matches(user)
     ]
 
@@ -90,27 +93,25 @@ def resolve_recipient_users(publication: Publication):
 def refresh_recipient_snapshot(publication: Publication) -> list[PublicationRecipient]:
     publication = Publication.objects.select_for_update().get(pk=publication.pk)
     users = resolve_recipient_users(publication)
-    current_ids = {user.portal_id for user in users}
+    current_ids = {user.pk for user in users}
     PublicationRecipient.objects.filter(publication=publication).exclude(
-        portal_id__in=current_ids
+        user_id__in=current_ids
     ).update(is_current=False)
     rows = []
     for user in users:
         org = user.org_unit
-        row, _ = PublicationRecipient.objects.get_or_create(
+        row, _ = PublicationRecipient.objects.update_or_create(
             publication=publication,
-            portal_id=user.portal_id,
+            user=user,
             defaults={
-                "user": user,
+                "portal_id": user.portal_id or "",
                 "full_name": user.full_name,
                 "email": user.email,
                 "org_unit_external_id": org.external_id if org else "",
                 "org_unit_name": org.name if org else "",
+                "is_current": True,
             },
         )
-        if not row.is_current:
-            row.is_current = True
-            row.save(update_fields=["is_current"])
         rows.append(row)
     return rows
 

@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import { api } from "../../shared/api";
 import { roleLabel, t } from "../../shared/i18n";
@@ -24,8 +25,12 @@ export function ProfilePage() {
       <Card>
         <dl className="definition-list">
           <div>
+            <dt>{t("username")}</dt>
+            <dd>{user.username}</dd>
+          </div>
+          <div>
             <dt>{t("portalId")}</dt>
-            <dd>{user.portal_id}</dd>
+            <dd>{user.portal_id || t("notSpecified")}</dd>
           </div>
           <div>
             <dt>{t("email")}</dt>
@@ -46,13 +51,16 @@ export function ProfilePage() {
           <div>
             <dt>{t("roles")}</dt>
             <dd className="badge-row">
-              {user.module_roles.map((role) => (
-                <Badge key={role}>{roleLabel(role)}</Badge>
+              {user.access.news.map((role) => (
+                <Badge key={role}>{roleLabel(role.toLowerCase())}</Badge>
               ))}
             </dd>
           </div>
         </dl>
       </Card>
+      <Link className="button button--secondary" to="/profile/password">
+        {t("changePassword")}
+      </Link>
     </div>
   );
 }

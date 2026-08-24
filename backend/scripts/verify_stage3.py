@@ -31,7 +31,10 @@ client = APIClient()
 
 
 def request(portal_id: str, method: str, path: str, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    client.force_authenticate(user=None)
+    user = User.objects.get(portal_id=portal_id)
+    if user.is_active:
+        client.force_authenticate(user=user)
     return getattr(client, method)(path, data, format="json", HTTP_HOST="localhost")
 
 

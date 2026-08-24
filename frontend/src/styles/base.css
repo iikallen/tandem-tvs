@@ -1359,6 +1359,122 @@ h3 {
 .tiptap-editor .tiptap > * + * {
   margin-top: 10px;
 }
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(
+      circle at 85% 10%,
+      rgba(109, 94, 252, 0.18),
+      transparent 32%
+    ),
+    var(--bg-page);
+}
+.auth-card {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 24px;
+  padding: clamp(24px, 6vw, 40px);
+  border: 1px solid var(--border-default);
+  border-radius: 24px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-modal);
+}
+.auth-card header,
+.auth-form,
+.auth-form label,
+.issued-link,
+.search-field {
+  display: grid;
+  gap: 8px;
+}
+.auth-card header {
+  gap: 6px;
+}
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.auth-form {
+  gap: 16px;
+}
+.auth-form input,
+.issued-link input,
+.search-field input,
+.user-create-grid input {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-input);
+  border-radius: 10px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+.password-field {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+.password-field button {
+  border: 0;
+  color: var(--accent-primary);
+  background: transparent;
+  cursor: pointer;
+}
+.form-error {
+  color: var(--color-danger);
+}
+.field-hint,
+.user-row small {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.narrow-form {
+  width: min(100%, 520px);
+}
+.user-create-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 12px;
+  align-items: end;
+}
+.user-create-grid label {
+  display: grid;
+  gap: 6px;
+}
+.issued-link {
+  margin-top: 16px;
+}
+.user-list {
+  display: grid;
+  gap: 12px;
+}
+.user-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+.user-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+.role-editor {
+  grid-column: 1 / -1;
+}
+.role-editor summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.role-editor__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -1426,7 +1542,9 @@ h3 {
   }
   .filter-grid,
   .editor-form,
-  .taxonomy-grid {
+  .taxonomy-grid,
+  .user-create-grid,
+  .user-row {
     grid-template-columns: 1fr;
   }
   .file-upload {

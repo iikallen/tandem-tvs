@@ -7,6 +7,8 @@ import { App } from "./App";
 
 const id = "00000000-0000-0000-0000-000000003001";
 const me = {
+  id: 1,
+  username: "employee-1",
   portal_id: "employee-1",
   full_name: "Алия Байжанова",
   email: "a@example.invalid",
@@ -15,6 +17,9 @@ const me = {
   avatar_url: "",
   org_unit: null,
   module_roles: ["employee"],
+  is_active: true,
+  activated_at: "2026-08-23T08:00:00Z",
+  access: { platform: [], news: ["MEMBER"], messenger: ["MEMBER"] },
 };
 const publication = {
   id,
@@ -69,6 +74,8 @@ test("creates a comment and toggles LIKE with accessible controls", async () => 
   const fetchMock = vi.fn(
     async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/v1/auth/session"))
+        return response({ authenticated: true, user: me });
       if (url.endsWith("/api/v1/me")) return response(me);
       if (url.endsWith("/api/v1/realtime/tickets"))
         return response({ ticket: "ticket", expires_in: 30 });
@@ -122,11 +129,19 @@ test("creates a comment and toggles LIKE with accessible controls", async () => 
 
 test("shows edit controls only for the current employee's active comment", async () => {
   window.history.pushState({}, "", `/news/${id}`);
-  const other = { ...me, portal_id: "author-1", full_name: "Другой сотрудник" };
+  const other = {
+    ...me,
+    id: 2,
+    username: "author-1",
+    portal_id: "author-1",
+    full_name: "Другой сотрудник",
+  };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.endsWith("/api/v1/auth/session"))
+        return response({ authenticated: true, user: me });
       if (url.endsWith("/api/v1/me")) return response(me);
       if (url.endsWith("/api/v1/realtime/tickets"))
         return response({ ticket: "ticket", expires_in: 30 });

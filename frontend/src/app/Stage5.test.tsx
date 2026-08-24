@@ -7,6 +7,8 @@ import { App } from "./App";
 
 const id = "00000000-0000-0000-0000-000000005001";
 const employee = {
+  id: 1,
+  username: "employee-1",
   portal_id: "employee-1",
   full_name: "Алия Байжанова",
   email: "a@example.invalid",
@@ -15,6 +17,9 @@ const employee = {
   avatar_url: "",
   org_unit: null,
   module_roles: ["employee"],
+  is_active: true,
+  activated_at: "2026-08-23T08:00:00Z",
+  access: { platform: [], news: ["MEMBER"], messenger: ["MEMBER"] },
 };
 
 function response(body: unknown, status = 200): Response {
@@ -89,6 +94,8 @@ test("renders acknowledgement, threaded replies and configured reactions", async
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/api/v1/auth/session"))
+        return response({ authenticated: true, user: employee });
       if (url.endsWith("/api/v1/me")) return response(employee);
       if (url.endsWith("/api/v1/realtime/tickets"))
         return response({ ticket: "ticket", expires_in: 30 });
@@ -158,13 +165,22 @@ test("shows editorial analytics with exact values and CSV action", async () => {
   window.history.pushState({}, "", "/editorial/analytics");
   const editor = {
     ...employee,
+    id: 2,
+    username: "editor-1",
     portal_id: "editor-1",
     module_roles: ["editor"],
+    access: {
+      platform: [],
+      news: ["EDITOR"],
+      messenger: ["MEMBER"],
+    },
   };
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.endsWith("/api/v1/auth/session"))
+        return response({ authenticated: true, user: editor });
       if (url.endsWith("/api/v1/me")) return response(editor);
       return response({
         results: [

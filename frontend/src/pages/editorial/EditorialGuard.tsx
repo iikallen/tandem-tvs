@@ -9,8 +9,8 @@ export function EditorialGuard({ children }: { children: ReactNode }) {
   if (me.isPending) return <PageState kind="loading" />;
   if (me.isError) return <PageState error={me.error} />;
   if (
-    !me.data.module_roles.some((role) =>
-      ["author", "editor", "admin", "administrator"].includes(role),
+    !me.data.access.news.some((role) =>
+      ["AUTHOR", "EDITOR", "ADMIN"].includes(role),
     )
   ) {
     return <PageState error={new Error("Editorial role required")} />;

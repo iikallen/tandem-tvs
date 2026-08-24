@@ -27,6 +27,7 @@ from django.utils import timezone  # noqa: E402
 from PIL import Image  # noqa: E402
 from rest_framework.test import APIClient  # noqa: E402
 
+from apps.identity.models import User  # noqa: E402
 from apps.publications.models import Publication, PublicationPin, PublicationVersion  # noqa: E402
 
 STATE_FILE = Path(settings.MEDIA_ROOT) / ".stage4-acceptance-started"
@@ -34,7 +35,10 @@ client = APIClient()
 
 
 def request(portal_id: str, method: str, path: str, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    client.force_authenticate(user=None)
+    user = User.objects.get(portal_id=portal_id)
+    if user.is_active:
+        client.force_authenticate(user=user)
     return getattr(client, method)(path, data, format="json", HTTP_HOST="localhost")
 
 
@@ -66,7 +70,7 @@ def prepare() -> None:
     assert settings.CELERY_BROKER_URL.rstrip("/").endswith("/2")
     call_command("seed_stage2_demo", verbosity=0)
     call_command("seed_stage3_demo", verbosity=0)
-    settings.MOCK_PORTAL_USER_ID = "editor-1"
+    client.force_authenticate(User.objects.get(portal_id="editor-1"))
     image = BytesIO()
     Image.new("RGB", (4, 4), "#5b3fd1").save(image, format="PNG")
     upload = client.post(

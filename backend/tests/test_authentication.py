@@ -1,20 +1,13 @@
 import pytest
-from django.test import override_settings
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient
 
-from apps.identity import authentication
-from apps.identity.authentication import PortalAuthentication
+from apps.identity.backends import CaseInsensitiveModelBackend
 from apps.identity.managers import UserManager
-from apps.identity.models import User
-from apps.identity.portal.types import PortalEmployee, PortalIdentity, PortalOrgUnit
-from apps.identity.services import sync_org_units
+from apps.identity.models import AccessGrant, User
+from apps.identity.portal.mock import MockPortalAdapter
+from apps.identity.portal.types import PortalOrgUnit
+from apps.identity.services import provision_user, sync_org_units
 from apps.organization.models import OrgUnit
-
-
-def authenticate():
-    request = APIRequestFactory().get("/api/v1/me")
-    return PortalAuthentication().authenticate(request)
 
 
 def create_user(**fields) -> User:
@@ -24,83 +17,75 @@ def create_user(**fields) -> User:
 
 
 @pytest.mark.django_db
-@override_settings(MOCK_PORTAL_USER_ID="employee-1")
-def test_active_employee_is_jit_provisioned_without_password():
-    result = authenticate()
-    assert result is not None
-
-    user, identity = result
-    assert identity.portal_id == "employee-1"
-    assert user.portal_id == "employee-1"
-    assert user.full_name == "Алия Байжанова"
-    assert user.org_unit.external_id == "communications"
-    assert user.module_roles == ["employee"]
-    assert user.last_portal_sync_at is not None
-    assert not user.has_usable_password()
-
-
-@pytest.mark.django_db
-@override_settings(MOCK_PORTAL_USER_ID="blocked-1")
-def test_blocked_employee_is_denied_and_existing_projection_is_deactivated():
-    create_user(portal_id="blocked-1", full_name="Старое имя")
-
-    with pytest.raises(PermissionDenied) as error:
-        authenticate()
-
-    assert error.value.get_codes() == "portal_account_blocked"
-    assert User.objects.get(portal_id="blocked-1").is_active is False
-
-
-@pytest.mark.django_db
-@override_settings(MOCK_PORTAL_USER_ID="unknown-1")
-def test_unknown_employee_is_denied():
-    with pytest.raises(AuthenticationFailed) as error:
-        authenticate()
-    assert error.value.get_codes() == "unknown_portal_identity"
-
-
-@pytest.mark.django_db
-def test_adapter_cannot_substitute_a_different_employee(monkeypatch):
-    class ConfusedAdapter:
-        def authenticate_request(self, request):
-            return PortalIdentity(portal_id="attacker-id")
-
-        def get_employee(self, portal_id):
-            return PortalEmployee(portal_id="victim-id", full_name="Victim", is_active=True)
-
-    monkeypatch.setattr(authentication, "get_portal_adapter", ConfusedAdapter)
-
-    with pytest.raises(AuthenticationFailed) as error:
-        authenticate()
-
-    assert error.value.get_codes() == "portal_identity_mismatch"
-    assert not User.objects.exists()
-
-
-@pytest.mark.django_db
-@override_settings(MOCK_PORTAL_USER_ID="")
-def test_missing_identity_does_not_authenticate():
-    assert authenticate() is None
-    assert not User.objects.exists()
-
-
-@pytest.mark.django_db
-@override_settings(MOCK_PORTAL_USER_ID="employee-1")
-def test_each_request_refreshes_profile_and_organization_projection():
+def test_local_backend_authenticates_case_insensitively():
     user = create_user(
-        portal_id="employee-1",
-        full_name="Устаревшее имя",
-        email="old@example.invalid",
+        username="Local.Editor",
+        password="correct horse battery staple",
+        full_name="Local Editor",
     )
 
-    authenticate()
+    authenticated = CaseInsensitiveModelBackend().authenticate(
+        None,
+        username="LOCAL.EDITOR",
+        password="correct horse battery staple",
+    )
+
+    assert authenticated == user
+    assert (
+        CaseInsensitiveModelBackend().authenticate(None, username="local.editor", password="wrong")
+        is None
+    )
+
+
+@pytest.mark.django_db
+def test_inactive_local_user_cannot_authenticate():
+    create_user(
+        username="blocked",
+        password="correct horse battery staple",
+        full_name="Blocked",
+        is_active=False,
+    )
+    assert (
+        CaseInsensitiveModelBackend().authenticate(
+            None, username="blocked", password="correct horse battery staple"
+        )
+        is None
+    )
+
+
+@pytest.mark.django_db
+def test_portal_header_cannot_authenticate_a_request():
+    response = APIClient().get("/api/v1/me", HTTP_X_MOCK_PORTAL_USER="employee-1")
+
+    assert response.status_code == 403
+    assert not User.objects.exists()
+
+
+@pytest.mark.django_db
+def test_portal_projection_sync_does_not_overwrite_local_security_state():
+    adapter = MockPortalAdapter()
+    employee = adapter.get_employee("employee-1")
+    assert employee is not None
+    user = create_user(
+        username="employee-1",
+        portal_id="employee-1",
+        password="correct horse battery staple",
+        full_name="Outdated",
+        is_active=False,
+    )
+    AccessGrant.objects.create(user=user, module="NEWS", role="EDITOR")
+
+    provision_user(adapter, employee)
     user.refresh_from_db()
 
     assert user.full_name == "Алия Байжанова"
     assert user.email == "a.baizhanova@tandem.example"
     assert user.org_unit.external_id == "communications"
-    assert OrgUnit.objects.filter(external_id="company").exists()
-    assert not user.has_usable_password()
+    assert user.check_password("correct horse battery staple")
+    assert user.is_active is False
+    assert list(AccessGrant.objects.filter(user=user).values_list("module", "role")) == [
+        ("NEWS", "EDITOR")
+    ]
 
 
 @pytest.mark.django_db

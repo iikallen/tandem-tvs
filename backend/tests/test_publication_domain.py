@@ -7,7 +7,8 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from apps.identity.managers import UserManager
-from apps.identity.models import User
+from apps.identity.models import AccessGrant, User
+from apps.identity.services import grant_legacy_roles
 from apps.organization.models import OrgUnit
 from apps.publications.models import AudienceRule, Category, Publication, PublicationView
 from apps.publications.rich_text import rich_text_to_plain_text, validate_rich_text_document
@@ -403,6 +404,7 @@ def test_visible_to_supports_all_employee_org_unit_and_module_role_union():
     engineer.org_unit = engineering
     engineer.module_roles = ["editor"]
     engineer.save(update_fields=["org_unit", "module_roles"])
+    grant_legacy_roles(engineer, ["editor"])
     finance_user = create_user("finance")
     finance_user.org_unit = finance
     finance_user.save(update_fields=["org_unit"])
@@ -437,4 +439,5 @@ def test_visible_to_supports_all_employee_org_unit_and_module_role_union():
     engineering.save(update_fields=["is_active"])
     engineer.module_roles = []
     engineer.save(update_fields=["module_roles"])
+    AccessGrant.objects.filter(user=engineer, module="NEWS", role="EDITOR").delete()
     assert set(Publication.objects.visible_to(engineer)) == {everyone, employee}

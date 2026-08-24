@@ -1,8 +1,10 @@
 import uuid
 from datetime import UTC, datetime
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.utils import timezone
 
 from apps.identity.portal.mock import EMPLOYEES, MockPortalAdapter
 from apps.identity.services import provision_user
@@ -35,6 +37,18 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         adapter = MockPortalAdapter()
         users = {employee.portal_id: provision_user(adapter, employee) for employee in EMPLOYEES}
+        if not settings.STAGE6_DEMO_PASSWORD:
+            raise CommandError("STAGE6_DEMO_PASSWORD is required for acceptance data.")
+        activated_at = timezone.now()
+        for user in users.values():
+            if not user.is_active:
+                continue
+            user.set_password(settings.STAGE6_DEMO_PASSWORD)
+            user.activated_at = activated_at
+            user.password_changed_at = activated_at
+            user.save(
+                update_fields=["password", "activated_at", "password_changed_at", "updated_at"]
+            )
         category, _ = Category.objects.update_or_create(
             slug="regulations",
             defaults={"name": "Регламенты", "sort_order": 10, "is_active": True},

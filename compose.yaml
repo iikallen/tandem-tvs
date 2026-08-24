@@ -32,7 +32,7 @@ services:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
@@ -42,6 +42,11 @@ services:
       REALTIME_REDIS_URL: redis://redis:6379/1
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      AUTH_MODE: LOCAL_ONLY
+      AUTH_RECOVERY_MODE: ${AUTH_RECOVERY_MODE:-ADMIN_ONLY}
+      AUTH_PUBLIC_BASE_URL: ${AUTH_PUBLIC_BASE_URL:-http://localhost:8080}
+      ALLOW_BOOTSTRAP_LOCAL_ADMIN: ${ALLOW_BOOTSTRAP_LOCAL_ADMIN:-true}
+      STAGE6_DEMO_PASSWORD: ${STAGE6_DEMO_PASSWORD:-Tandem development passphrase 2026}
       MEDIA_ROOT: /app/media
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
@@ -74,7 +79,7 @@ services:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
@@ -85,6 +90,10 @@ services:
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      AUTH_MODE: LOCAL_ONLY
+      AUTH_RECOVERY_MODE: ${AUTH_RECOVERY_MODE:-ADMIN_ONLY}
+      AUTH_PUBLIC_BASE_URL: ${AUTH_PUBLIC_BASE_URL:-http://localhost:8080}
+      ALLOW_BOOTSTRAP_LOCAL_ADMIN: "false"
       MEDIA_ROOT: /app/media
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
     depends_on:
@@ -114,7 +123,7 @@ services:
       DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
-      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,https://tandem-tvs.chatlink.kz}
+      DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
@@ -125,6 +134,10 @@ services:
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       CELERY_BROKER_URL: redis://redis:6379/2
       CELERY_RESULT_BACKEND: redis://redis:6379/2
+      AUTH_MODE: LOCAL_ONLY
+      AUTH_RECOVERY_MODE: ${AUTH_RECOVERY_MODE:-ADMIN_ONLY}
+      AUTH_PUBLIC_BASE_URL: ${AUTH_PUBLIC_BASE_URL:-http://localhost:8080}
+      ALLOW_BOOTSTRAP_LOCAL_ADMIN: "false"
       MEDIA_ROOT: /app/media
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
     depends_on:
