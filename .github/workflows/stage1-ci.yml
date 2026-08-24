@@ -1,4 +1,4 @@
-name: Stage 4 CI
+name: Stage 5 CI
 
 on:
   push:

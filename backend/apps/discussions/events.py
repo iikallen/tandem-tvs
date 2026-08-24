@@ -14,7 +14,7 @@ def publish_after_commit(
     *, event_type: str, publication_id: object, resource_id: object | None
 ) -> None:
     event = {
-        "version": 1,
+        "version": 2,
         "event_id": str(uuid.uuid4()),
         "type": event_type,
         "publication_id": str(publication_id),

@@ -158,6 +158,15 @@ function PublicationForm({
     toLocalInput(initial?.scheduled_for),
   );
   const [expiresAt, setExpiresAt] = useState(toLocalInput(initial?.expires_at));
+  const [commentsEnabled, setCommentsEnabled] = useState(
+    initial?.comments_enabled ?? true,
+  );
+  const [reactionsEnabled, setReactionsEnabled] = useState(
+    initial?.reactions_enabled ?? true,
+  );
+  const [acknowledgementRequired, setAcknowledgementRequired] = useState(
+    initial?.acknowledgement_required ?? false,
+  );
   const [body, setBody] = useState<RichTextNode>(initial?.body ?? EMPTY_BODY);
   const [audienceMode, setAudienceMode] = useState<AudienceMode>(
     initialTargets.everyone
@@ -230,6 +239,9 @@ function PublicationForm({
       attachments,
       body,
       audience,
+      comments_enabled: commentsEnabled,
+      reactions_enabled: reactionsEnabled,
+      acknowledgement_required: acknowledgementRequired,
     }),
     [
       title,
@@ -240,6 +252,9 @@ function PublicationForm({
       attachments,
       body,
       audience,
+      commentsEnabled,
+      reactionsEnabled,
+      acknowledgementRequired,
     ],
   );
 
@@ -507,6 +522,38 @@ function PublicationForm({
             setEmployeeSearch={setEmployeeSearch}
             disabled={!editable}
           />
+          <fieldset className="engagement-options">
+            <legend>{t("publicationOptions")}</legend>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={commentsEnabled}
+                disabled={!editable}
+                onChange={(event) => setCommentsEnabled(event.target.checked)}
+              />
+              {t("allowComments")}
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={reactionsEnabled}
+                disabled={!editable}
+                onChange={(event) => setReactionsEnabled(event.target.checked)}
+              />
+              {t("allowReactions")}
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={acknowledgementRequired}
+                disabled={!editable}
+                onChange={(event) =>
+                  setAcknowledgementRequired(event.target.checked)
+                }
+              />
+              {t("requireAcknowledgement")}
+            </label>
+          </fieldset>
           <button
             className="button button--secondary"
             type="button"

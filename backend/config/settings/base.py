@@ -152,6 +152,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "comment_create": "20/min",
         "comment_edit": "30/min",
+        "comment_upload": "10/min",
         "reaction": "60/min",
         "realtime_ticket": "30/min",
     },

@@ -20,6 +20,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "bandit==1.9.4",
   "basedpyright>=1.31,<2",
   "daphne>=4.2,<5",
   "django-stubs>=5.2,<6",
@@ -27,6 +28,7 @@ dev = [
   "pytest>=9.0.3,<10",
   "pytest-cov>=6,<8",
   "pytest-django>=4.11,<5",
+  "pip-audit==2.10.1",
   "ruff>=0.12,<1",
   "ty>=0.0.1a20,<1",
 ]
@@ -35,7 +37,7 @@ dev = [
 DJANGO_SETTINGS_MODULE = "config.settings.test"
 python_files = ["test_*.py"]
 testpaths = ["tests"]
-addopts = "--strict-markers --strict-config --cov=apps --cov=config --cov-report=term-missing --cov-fail-under=90"
+addopts = "--strict-markers --strict-config --cov=apps --cov=config --cov-report=term-missing --cov-fail-under=93"
 
 [tool.coverage.run]
 omit = ["*/migrations/*", "*/management/commands/*", "config/wsgi.py"]

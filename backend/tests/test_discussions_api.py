@@ -119,7 +119,7 @@ def test_comments_validate_body_page_size_and_stable_cursor(client, publication,
         ]
     )
     first = as_user(client, settings, "employee-1", "get", path)
-    assert len(first.data["results"]) == 30
+    assert len(first.data["results"]) == 20
     assert first.data["next"]
     clamped = as_user(client, settings, "employee-1", "get", path, {"page_size": 101})
     assert clamped.status_code == 200
@@ -135,7 +135,10 @@ def test_reactions_are_like_only_idempotent_and_real_counters(client, publicatio
     assert Reaction.objects.count() == 1
     assert str(Reaction.objects.get()).endswith("LIKE")
     summary = as_user(client, settings, "employee-1", "get", base)
-    assert summary.data == {"total": 1, "counts": {"LIKE": 1}, "mine": ["LIKE"]}
+    assert summary.data["total"] == 1
+    assert summary.data["counts"] == {"LIKE": 1}
+    assert summary.data["mine"] == ["LIKE"]
+    assert summary.data["actors"]["LIKE"][0]["portal_id"] == "employee-1"
     feed = as_user(client, settings, "employee-1", "get", "/api/v1/news")
     assert feed.data["results"][0]["reaction_count"] == 1
     assert as_user(client, settings, "employee-1", "put", f"{base}/FIRE").status_code == 404

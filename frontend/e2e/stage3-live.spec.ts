@@ -7,12 +7,14 @@ test.describe.configure({ mode: "serial" });
 test("two addressed employees reconcile comments and reactions in realtime", async ({
   browser,
 }) => {
+  const commentBody = `Комментарий из настоящего браузера ${Date.now()}`;
   const contextA = await browser.newContext({
     extraHTTPHeaders: { "X-Mock-Portal-User": "employee-1" },
   });
   const contextB = await browser.newContext({
     extraHTTPHeaders: { "X-Mock-Portal-User": "author-1" },
   });
+  await contextA.request.delete(`/api/v1/news/${publicationId}/reactions/LIKE`);
   const pageA = await contextA.newPage();
   const pageB = await contextB.newPage();
 
@@ -29,24 +31,18 @@ test("two addressed employees reconcile comments and reactions in realtime", asy
     pageB.getByText("Обновления в реальном времени подключены"),
   ).toBeVisible();
 
-  await pageA
-    .getByLabel("Комментарий")
-    .fill("Комментарий из настоящего браузера");
+  await pageA.getByLabel("Комментарий").fill(commentBody);
   await pageA.getByRole("button", { name: "Отправить" }).click();
-  await expect(
-    pageB.getByText("Комментарий из настоящего браузера"),
-  ).toBeVisible({ timeout: 5_000 });
+  await expect(pageB.getByText(commentBody)).toBeVisible({ timeout: 5_000 });
 
   await pageA.getByRole("button", { name: /Нравится/ }).click();
-  await expect(pageB.getByRole("button", { name: /Нравится · 1/ })).toBeVisible(
-    { timeout: 5_000 },
-  );
+  await expect(pageB.getByRole("button", { name: /Нравится: 1/ })).toBeVisible({
+    timeout: 5_000,
+  });
   await pageB.reload();
+  await expect(pageB.getByText(commentBody)).toBeVisible();
   await expect(
-    pageB.getByText("Комментарий из настоящего браузера"),
-  ).toBeVisible();
-  await expect(
-    pageB.getByRole("button", { name: /Нравится · 1/ }),
+    pageB.getByRole("button", { name: /Нравится: 1/ }),
   ).toBeVisible();
 
   await contextA.close();
