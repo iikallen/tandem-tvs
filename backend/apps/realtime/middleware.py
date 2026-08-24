@@ -3,6 +3,7 @@ from typing import cast
 from urllib.parse import parse_qs
 
 from asgiref.sync import sync_to_async
+from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
 
 from apps.publications.services import visible_publication_or_404
@@ -34,13 +35,13 @@ class TicketAuthMiddleware(BaseMiddleware):
         if claims is None or claims.scope != expected_scope or claims.resource_id != resource_id:
             mutable_scope["ticket_error"] = True
             return await super().__call__(scope, receive, send)
-        user = await sync_to_async(valid_user_for_ticket, thread_sensitive=False)(claims)
+        user = await database_sync_to_async(valid_user_for_ticket)(claims)
         if user is None:
             mutable_scope["ticket_error"] = True
             return await super().__call__(scope, receive, send)
         if claims.scope == RealtimeScope.NEWS_PUBLICATION:
             try:
-                await sync_to_async(visible_publication_or_404)(user, resource_id)
+                await database_sync_to_async(visible_publication_or_404)(user, resource_id)
             except Exception:
                 mutable_scope["ticket_error"] = True
                 return await super().__call__(scope, receive, send)
