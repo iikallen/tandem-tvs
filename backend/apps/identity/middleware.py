@@ -12,12 +12,17 @@ class AuthSessionExpiryMiddleware:
             now = int(timezone.now().timestamp())
             started = int(request.session.get("auth_started_at", now))
             last_seen = int(request.session.get("auth_last_seen_at", now))
+            session_epoch = int(request.session.get("security_epoch", 0))
             if (
-                now - started > settings.AUTH_SESSION_MAX_AGE_SECONDS
+                session_epoch != request.user.security_epoch
+                or not request.user.is_active
+                or now - started > settings.AUTH_SESSION_MAX_AGE_SECONDS
                 or now - last_seen > settings.AUTH_SESSION_IDLE_SECONDS
             ):
                 logout(request)
             else:
-                request.session["auth_started_at"] = started
-                request.session["auth_last_seen_at"] = now
+                if "auth_started_at" not in request.session:
+                    request.session["auth_started_at"] = started
+                if now - last_seen >= settings.AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS:
+                    request.session["auth_last_seen_at"] = now
         return self.get_response(request)

@@ -725,20 +725,20 @@ function AudienceFields({
             {t("audienceEmployee")}
             <select
               multiple
-              value={audience.employees}
+              value={audience.employees.map(String)}
               disabled={disabled}
               onChange={(event) =>
                 setAudience((current: Audience) => ({
                   ...current,
                   employees: Array.from(
                     event.target.selectedOptions,
-                    (option) => option.value,
+                    (option) => Number(option.value),
                   ),
                 }))
               }
             >
               {employees.map((employee) => (
-                <option key={employee.portal_id} value={employee.portal_id}>
+                <option key={employee.id} value={employee.id}>
                   {employee.full_name}
                 </option>
               ))}

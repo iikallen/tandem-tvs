@@ -65,6 +65,14 @@ if not REALTIME_ALLOWED_ORIGINS:
 AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
 if AUTH_MODE != "LOCAL_ONLY":
     raise ImproperlyConfigured("Stage 6 production requires AUTH_MODE=LOCAL_ONLY")
+AUTH_RECOVERY_MODE = os.getenv("AUTH_RECOVERY_MODE", "ADMIN_ONLY")
+AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_PUBLIC_BASE_URL", "")
+if AUTH_RECOVERY_MODE == "SMTP":
+    recovery_url = urlsplit(AUTH_PUBLIC_BASE_URL)
+    if recovery_url.scheme != "https" or not recovery_url.hostname:
+        raise ImproperlyConfigured(
+            "AUTH_PUBLIC_BASE_URL must be an absolute HTTPS URL when AUTH_RECOVERY_MODE=SMTP"
+        )
 ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "false").lower() == "true"
 PORTAL_ADAPTER = os.getenv("PORTAL_ADAPTER", "unavailable")
 ALLOW_MOCK_PORTAL_ADAPTER = False

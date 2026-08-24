@@ -66,6 +66,15 @@ export function NewsIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
+export function MessageIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg {...common} {...props}>
+      <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z" />
+      <path d="M8 9h8M8 13h5" />
+    </svg>
+  );
+}
+
 export function EditIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg {...common} {...props}>

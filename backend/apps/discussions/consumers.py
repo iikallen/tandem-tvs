@@ -4,7 +4,8 @@ from typing import cast
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
 
-from .events import publication_group
+from apps.identity.models import User
+from apps.realtime.groups import publication_group, user_control_group
 
 
 class PublicationConsumer(AsyncJsonWebsocketConsumer):
@@ -13,8 +14,11 @@ class PublicationConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4403)
             return
         scope = cast(dict[str, object], self.scope)
+        user = cast(User, scope["user"])
         self.group_name = publication_group(scope["publication_id"])
+        self.control_group_name = user_control_group(user.pk)
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.channel_layer.group_add(self.control_group_name, self.channel_name)
         await self.accept()
         self.lifetime_task = asyncio.create_task(self._expire())
 
@@ -25,6 +29,8 @@ class PublicationConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, code):
         if hasattr(self, "group_name"):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, "control_group_name"):
+            await self.channel_layer.group_discard(self.control_group_name, self.channel_name)
         if hasattr(self, "lifetime_task"):
             self.lifetime_task.cancel()
 
@@ -45,3 +51,6 @@ class PublicationConsumer(AsyncJsonWebsocketConsumer):
 
     async def publication_event(self, event):
         await self.send_json(event["event"])
+
+    async def auth_invalidate(self, event):
+        await self.close(code=4403)

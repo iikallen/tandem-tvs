@@ -24,6 +24,8 @@ INSTALLED_APPS = [
     "apps.organization",
     "apps.publications",
     "apps.discussions",
+    "apps.realtime",
+    "apps.messenger",
 ]
 
 MIDDLEWARE = [
@@ -60,7 +62,11 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "tandem-stage1",
-    }
+    },
+    "sessions": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "tandem-sessions",
+    },
 }
 
 
@@ -116,7 +122,15 @@ if redis_url := os.getenv("REDIS_URL"):
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": redis_url,
             "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        }
+        },
+        "sessions": {
+            "BACKEND": "django_redis.cache.RedisCache",
+            "LOCATION": redis_url,
+            "OPTIONS": {
+                "CLIENT_CLASS": "django_redis.client.DefaultClient",
+                "IGNORE_EXCEPTIONS": True,
+            },
+        },
     }
 
 LANGUAGE_CODE = "ru"
@@ -143,6 +157,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "apps.identity.validators.LocalPasswordBlocklistValidator"},
 ]
 SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_CACHE_ALIAS = "sessions"
 SESSION_COOKIE_NAME: str = "tandem_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -151,10 +166,16 @@ SESSION_COOKIE_DOMAIN = None
 SESSION_COOKIE_AGE = int(os.getenv("AUTH_SESSION_MAX_AGE_SECONDS", "43200"))
 AUTH_SESSION_MAX_AGE_SECONDS = SESSION_COOKIE_AGE
 AUTH_SESSION_IDLE_SECONDS = int(os.getenv("AUTH_SESSION_IDLE_SECONDS", "1800"))
+AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS = int(
+    os.getenv("AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS", "60")
+)
 CSRF_USE_SESSIONS = True
 AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
 AUTH_RECOVERY_MODE = os.getenv("AUTH_RECOVERY_MODE", "ADMIN_ONLY")
 AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_PUBLIC_BASE_URL", "http://localhost:8080")
+AUTH_RESET_ACCOUNT_LIMIT = int(os.getenv("AUTH_RESET_ACCOUNT_LIMIT", "3"))
+AUTH_RESET_IP_LIMIT = int(os.getenv("AUTH_RESET_IP_LIMIT", "10"))
+AUTH_RESET_WINDOW_SECONDS = int(os.getenv("AUTH_RESET_WINDOW_SECONDS", "900"))
 STAGE6_DEMO_PASSWORD = os.getenv("STAGE6_DEMO_PASSWORD", "")
 ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "true").lower() == "true"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
@@ -185,6 +206,10 @@ REST_FRAMEWORK = {
         "comment_upload": "10/min",
         "reaction": "60/min",
         "realtime_ticket": "30/min",
+        "messenger_message": "120/min",
+        "messenger_direct": "20/hour",
+        "messenger_group": "10/hour",
+        "messenger_people": "60/min",
     },
 }
 

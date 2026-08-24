@@ -5,9 +5,7 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 from django.utils import timezone
 
-
-def publication_group(publication_id: object) -> str:
-    return f"publication.{str(publication_id).replace('-', '')}"
+from apps.realtime.groups import publication_group
 
 
 def publish_after_commit(

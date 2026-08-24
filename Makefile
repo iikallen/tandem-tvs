@@ -1,7 +1,7 @@
 UV ?= uv
 NPM ?= npm
 
-.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-realtime e2e build prod
+.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-realtime e2e build prod
 
 format:
 	cd backend && $(UV) run ruff format .
@@ -26,6 +26,7 @@ test:
 	cd backend && $(UV) run coverage report --include="apps/identity/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/discussions/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/publications/*" --fail-under=95
+	cd backend && $(UV) run coverage report --include="apps/messenger/*" --fail-under=95
 	cd frontend && $(NPM) test
 
 test-postgres:
@@ -51,6 +52,14 @@ test-stage6:
 	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage6.py verify
 
+test-stage7:
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage7.py prepare
+	docker compose stop redis
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage7.py outage; stage7_status=$$?; docker compose start redis; exit $$stage7_status
+	docker compose restart backend celery-worker celery-beat
+	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage7.py verify
+
 test-realtime:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
@@ -62,6 +71,6 @@ e2e:
 build:
 	cd frontend && $(NPM) run build
 
-prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-realtime e2e build
+prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-realtime e2e build
 	cd backend && $(UV) run python scripts/check_production.py
 	docker compose config --quiet

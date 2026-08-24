@@ -75,7 +75,12 @@ all_id = create_and_publish(
 )
 employee_id = create_and_publish(
     f"Лично {suffix}",
-    {"everyone": False, "org_units": [], "employees": ["employee-1"], "module_roles": []},
+    {
+        "everyone": False,
+        "org_units": [],
+        "employees": [User.objects.get(portal_id="employee-1").pk],
+        "module_roles": [],
+    },
 )
 role_id = create_and_publish(
     f"Для редакторов {suffix}",

@@ -43,6 +43,15 @@ from apps.identity.views import (
     PlatformUserListCreateView,
     SessionView,
 )
+from apps.messenger.views import (
+    ConversationDetailView,
+    ConversationListView,
+    DirectConversationView,
+    GroupConversationView,
+    MessageListCreateView,
+    PeopleView,
+    ReadView,
+)
 from apps.organization.views import EmployeeSearchView, OrgUnitListView, PositionGroupListView
 from apps.publications.views import (
     CategoryListView,
@@ -112,6 +121,37 @@ urlpatterns = [
         name="platform-user-password-reset",
     ),
     path("api/v1/messenger/access", MessengerAccessView.as_view(), name="messenger-access"),
+    path("api/v1/messenger/people", PeopleView.as_view(), name="messenger-people"),
+    path(
+        "api/v1/messenger/conversations",
+        ConversationListView.as_view(),
+        name="messenger-conversations",
+    ),
+    path(
+        "api/v1/messenger/conversations/direct",
+        DirectConversationView.as_view(),
+        name="messenger-direct",
+    ),
+    path(
+        "api/v1/messenger/conversations/group",
+        GroupConversationView.as_view(),
+        name="messenger-group",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>",
+        ConversationDetailView.as_view(),
+        name="messenger-conversation-detail",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/messages",
+        MessageListCreateView.as_view(),
+        name="messenger-messages",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/read",
+        ReadView.as_view(),
+        name="messenger-read",
+    ),
     path("api/v1/news", NewsListView.as_view(), name="news-list"),
     path("api/v1/news/pinned", NewsPinnedListView.as_view(), name="news-pinned-list"),
     path("api/v1/news/categories", CategoryListView.as_view(), name="news-category-list"),

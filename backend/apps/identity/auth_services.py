@@ -6,11 +6,10 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.sessions.backends.cached_db import SessionStore
-from django.contrib.sessions.models import Session
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .managers import UserManager
@@ -76,11 +75,34 @@ def access_payload(user: User) -> dict[str, list[str]]:
     return {key: sorted(values) for key, values in payload.items()}
 
 
-def invalidate_user_sessions(user_id: int) -> None:
-    """Delete both cached and database copies of every session for one user."""
-    for row in Session.objects.filter(expire_date__gt=timezone.now()).iterator():
-        if str(row.get_decoded().get("_auth_user_id")) == str(user_id):
-            SessionStore(session_key=row.session_key).delete()
+def _increment_window(key: str) -> int:
+    if cache.add(key, 1, timeout=settings.AUTH_RESET_WINDOW_SECONDS):
+        return 1
+    try:
+        return int(cache.incr(key))
+    except ValueError:
+        if cache.add(key, 1, timeout=settings.AUTH_RESET_WINDOW_SECONDS):
+            return 1
+        return int(cache.incr(key))
+
+
+def reserve_password_reset(email: str, ip: str | None) -> bool:
+    """Reserve one generic recovery attempt without looking up the account."""
+    account_count = _increment_window(f"auth:reset:account:{fingerprint(email.strip().casefold())}")
+    ip_count = _increment_window(f"auth:reset:ip:{fingerprint(ip or 'unknown')}")
+    return (
+        account_count <= settings.AUTH_RESET_ACCOUNT_LIMIT
+        and ip_count <= settings.AUTH_RESET_IP_LIMIT
+    )
+
+
+def bump_security_epoch(user: User) -> int:
+    User.objects.filter(pk=user.pk).update(security_epoch=F("security_epoch") + 1)
+    user.refresh_from_db(fields=["security_epoch"])
+    from apps.realtime.events import invalidate_user_after_commit
+
+    invalidate_user_after_commit(user.pk)
+    return user.security_epoch
 
 
 def validate_local_password(password: str, user: User | None = None) -> None:
@@ -98,6 +120,9 @@ def _new_token() -> tuple[str, str]:
 def issue_invitation(
     user: User, *, actor: User, ttl_hours: int = 48
 ) -> tuple[AccountInvitation, str]:
+    user = User.objects.select_for_update().get(pk=user.pk)
+    if not user.is_active or user.activated_at is not None or user.has_usable_password():
+        raise ValidationError("Invitation is only available for an unactivated account.")
     now = timezone.now()
     AccountInvitation.objects.filter(user=user, used_at__isnull=True).update(used_at=now)
     token, token_hash = _new_token()
@@ -139,6 +164,9 @@ def activate_account(token: str, password: str) -> User:
 def issue_password_reset(
     user: User, *, actor: User | None = None, ttl_minutes: int = 30
 ) -> tuple[PasswordResetRequest, str]:
+    user = User.objects.select_for_update().get(pk=user.pk)
+    if not user.is_active or user.activated_at is None or not user.has_usable_password():
+        raise ValidationError("Password reset is only available for an activated account.")
     now = timezone.now()
     PasswordResetRequest.objects.filter(user=user, used_at__isnull=True).update(used_at=now)
     token, token_hash = _new_token()
@@ -173,11 +201,23 @@ def reset_password(token: str, password: str) -> User:
     user.save(update_fields=["password", "password_changed_at", "activated_at", "updated_at"])
     reset.used_at = now
     reset.save(update_fields=["used_at"])
-    transaction.on_commit(lambda: invalidate_user_sessions(user.pk))
+    bump_security_epoch(user)
     return user
 
 
+@transaction.atomic
 def grant(user: User, module: str, role: str, *, actor: User) -> tuple[AccessGrant, bool]:
-    return AccessGrant.objects.get_or_create(
+    row, created = AccessGrant.objects.get_or_create(
         user=user, module=module, role=role, defaults={"created_by": actor}
     )
+    if created:
+        bump_security_epoch(user)
+    return row, created
+
+
+@transaction.atomic
+def revoke_grant(user: User, module: str, role: str) -> bool:
+    deleted, _ = AccessGrant.objects.filter(user=user, module=module, role=role).delete()
+    if deleted:
+        bump_security_epoch(user)
+    return bool(deleted)

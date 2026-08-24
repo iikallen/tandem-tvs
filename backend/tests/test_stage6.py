@@ -1,26 +1,35 @@
+import inspect
 import json
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from django.conf import settings
 from django.contrib.auth import authenticate
+from django.contrib.sessions.backends.db import SessionStore
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.identity.auth_services import (
+    _increment_window,
     access_payload,
     activate_account,
+    grant,
     issue_invitation,
     issue_password_reset,
     request_ip,
+    reserve_password_reset,
     reset_password,
+    revoke_grant,
     validate_local_password,
 )
 from apps.identity.delivery import ConsoleAuthDelivery, SMTPAuthDelivery
 from apps.identity.managers import UserManager
+from apps.identity.middleware import AuthSessionExpiryMiddleware
 from apps.identity.models import (
     AccessGrant,
     AccountInvitation,
@@ -115,6 +124,7 @@ def test_login_requires_csrf_uses_argon2_rotates_session_and_returns_fresh_token
     assert response.data["csrf_token"] != token
     assert client.cookies[settings.SESSION_COOKIE_NAME].value != session_before
     assert user.password.startswith("argon2$")
+    assert client.session["security_epoch"] == user.security_epoch
     assert client.get("/api/v1/auth/session").data["authenticated"] is True
 
 
@@ -287,7 +297,10 @@ def test_invitation_and_reset_tokens_are_hash_only_expiring_and_one_time(
     with pytest.raises(ValidationError):
         reset_password(reset_token, PASSWORD)
 
-    expired_invitation, expired_token = issue_invitation(pending, actor=actor)
+    expired_pending = user_manager().create_user(
+        username="expired-pending", full_name="Expired Pending"
+    )
+    expired_invitation, expired_token = issue_invitation(expired_pending, actor=actor)
     AccountInvitation.objects.filter(pk=expired_invitation.pk).update(
         expires_at=timezone.now() - timedelta(seconds=1)
     )
@@ -499,9 +512,14 @@ def test_full_platform_account_invitation_reset_and_grant_api():
 @pytest.mark.django_db
 def test_recovery_is_generic_and_smtp_delivery_is_adapter_driven(monkeypatch):
     user = make_account()
+    queued = []
     delivered = []
     monkeypatch.setattr(
-        "apps.identity.views.SMTPAuthDelivery.deliver",
+        "apps.identity.views.deliver_password_reset_task.delay",
+        lambda email: queued.append(email),
+    )
+    monkeypatch.setattr(
+        "apps.identity.tasks.SMTPAuthDelivery.deliver",
         lambda self, **kwargs: delivered.append(kwargs),
     )
     client = APIClient(enforce_csrf_checks=True)
@@ -522,9 +540,149 @@ def test_recovery_is_generic_and_smtp_delivery_is_adapter_driven(monkeypatch):
 
     assert known.status_code == unknown.status_code == 200
     assert known.data == unknown.data
+    assert queued == [user.email, "unknown@example.invalid"]
+    assert delivered == []
+
+    from apps.identity.tasks import deliver_password_reset_task
+
+    with override_settings(AUTH_RECOVERY_MODE="SMTP"):
+        deliver_password_reset_task(user.email)
+        deliver_password_reset_task("unknown@example.invalid")
     assert delivered[0]["recipient"] == user.email
     assert "token=" in delivered[0]["url"]
+    assert len(delivered) == 1
     assert "token" not in json.dumps(known.data).casefold()
+
+
+@pytest.mark.django_db
+@override_settings(
+    AUTH_RESET_ACCOUNT_LIMIT=2,
+    AUTH_RESET_IP_LIMIT=2,
+    AUTH_RESET_WINDOW_SECONDS=900,
+)
+def test_password_reset_limits_are_independent_per_account_and_ip():
+    assert reserve_password_reset("Member@Example.Invalid", "198.51.100.1") is True
+    assert reserve_password_reset("member@example.invalid", "198.51.100.2") is True
+    assert reserve_password_reset("MEMBER@example.invalid", "198.51.100.3") is False
+
+    cache.clear()
+    assert reserve_password_reset("first@example.invalid", "203.0.113.1") is True
+    assert reserve_password_reset("second@example.invalid", "203.0.113.1") is True
+    assert reserve_password_reset("third@example.invalid", "203.0.113.1") is False
+
+
+def test_reset_window_recovers_when_cache_key_expires_between_operations(monkeypatch):
+    additions = iter((False, True))
+    monkeypatch.setattr(cache, "add", lambda *_args, **_kwargs: next(additions))
+    monkeypatch.setattr(cache, "incr", lambda _key: (_ for _ in ()).throw(ValueError()))
+    assert _increment_window("expired-between-operations") == 1
+
+
+@pytest.mark.django_db
+def test_password_reset_queue_failure_keeps_generic_response(monkeypatch, caplog):
+    user = make_account(username="queue-outage")
+    monkeypatch.setattr(
+        "apps.identity.views.deliver_password_reset_task.delay",
+        lambda _email: (_ for _ in ()).throw(ConnectionError("broker unavailable")),
+    )
+    client = APIClient(enforce_csrf_checks=True)
+
+    with override_settings(AUTH_RECOVERY_MODE="SMTP"):
+        response = client.post(
+            "/api/v1/auth/password/reset/request",
+            {"email": user.email},
+            format="json",
+            HTTP_X_CSRFTOKEN=csrf(client),
+        )
+
+    assert response.status_code == 200
+    assert response.data == {"detail": "If the account exists, instructions were sent."}
+    assert "Could not enqueue password reset delivery" in caplog.text
+
+
+@pytest.mark.django_db
+def test_invitation_and_password_reset_are_separate_account_states():
+    actor = make_account(username="separation-admin", grants=(("PLATFORM", "ADMIN"),))
+    pending = user_manager().create_user(username="separation-pending", full_name="Pending")
+    active = make_account(username="separation-active")
+
+    with pytest.raises(ValidationError, match="unactivated"):
+        issue_invitation(active, actor=actor)
+    with pytest.raises(ValidationError, match="activated"):
+        issue_password_reset(pending, actor=actor)
+
+
+@pytest.mark.django_db
+def test_security_epoch_changes_for_access_mutations_and_invalidates_old_state(monkeypatch):
+    actor = make_account(username="epoch-admin", grants=(("PLATFORM", "ADMIN"),))
+    user = make_account(username="epoch-member", grants=())
+    invalidated = []
+    monkeypatch.setattr(
+        "apps.realtime.events.invalidate_user_after_commit",
+        lambda user_id: invalidated.append(user_id),
+    )
+
+    initial = user.security_epoch
+    _row, created = grant(
+        user,
+        AccessGrant.Module.MESSENGER,
+        AccessGrant.Role.MEMBER,
+        actor=actor,
+    )
+    assert created is True
+    assert user.security_epoch == initial + 1
+    assert revoke_grant(user, AccessGrant.Module.MESSENGER, AccessGrant.Role.MEMBER) is True
+    assert user.security_epoch == initial + 2
+    assert invalidated == [user.pk, user.pk]
+
+
+@pytest.mark.django_db
+def test_access_grant_valid_pairs_are_enforced_by_database():
+    user = make_account(username="invalid-grant", grants=())
+    with pytest.raises(IntegrityError), transaction.atomic():
+        AccessGrant.objects.create(
+            user=user,
+            module=AccessGrant.Module.MESSENGER,
+            role=AccessGrant.Role.EDITOR,
+        )
+
+
+@pytest.mark.django_db
+def test_session_activity_is_checkpointed_and_epoch_mismatch_logs_out():
+    user = make_account(username="checkpoint-user")
+    now = int(timezone.now().timestamp())
+    session = SessionStore()
+    session.update(
+        {
+            "auth_started_at": now,
+            "auth_last_seen_at": now,
+            "security_epoch": user.security_epoch,
+        }
+    )
+    session.modified = False
+    request = SimpleNamespace(user=user, session=session)
+    middleware = AuthSessionExpiryMiddleware(lambda _request: None)
+
+    middleware(request)
+    assert session.modified is False
+
+    session["auth_last_seen_at"] = now - settings.AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS
+    session.modified = False
+    middleware(request)
+    assert session.modified is True
+    assert session["auth_last_seen_at"] >= now
+
+    session["security_epoch"] = user.security_epoch - 1
+    middleware(request)
+    assert request.user.is_authenticated is False
+
+
+def test_security_epoch_replaces_full_session_table_scan():
+    from apps.identity import auth_services
+
+    source = inspect.getsource(auth_services)
+    assert "Session.objects" not in source
+    assert "get_decoded" not in source
 
 
 def test_delivery_adapters_and_manager_fail_closed(monkeypatch):

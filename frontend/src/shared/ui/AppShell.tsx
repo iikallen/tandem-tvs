@@ -5,7 +5,14 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { t } from "../i18n";
 import { Avatar } from "./Avatar";
-import { EditIcon, HomeIcon, NewsIcon, UserIcon, UsersIcon } from "./icons";
+import {
+  EditIcon,
+  HomeIcon,
+  MessageIcon,
+  NewsIcon,
+  UserIcon,
+  UsersIcon,
+} from "./icons";
 
 type NavItem = {
   to: string;
@@ -25,7 +32,7 @@ const portalLinks: NavItem[] = [
 const messengerLink: NavItem = {
   to: "/messages",
   label: t("messenger"),
-  icon: NewsIcon,
+  icon: MessageIcon,
 };
 const platformLink: NavItem = {
   to: "/platform/users",
@@ -67,9 +74,15 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
     ...(canMessage ? [messengerLink] : []),
     ...(isPlatformAdmin ? [platformLink] : []),
   ];
-  const mobileLinks = canEdit
-    ? [...expandedPortalLinks.slice(0, 3), editorialLinks[0], portalLinks[4]]
-    : expandedPortalLinks.slice(0, 5);
+  const mobileLinks = [
+    ...portalLinks.slice(0, 3),
+    ...(canMessage
+      ? [messengerLink]
+      : canEdit
+        ? [editorialLinks[0]]
+        : [portalLinks[3]]),
+    portalLinks[4],
+  ];
   const groups = mobile
     ? [{ label: "", links: mobileLinks }]
     : [

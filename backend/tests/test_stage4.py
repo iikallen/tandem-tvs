@@ -519,13 +519,13 @@ def test_position_group_audience_uses_portal_id_and_canonical_name(stage4_domain
             "org_unit_subtrees": [],
             "employees": [],
             "module_roles": [],
-            "position_groups": [{"external_id": "specialists", "name": "Forged local label"}],
+            "position_groups": [{"external_id": "engineers", "name": "Forged local label"}],
         },
     }
     created = client.post("/api/v1/editorial/publications", payload, format="json")
     assert created.status_code == 201
     assert created.data["audience"]["position_groups"] == [
-        {"external_id": "specialists", "name": "Специалисты"}
+        {"external_id": "engineers", "name": "Engineers"}
     ]
 
     payload["audience"]["position_groups"] = [{"external_id": "retired", "name": "Inactive"}]

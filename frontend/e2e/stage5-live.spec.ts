@@ -12,6 +12,18 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
   await editor.request.patch("/api/v1/editorial/settings/engagement", {
     data: { enabled_reaction_types: ["LIKE", "INSIGHTFUL"] },
   });
+  const localEmployees = await (
+    await editor.request.get("/api/v1/organization/employees?search=employee-1")
+  ).json();
+  const localAuthors = await (
+    await editor.request.get("/api/v1/organization/employees?search=author-1")
+  ).json();
+  const employeeId = localEmployees.find(
+    (employee: { portal_id: string }) => employee.portal_id === "employee-1",
+  ).id;
+  const authorId = localAuthors.find(
+    (employee: { portal_id: string }) => employee.portal_id === "author-1",
+  ).id;
   const draftResponse = await editor.request.post(
     "/api/v1/editorial/publications",
     {
@@ -35,7 +47,7 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
           everyone: false,
           org_units: [],
           org_unit_subtrees: [],
-          employees: ["employee-1", "author-1"],
+          employees: [employeeId, authorId],
           module_roles: [],
           position_groups: [],
         },

@@ -30,6 +30,56 @@ export interface AuthSession {
   user: Me | null;
 }
 
+export interface MessengerPerson {
+  id: number;
+  username: string;
+  full_name: string;
+  job_title: string;
+  avatar_url: string;
+  org_unit_name: string | null;
+}
+
+export interface MessengerMembership {
+  user: MessengerPerson;
+  role: "MEMBER" | "ADMIN";
+  joined_at: string;
+  last_read_sequence: number;
+  read_at: string | null;
+}
+
+export interface MessengerMessage {
+  id: string;
+  sequence: number;
+  client_message_id: string;
+  author: MessengerPerson;
+  body: string;
+  created_at: string;
+  receipt: {
+    read?: boolean;
+    read_count: number;
+    recipient_count: number;
+  };
+}
+
+export interface MessengerConversation {
+  id: string;
+  type: "DIRECT" | "GROUP";
+  title: string;
+  created_by_id: number;
+  last_sequence: number;
+  last_message_at: string | null;
+  created_at: string;
+  members: MessengerMembership[];
+  last_message: MessengerMessage | null;
+  unread_count: number;
+}
+
+export interface MessengerMessagePage {
+  messages: MessengerMessage[];
+  has_more: boolean;
+  next_before_sequence: number | null;
+}
+
 export interface PlatformUser extends Omit<Me, "org_unit"> {
   org_unit: number | null;
 }
@@ -48,7 +98,8 @@ export interface PositionGroup {
 }
 
 export interface Employee {
-  portal_id: string;
+  id: number;
+  portal_id: string | null;
   full_name: string;
   job_title: string;
   org_unit_external_id: string | null;
@@ -96,7 +147,7 @@ export interface Audience {
   everyone: boolean;
   org_units: string[];
   org_unit_subtrees?: string[];
-  employees: string[];
+  employees: number[];
   module_roles: string[];
   position_groups?: PositionGroup[];
 }
@@ -421,6 +472,54 @@ export const api = {
   messengerAccess: () =>
     request<{ allowed: boolean; implementation: string }>(
       "/api/v1/messenger/access",
+    ),
+  messengerPeople: (search = "") =>
+    request<MessengerPerson[]>(
+      `/api/v1/messenger/people${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+    ),
+  messengerConversations: () =>
+    request<MessengerConversation[]>("/api/v1/messenger/conversations"),
+  messengerConversation: (id: string) =>
+    request<MessengerConversation>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(id)}`,
+    ),
+  createDirectConversation: (userId: number) =>
+    request<MessengerConversation>(
+      "/api/v1/messenger/conversations/direct",
+      "POST",
+      { user_id: userId },
+    ),
+  createGroupConversation: (title: string, memberIds: number[]) =>
+    request<MessengerConversation>(
+      "/api/v1/messenger/conversations/group",
+      "POST",
+      { title, member_ids: memberIds },
+    ),
+  messengerMessages: (id: string, beforeSequence?: number) =>
+    request<MessengerMessagePage>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(id)}/messages${beforeSequence ? `?before_sequence=${beforeSequence}&page_size=50` : ""}`,
+    ),
+  sendMessengerMessage: (
+    conversationId: string,
+    clientMessageId: string,
+    body: string,
+  ) =>
+    request<MessengerMessage>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/messages`,
+      "POST",
+      { client_message_id: clientMessageId, body },
+    ),
+  markMessengerRead: (conversationId: string, sequence: number) =>
+    request<{ last_read_sequence: number; read_at: string | null }>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/read`,
+      "POST",
+      { sequence },
+    ),
+  messengerRealtimeTicket: () =>
+    request<{ ticket: string; expires_in: number }>(
+      "/api/v1/realtime/tickets",
+      "POST",
+      { scope: "MESSENGER" },
     ),
   me: () => request<Me>("/api/v1/me"),
   orgUnits: () => request<OrgUnitSummary[]>("/api/v1/organization/units"),

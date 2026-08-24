@@ -8,18 +8,21 @@ from django.db.models.functions import RowNumber
 from django.http import Http404
 from django.utils import timezone
 from rest_framework import generics, serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.core.views import PrivateResponseMixin
-from apps.identity.models import User
-from apps.identity.permissions import HasNewsAccess, IsNewsModerator
+from apps.identity.models import AccessGrant, User
+from apps.identity.permissions import HasNewsAccess, IsNewsModerator, has_module_access
 from apps.publications.engagement import resolve_recipient_users
 from apps.publications.media import create_media_asset
 from apps.publications.models import AuditEvent
 from apps.publications.permissions import IsEditorRole
 from apps.publications.serializers import MediaAssetSerializer, UserSummarySerializer
 from apps.publications.services import record_audit_event, visible_publication_or_404
+from apps.realtime.claims import RealtimeScope
+from apps.realtime.tickets import create_ticket as create_realtime_ticket
 
 from .models import (
     Comment,
@@ -586,13 +589,23 @@ class CommentRestrictionView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class RealtimeTicketView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [HasNewsAccess]
     serializer_class = RealtimeTicketSerializer
     throttle_scope = "realtime_ticket"
 
     def post(self, request):
         payload = self.get_serializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        if payload.validated_data["scope"] == RealtimeScope.MESSENGER:
+            if not has_module_access(request.user, AccessGrant.Module.MESSENGER):
+                raise PermissionDenied("Messenger access is required.")
+            token, expires_in = create_realtime_ticket(
+                user_id=request.user.pk,
+                security_epoch=request.user.security_epoch,
+                scope=RealtimeScope.MESSENGER,
+            )
+            return Response({"ticket": token, "expires_in": expires_in})
+        if not has_module_access(request.user, AccessGrant.Module.NEWS):
+            raise PermissionDenied("News access is required.")
         publication = visible_publication_or_404(
             request.user, payload.validated_data["publication_id"]
         )

@@ -8,6 +8,7 @@ from rest_framework import serializers
 from apps.identity.models import User
 from apps.publications.models import MediaAsset
 from apps.publications.serializers import MediaAssetSerializer, UserSummarySerializer
+from apps.realtime.claims import RealtimeScope
 
 from .models import (
     Comment,
@@ -152,13 +153,24 @@ class ReactionSummarySerializer(serializers.Serializer):
 
 
 class RealtimeTicketSerializer(serializers.Serializer):
-    publication_id = serializers.UUIDField()
+    scope = serializers.ChoiceField(
+        choices=[scope.value for scope in RealtimeScope],
+        required=False,
+        default=RealtimeScope.NEWS_PUBLICATION,
+    )
+    publication_id = serializers.UUIDField(required=False)
 
     def validate(self, attrs):
-        unexpected = set(self.initial_data) - {"publication_id"}
+        unexpected = set(self.initial_data) - {"scope", "publication_id"}
         if unexpected:
             raise serializers.ValidationError(
                 {key: "This field is not allowed." for key in unexpected}
+            )
+        if attrs["scope"] == RealtimeScope.NEWS_PUBLICATION and "publication_id" not in attrs:
+            raise serializers.ValidationError({"publication_id": "This field is required."})
+        if attrs["scope"] == RealtimeScope.MESSENGER and "publication_id" in attrs:
+            raise serializers.ValidationError(
+                {"publication_id": "Messenger tickets are not resource-scoped."}
             )
         return attrs
 
