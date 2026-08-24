@@ -15,6 +15,14 @@ from apps.core.views import PrivateResponseMixin
 from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
 
+from .engagement import (
+    acknowledge,
+    category_metrics,
+    csv_text,
+    publication_metrics,
+    publication_metrics_bulk,
+    refresh_recipient_snapshot,
+)
 from .media import can_read_media, create_media_asset, delete_media_asset
 from .models import (
     AudienceRule,
@@ -22,6 +30,7 @@ from .models import (
     Category,
     MediaAsset,
     Publication,
+    PublicationRecipient,
     PublicationVersion,
     PublicationView,
     Tag,
@@ -48,6 +57,7 @@ from .services import (
     record_publication_view,
     transition_publication,
     unpin_publication,
+    visible_publication_or_404,
 )
 
 
@@ -72,7 +82,7 @@ def _editorial_for(user: object):
 def _taxonomy_state(instance: Category | Tag) -> dict[str, object]:
     fields = ["slug", "name", "is_active"]
     if isinstance(instance, Category):
-        fields.append("sort_order")
+        fields.extend(["sort_order", "comment_attachments_enabled"])
     return {field: getattr(instance, field) for field in fields}
 
 
@@ -404,6 +414,161 @@ class NewsDetailView(PrivateResponseMixin, generics.RetrieveAPIView):
         publication.is_read = True
         publication.view_count = publication.views.count()
         return publication
+
+
+class NewsAcknowledgementView(PrivateResponseMixin, generics.GenericAPIView):
+    def post(self, request, publication_id):
+        publication = visible_publication_or_404(request.user, publication_id)
+        if not PublicationRecipient.objects.filter(publication=publication).exists():
+            refresh_recipient_snapshot(publication)
+        try:
+            row, created = acknowledge(publication, cast(User, request.user))
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
+        return Response(
+            {"acknowledged_at": row.acknowledged_at},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class EditorialRecipientRefreshView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def post(self, request, publication_id):
+        publication = generics.get_object_or_404(_editorial_for(request.user), pk=publication_id)
+        rows = refresh_recipient_snapshot(publication)
+        return Response({"recipients": len(rows)})
+
+
+def _acknowledgement_rows(request, publication_id):
+    publication = generics.get_object_or_404(_editorial_for(request.user), pk=publication_id)
+    rows = PublicationRecipient.objects.filter(publication=publication, is_current=True)
+    state = request.query_params.get("status", "pending")
+    if state == "acknowledged":
+        rows = rows.filter(acknowledgement__isnull=False)
+    elif state == "pending":
+        rows = rows.filter(acknowledgement__isnull=True)
+    else:
+        raise serializers.ValidationError({"status": "Use acknowledged or pending."})
+    return rows.select_related("user")
+
+
+class EditorialAcknowledgementListView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request, publication_id):
+        rows = _acknowledgement_rows(request, publication_id)
+        return Response(
+            [
+                {
+                    "portal_id": row.portal_id,
+                    "full_name": row.full_name,
+                    "email": row.email,
+                    "department": row.org_unit_name,
+                    "acknowledged_at": getattr(
+                        getattr(row, "acknowledgement", None), "acknowledged_at", None
+                    ),
+                }
+                for row in rows
+            ]
+        )
+
+
+class EditorialAcknowledgementCsvView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request, publication_id):
+        rows = _acknowledgement_rows(request, publication_id)
+        content = csv_text(
+            ["portal_id", "full_name", "email", "department", "acknowledged_at"],
+            [
+                [
+                    row.portal_id,
+                    row.full_name,
+                    row.email,
+                    row.org_unit_name,
+                    str(
+                        getattr(
+                            getattr(row, "acknowledgement", None),
+                            "acknowledged_at",
+                            "",
+                        )
+                    ),
+                ]
+                for row in rows
+            ],
+        )
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="acknowledgements.csv"'
+        return response
+
+
+class EditorialPublicationAnalyticsView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request, publication_id):
+        publication = generics.get_object_or_404(
+            _editorial_for(request.user).select_related("category"), pk=publication_id
+        )
+        return Response(publication_metrics(publication))
+
+
+def _analytics_metrics(request):
+    queryset = _editorial_for(request.user).select_related("category")
+    if category := request.query_params.get("category"):
+        queryset = queryset.filter(category__slug=category)
+    if date_from := request.query_params.get("date_from"):
+        queryset = queryset.filter(published_at__date__gte=date_from)
+    if date_to := request.query_params.get("date_to"):
+        queryset = queryset.filter(published_at__date__lte=date_to)
+    return publication_metrics_bulk(list(queryset[:500]))
+
+
+class EditorialAnalyticsView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request):
+        rows = _analytics_metrics(request)
+        return Response({"results": rows, "categories": category_metrics(rows)})
+
+
+class EditorialAnalyticsCsvView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request):
+        rows = _analytics_metrics(request)
+        content = csv_text(
+            [
+                "publication_id",
+                "title",
+                "category",
+                "recipients",
+                "unique_views",
+                "reach_percent",
+                "reactions",
+                "comments",
+                "engagement_percent",
+                "acknowledgement_percent",
+            ],
+            [
+                [
+                    row["publication_id"],
+                    row["title"],
+                    row["category"],
+                    row["recipients"],
+                    row["unique_views"],
+                    row["reach_percent"],
+                    row["reactions"],
+                    row["comments"],
+                    row["engagement_percent"],
+                    row["acknowledgement_percent"],
+                ]
+                for row in rows
+            ],
+        )
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="analytics.csv"'
+        return response
 
 
 def _is_uuid(value: str) -> bool:

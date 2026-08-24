@@ -34,6 +34,7 @@ export interface Category {
   name: string;
   sort_order: number;
   is_active?: boolean;
+  comment_attachments_enabled?: boolean;
 }
 
 export interface Tag {
@@ -90,18 +91,32 @@ export interface PublicationSummary {
   comment_count: number;
   reaction_count: number;
   is_read: boolean;
+  comments_enabled: boolean;
+  reactions_enabled: boolean;
+  acknowledgement_required: boolean;
 }
 
 export interface PublicationDetail extends PublicationSummary {
   body: RichTextNode;
   media?: Array<{ asset: MediaAsset; purpose: string }>;
+  is_acknowledged: boolean;
 }
 
 export interface Comment {
   id: string;
   author: Pick<Me, "portal_id" | "full_name" | "job_title">;
   body: string | null;
-  status: "ACTIVE" | "DELETED";
+  status: "ACTIVE" | "DELETED" | "HIDDEN" | "REMOVED";
+  thread_root: string | null;
+  reply_to: string | null;
+  reply_to_author: string | null;
+  reply_count: number;
+  reaction_count: number;
+  preview_replies: Comment[];
+  attachments: MediaAsset[];
+  mentions: string[];
+  can_edit: boolean;
+  can_delete: boolean;
   created_at: string;
   updated_at: string;
   edited_at: string | null;
@@ -112,6 +127,58 @@ export interface ReactionSummary {
   total: number;
   counts: Record<string, number>;
   mine: string[];
+  actors?: Record<
+    string,
+    Array<Pick<Me, "portal_id" | "full_name" | "job_title">>
+  >;
+  enabled_types?: ReactionType[];
+}
+
+export type ReactionType =
+  "LIKE" | "CELEBRATE" | "SUPPORT" | "INSIGHTFUL" | "THANKS";
+
+export interface Notification {
+  id: string;
+  notification_type: "COMMENT_REPLY" | "COMMENT_MENTION";
+  actor: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  publication_id: string;
+  comment_id: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface EngagementSettings {
+  comment_edit_window_minutes: number;
+  comment_delete_window_minutes: number;
+  enabled_reaction_types: ReactionType[];
+  max_comment_attachments: number;
+  max_comment_attachment_bytes: number;
+  stop_words: Array<{ id: number; value: string; is_active: boolean }>;
+  updated_at: string;
+}
+
+export interface PublicationAnalytics {
+  publication_id: string;
+  title: string;
+  category: string;
+  recipients: number;
+  views: number;
+  unique_views: number;
+  reach_percent: string;
+  comments: number;
+  reactions: number;
+  unique_engaged: number;
+  engagement_percent: string;
+  acknowledged: number;
+  pending: number;
+  acknowledgement_percent: string | null;
+  departments: Array<{
+    name: string;
+    recipients: number;
+    unique_views: number;
+    reach_percent: string;
+    acknowledged: number;
+  }>;
 }
 
 export interface EditorialPublication {
@@ -141,6 +208,9 @@ export interface EditorialPublication {
   audience: Audience;
   media?: Array<{ asset: MediaAsset; purpose: string }>;
   pin_slot?: number | null;
+  comments_enabled: boolean;
+  reactions_enabled: boolean;
+  acknowledgement_required: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -254,16 +324,37 @@ export const api = {
     request<CursorPage<PublicationSummary>>(newsUrl(filters, cursor)),
   publication: (id: string) =>
     request<PublicationDetail>(`/api/v1/news/${encodeURIComponent(id)}`),
-  comments: (id: string, cursor?: string) =>
+  comments: (id: string, cursor?: string, sort = "recent") =>
     request<CursorPage<Comment>>(
-      `/api/v1/news/${encodeURIComponent(id)}/comments${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+      `/api/v1/news/${encodeURIComponent(id)}/comments${sort !== "recent" || cursor ? `?${sort !== "recent" ? `sort=${sort}` : ""}${sort !== "recent" && cursor ? "&" : ""}${cursor ? `cursor=${encodeURIComponent(cursor)}` : ""}` : ""}`,
     ),
-  createComment: (id: string, body: string) =>
+  replies: (id: string, rootId: string, cursor?: string) =>
+    request<CursorPage<Comment>>(
+      `/api/v1/news/${encodeURIComponent(id)}/comments/${rootId}/replies${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  createComment: (
+    id: string,
+    body: string,
+    options: {
+      reply_to?: string;
+      mentions?: string[];
+      attachments?: string[];
+    } = {},
+  ) =>
     request<Comment>(
       `/api/v1/news/${encodeURIComponent(id)}/comments`,
       "POST",
-      { body },
+      { body, ...options },
     ),
+  uploadCommentMedia: (id: string, file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return request<MediaAsset>(
+      `/api/v1/news/${encodeURIComponent(id)}/comment-media`,
+      "POST",
+      data,
+    );
+  },
   updateComment: (publicationId: string, commentId: string, body: string) =>
     request<Comment>(
       `/api/v1/news/${encodeURIComponent(publicationId)}/comments/${encodeURIComponent(commentId)}`,
@@ -289,6 +380,36 @@ export const api = {
       `/api/v1/news/${encodeURIComponent(id)}/reactions/${encodeURIComponent(type)}`,
       "DELETE",
     ),
+  commentReactions: (id: string, commentId: string) =>
+    request<ReactionSummary>(
+      `/api/v1/news/${id}/comments/${commentId}/reactions`,
+    ),
+  putCommentReaction: (id: string, commentId: string, type: string) =>
+    request(
+      `/api/v1/news/${id}/comments/${commentId}/reactions/${type}`,
+      "PUT",
+    ),
+  deleteCommentReaction: (id: string, commentId: string, type: string) =>
+    request<void>(
+      `/api/v1/news/${id}/comments/${commentId}/reactions/${type}`,
+      "DELETE",
+    ),
+  reportComment: (id: string, commentId: string, reason: string) =>
+    request(`/api/v1/news/${id}/comments/${commentId}/reports`, "POST", {
+      reason,
+    }),
+  mentionCandidates: (id: string, search: string) =>
+    request<Array<Pick<Me, "portal_id" | "full_name" | "job_title">>>(
+      `/api/v1/news/${id}/mention-candidates?search=${encodeURIComponent(search)}`,
+    ),
+  acknowledge: (id: string) =>
+    request<{ acknowledged_at: string }>(
+      `/api/v1/news/${id}/acknowledgement`,
+      "POST",
+    ),
+  notifications: () => request<Notification[]>("/api/v1/notifications"),
+  readNotification: (id: string) =>
+    request<void>(`/api/v1/notifications/${id}/read`, "POST"),
   realtimeTicket: (publicationId: string) =>
     request<{ ticket: string; expires_in: number }>(
       "/api/v1/realtime/tickets",
@@ -369,4 +490,68 @@ export const api = {
     ),
   unpinPublication: (id: string) =>
     request<void>(`/api/v1/news/${id}/pin`, "DELETE"),
+  engagementSettings: () =>
+    request<EngagementSettings>("/api/v1/editorial/settings/engagement"),
+  updateEngagementSettings: (data: Partial<EngagementSettings>) =>
+    request<EngagementSettings>(
+      "/api/v1/editorial/settings/engagement",
+      "PATCH",
+      data,
+    ),
+  createStopWord: (value: string) =>
+    request<{ id: number; value: string; is_active: boolean }>(
+      "/api/v1/editorial/settings/engagement/stop-words",
+      "POST",
+      { value },
+    ),
+  updateStopWord: (id: number, data: { is_active: boolean }) =>
+    request(
+      `/api/v1/editorial/settings/engagement/stop-words/${id}`,
+      "PATCH",
+      data,
+    ),
+  moderation: () =>
+    request<{
+      reports: Array<{
+        id: string;
+        comment: Comment;
+        publication_title: string;
+        created_at: string;
+      }>;
+      flags: Comment[];
+    }>("/api/v1/editorial/moderation"),
+  moderateComment: (id: string, action: "hide" | "restore" | "remove") =>
+    request<Comment>(
+      `/api/v1/editorial/moderation/comments/${id}/${action}`,
+      "POST",
+    ),
+  resolveReport: (id: string) =>
+    request<void>(`/api/v1/editorial/moderation/reports/${id}/resolve`, "POST"),
+  analytics: () =>
+    request<{ results: PublicationAnalytics[] }>("/api/v1/editorial/analytics"),
+  publicationAnalytics: (id: string) =>
+    request<PublicationAnalytics>(
+      `/api/v1/editorial/publications/${id}/analytics`,
+    ),
+  restrictCommenting: (portalId: string, hours = 24) =>
+    request(
+      `/api/v1/editorial/moderation/users/${portalId}/restriction`,
+      "POST",
+      { hours },
+    ),
+  revokeRestriction: (portalId: string) =>
+    request<void>(
+      `/api/v1/editorial/moderation/users/${portalId}/restriction`,
+      "DELETE",
+    ),
+  acknowledgements: (id: string, state: "acknowledged" | "pending") =>
+    request<
+      Array<{
+        portal_id: string;
+        full_name: string;
+        email: string;
+        department: string;
+        acknowledged_at: string | null;
+      }>
+    >(`/api/v1/editorial/publications/${id}/acknowledgements?status=${state}`),
 };

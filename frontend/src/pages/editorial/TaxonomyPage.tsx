@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { api } from "../../shared/api";
 import { t } from "../../shared/i18n";
@@ -30,14 +30,22 @@ function Taxonomy() {
       id,
       name,
       active,
+      attachments,
     }: {
       type: "category" | "tag";
       id?: number;
       name?: string;
       active?: boolean;
+      attachments?: boolean;
     }) => {
       if (type === "category") {
-        if (id) return api.updateCategory(id, { is_active: active });
+        if (id)
+          return api.updateCategory(id, {
+            ...(active === undefined ? {} : { is_active: active }),
+            ...(attachments === undefined
+              ? {}
+              : { comment_attachments_enabled: attachments }),
+          });
         return api.createCategory({
           name,
           slug: slug(name ?? ""),
@@ -79,18 +87,36 @@ function Taxonomy() {
             }
           />
           {categories.data.map((item) => (
-            <TaxonomyRow
-              key={item.id}
-              name={item.name}
-              active={item.is_active !== false}
-              onToggle={() =>
-                mutate.mutate({
-                  type: "category",
-                  id: item.id,
-                  active: item.is_active === false,
-                })
-              }
-            />
+            <Fragment key={item.id}>
+              <TaxonomyRow
+                name={item.name}
+                active={item.is_active !== false}
+                onToggle={() =>
+                  mutate.mutate({
+                    type: "category",
+                    id: item.id,
+                    active: item.is_active === false,
+                  })
+                }
+              />
+              <button
+                className="text-button"
+                type="button"
+                onClick={() =>
+                  mutate.mutate({
+                    type: "category",
+                    id: item.id,
+                    attachments: !item.comment_attachments_enabled,
+                  })
+                }
+              >
+                {t(
+                  item.comment_attachments_enabled
+                    ? "disableCommentAttachments"
+                    : "enableCommentAttachments",
+                )}
+              </button>
+            </Fragment>
           ))}
         </Card>
         <Card>

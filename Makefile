@@ -1,7 +1,7 @@
 UV ?= uv
 NPM ?= npm
 
-.PHONY: format check test test-postgres test-stage4 test-realtime e2e build prod
+.PHONY: format check test test-postgres test-stage4 test-stage5 test-realtime e2e build prod
 
 format:
 	cd backend && $(UV) run ruff format .
@@ -14,6 +14,8 @@ check:
 	cd backend && $(UV) run ty check
 	cd backend && $(UV) run python manage.py check
 	cd backend && $(UV) run python manage.py makemigrations --check --dry-run
+	cd backend && $(UV) run pip-audit
+	cd backend && $(UV) run bandit -q -r apps config scripts -x '*/migrations/*' -ll
 	cd frontend && $(NPM) run format:check
 	cd frontend && $(NPM) run lint
 	cd frontend && $(NPM) run typecheck
@@ -36,6 +38,12 @@ test-stage4:
 	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage4.py verify
 
+test-stage5:
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage5.py prepare
+	docker compose restart redis backend celery-worker celery-beat
+	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage5.py verify
+
 test-realtime:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
@@ -47,6 +55,6 @@ e2e:
 build:
 	cd frontend && $(NPM) run build
 
-prod: check test test-postgres test-stage4 test-realtime e2e build
+prod: check test test-postgres test-stage4 test-stage5 test-realtime e2e build
 	cd backend && $(UV) run python scripts/check_production.py
 	docker compose config --quiet

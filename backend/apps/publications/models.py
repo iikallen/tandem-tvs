@@ -129,6 +129,7 @@ class Category(models.Model):
     name = models.CharField(max_length=160)
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
+    comment_attachments_enabled = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["sort_order", "name", "id"]
@@ -195,6 +196,9 @@ class Publication(models.Model):
         on_delete=models.SET_NULL,
         related_name="cover_publications",
     )
+    comments_enabled = models.BooleanField(default=True)
+    reactions_enabled = models.BooleanField(default=True)
+    acknowledgement_required = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -399,6 +403,86 @@ class PublicationView(models.Model):
         return f"{self.publication.pk}: {self.user.pk}"
 
 
+class PublicationRecipient(models.Model):
+    """Portal identity snapshot used as the exact analytics/ack denominator."""
+
+    publication = models.ForeignKey(
+        Publication, on_delete=models.PROTECT, related_name="recipient_snapshots"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="publication_recipients"
+    )
+    portal_id = models.CharField(max_length=128)
+    full_name = models.CharField(max_length=255)
+    email = models.EmailField(blank=True)
+    org_unit_external_id = models.CharField(max_length=128, blank=True)
+    org_unit_name = models.CharField(max_length=255, blank=True)
+    is_current = models.BooleanField(default=True)
+    captured_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["full_name", "portal_id"]
+        indexes = [
+            models.Index(fields=["publication", "is_current"], name="pub_recipient_current_idx"),
+            models.Index(fields=["publication", "portal_id"], name="pub_recipient_portal_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["publication", "portal_id"], name="pub_recipient_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.publication.pk}: {self.portal_id}"
+
+
+class AcknowledgementQuerySet(models.QuerySet):
+    def update(self, **kwargs):
+        raise ValidationError("Acknowledgements are append-only.")
+
+    def delete(self):
+        raise ValidationError("Acknowledgements are append-only.")
+
+
+class AcknowledgementManager(models.Manager["Acknowledgement"]):
+    def get_queryset(self) -> AcknowledgementQuerySet:
+        return AcknowledgementQuerySet(self.model, using=self._db)
+
+
+class Acknowledgement(models.Model):
+    publication = models.ForeignKey(
+        Publication, on_delete=models.PROTECT, related_name="acknowledgements"
+    )
+    recipient = models.OneToOneField(
+        PublicationRecipient, on_delete=models.PROTECT, related_name="acknowledgement"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="acknowledgements"
+    )
+    acknowledged_at = models.DateTimeField(auto_now_add=True)
+
+    objects = AcknowledgementManager()
+
+    class Meta:
+        ordering = ["acknowledged_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["publication", "user"], name="publication_ack_user_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.publication.pk}: {self.user.pk}"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("Acknowledgements are append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Acknowledgements are append-only.")
+
+
 class AuditEventQuerySet(models.QuerySet):
     def update(self, **kwargs):
         raise ValidationError("Audit events are append-only.")
@@ -418,6 +502,11 @@ class AuditEvent(models.Model):
         CATEGORY = "category", "Category"
         TAG = "tag", "Tag"
         MEDIA = "media", "Media"
+        COMMENT = "comment", "Comment"
+        REPORT = "report", "Report"
+        USER = "user", "User"
+        SETTINGS = "settings", "Settings"
+        ACKNOWLEDGEMENT = "acknowledgement", "Acknowledgement"
 
     class Type(models.TextChoices):
         CREATED = "publication.created", "Publication created"
@@ -442,6 +531,18 @@ class AuditEvent(models.Model):
         TAG_UPDATED = "taxonomy.tag.updated", "Tag updated"
         MEDIA_UPLOADED = "media.uploaded", "Media uploaded"
         MEDIA_DELETED = "media.deleted", "Media deleted"
+        COMMENT_HIDDEN = "comment.hidden", "Comment hidden"
+        COMMENT_RESTORED = "comment.restored", "Comment restored"
+        COMMENT_REMOVED = "comment.removed", "Comment removed"
+        REPORT_RESOLVED = "report.resolved", "Report resolved"
+        USER_RESTRICTED = "user.commenting_restricted", "User commenting restricted"
+        RESTRICTION_REVOKED = "restriction.revoked", "Restriction revoked"
+        ENGAGEMENT_UPDATED = "engagement.settings_updated", "Engagement settings updated"
+        DISCUSSION_CLOSED = "publication.discussion_closed", "Discussion closed"
+        DISCUSSION_OPENED = "publication.discussion_opened", "Discussion opened"
+        STOP_WORD_CREATED = "stop_word.created", "Stop word created"
+        STOP_WORD_DISABLED = "stop_word.disabled", "Stop word disabled"
+        ACKNOWLEDGED = "publication.acknowledged", "Publication acknowledged"
 
     publication = models.ForeignKey(
         Publication,

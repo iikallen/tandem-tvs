@@ -59,7 +59,7 @@ export function usePublicationRealtime(publicationId: string): RealtimeStatus {
               version?: number;
               publication_id?: string;
             };
-            if (event.version === 1 && event.publication_id === publicationId)
+            if (event.version === 2 && event.publication_id === publicationId)
               void reconcile();
           } catch {
             // A malformed hint is ignored; REST stays authoritative.

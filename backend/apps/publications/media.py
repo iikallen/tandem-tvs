@@ -131,7 +131,14 @@ def can_read_media(user: User, asset: MediaAsset) -> bool:
     if is_editor(user):
         return True
     publication_ids = MediaUsage.objects.filter(asset=asset).values("publication_id")
-    return Publication.objects.visible_to(user).filter(pk__in=publication_ids).exists()
+    if Publication.objects.visible_to(user).filter(pk__in=publication_ids).exists():
+        return True
+    from apps.discussions.models import CommentAttachment
+
+    comment_publications = CommentAttachment.objects.filter(
+        asset=asset, comment__status="ACTIVE"
+    ).values("comment__publication_id")
+    return Publication.objects.visible_to(user).filter(pk__in=comment_publications).exists()
 
 
 @transaction.atomic
@@ -139,7 +146,12 @@ def delete_media_asset(asset: MediaAsset, *, actor: User) -> None:
     if not is_editor(actor):
         raise ValidationError("An editor role is required.")
     asset = MediaAsset.objects.select_for_update().get(pk=asset.pk)
-    if MediaUsage.objects.filter(asset=asset).exists():
+    from apps.discussions.models import CommentAttachment
+
+    if (
+        MediaUsage.objects.filter(asset=asset).exists()
+        or CommentAttachment.objects.filter(asset=asset).exists()
+    ):
         raise ValidationError("Media used by a publication cannot be deleted.")
     previous = _media_state(asset)
     storage = asset.file.storage

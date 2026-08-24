@@ -270,7 +270,7 @@ def test_rollback_emits_no_event(settings, monkeypatch):
     publish_after_commit(
         event_type="reactions.changed", publication_id=publication.pk, resource_id=None
     )
-    assert sent[0][1]["event"]["version"] == 1
+    assert sent[0][1]["event"]["version"] == 2
 
 
 @pytest.mark.django_db(transaction=True)

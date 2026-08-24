@@ -203,6 +203,9 @@ def publication_snapshot(publication: Publication) -> dict[str, object]:
         "unpublished_at": _iso(publication.unpublished_at),
         "archived_at": _iso(publication.archived_at),
         "edit_revision": publication.edit_revision,
+        "comments_enabled": publication.comments_enabled,
+        "reactions_enabled": publication.reactions_enabled,
+        "acknowledgement_required": publication.acknowledgement_required,
         "audience": list(
             AudienceRule.objects.filter(publication=publication)
             .order_by("id")
@@ -435,6 +438,10 @@ def update_publication(
     publication.save()
     if audience is not None:
         set_publication_audience(publication, audience)
+        if publication.status == Publication.Status.PUBLISHED:
+            from .engagement import refresh_recipient_snapshot
+
+            refresh_recipient_snapshot(publication)
     if tags is not None:
         _set_tags(publication, tags)
     if cover_marker is not ... or body_assets is not None or attachments is not None:
@@ -460,6 +467,20 @@ def update_publication(
         previous_state=previous,
         new_state=publication_snapshot(publication),
     )
+    if previous.get("comments_enabled") != publication.comments_enabled:
+        record_audit_event(
+            publication=publication,
+            actor=actor,
+            event_type=(
+                AuditEvent.Type.DISCUSSION_OPENED
+                if publication.comments_enabled
+                else AuditEvent.Type.DISCUSSION_CLOSED
+            ),
+            target_type=AuditEvent.TargetType.PUBLICATION,
+            target_id=publication.pk,
+            previous_state={"comments_enabled": previous.get("comments_enabled")},
+            new_state={"comments_enabled": publication.comments_enabled},
+        )
     create_version(
         publication,
         actor=actor,
@@ -554,6 +575,10 @@ def _apply_transition_locked(
         PublicationPin.objects.filter(publication=publication).delete()
     publication.full_clean()
     publication.save()
+    if action == "publish":
+        from .engagement import refresh_recipient_snapshot
+
+        refresh_recipient_snapshot(publication)
     event_type = {
         "publish": AuditEvent.Type.PUBLISHED,
         "submit-review": AuditEvent.Type.SUBMITTED_FOR_REVIEW,
@@ -714,6 +739,9 @@ def duplicate_publication(publication: Publication, *, actor: User) -> Publicati
             "cover": source.cover,
             "body_assets": [u.asset for u in usages if u.purpose == MediaUsage.Purpose.BODY],
             "attachments": [u.asset for u in usages if u.purpose == MediaUsage.Purpose.ATTACHMENT],
+            "comments_enabled": source.comments_enabled,
+            "reactions_enabled": source.reactions_enabled,
+            "acknowledgement_required": source.acknowledgement_required,
         },
     )
     record_audit_event(

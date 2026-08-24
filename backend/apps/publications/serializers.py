@@ -5,6 +5,7 @@ from apps.identity.models import User
 from apps.identity.portal import get_portal_adapter
 
 from .models import (
+    Acknowledgement,
     Category,
     MediaAsset,
     Publication,
@@ -25,7 +26,7 @@ class UserSummarySerializer(serializers.ModelSerializer):
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = Category
-        fields = ["id", "slug", "name", "sort_order", "is_active"]
+        fields = ["id", "slug", "name", "sort_order", "is_active", "comment_attachments_enabled"]
         read_only_fields = ["id"]
 
 
@@ -149,6 +150,9 @@ class EditorialPublicationSerializer(serializers.ModelSerializer):
             "category",
             "tags",
             "cover",
+            "comments_enabled",
+            "reactions_enabled",
+            "acknowledgement_required",
             "attachments",
             "author",
             "status",
@@ -307,6 +311,9 @@ class NewsPublicationSerializer(serializers.ModelSerializer):
             "expires_at",
             "cover",
             "pin_slot",
+            "comments_enabled",
+            "reactions_enabled",
+            "acknowledgement_required",
             "view_count",
             "comment_count",
             "reaction_count",
@@ -322,9 +329,15 @@ class NewsPublicationSerializer(serializers.ModelSerializer):
 
 class NewsPublicationDetailSerializer(NewsPublicationSerializer):
     media = serializers.SerializerMethodField()
+    is_acknowledged = serializers.SerializerMethodField()
 
     class Meta(NewsPublicationSerializer.Meta):
-        fields = [*NewsPublicationSerializer.Meta.fields, "body", "media"]
+        fields = [
+            *NewsPublicationSerializer.Meta.fields,
+            "body",
+            "media",
+            "is_acknowledged",
+        ]
 
     def get_media(self, instance):
         return [
@@ -334,6 +347,13 @@ class NewsPublicationDetailSerializer(NewsPublicationSerializer):
             }
             for usage in instance.media_usages.select_related("asset").all()
         ]
+
+    def get_is_acknowledged(self, instance):
+        request = self.context.get("request")
+        return bool(
+            request
+            and Acknowledgement.objects.filter(publication=instance, user=request.user).exists()
+        )
 
 
 class NewsQuerySerializer(serializers.Serializer):

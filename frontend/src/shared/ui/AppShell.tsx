@@ -19,12 +19,20 @@ const portalLinks: NavItem[] = [
   { to: "/news", label: t("news"), icon: NewsIcon },
   { to: "/employees", label: t("employees"), icon: UsersIcon },
   { to: "/profile", label: t("profile"), icon: UserIcon },
+  { to: "/notifications", label: t("notifications"), icon: NewsIcon },
 ];
 
 const editorialLinks: NavItem[] = [
   {
     to: "/editorial/publications",
     label: t("publications"),
+    icon: EditIcon,
+  },
+  { to: "/editorial/moderation", label: t("moderation"), icon: NewsIcon },
+  { to: "/editorial/analytics", label: t("analytics"), icon: HomeIcon },
+  {
+    to: "/editorial/settings/engagement",
+    label: t("engagementSettings"),
     icon: EditIcon,
   },
   { to: "/editorial/review", label: t("review"), icon: NewsIcon },
@@ -42,8 +50,8 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
     ["author", "editor", "admin", "administrator"].includes(role),
   );
   const mobileLinks = canEdit
-    ? [...portalLinks.slice(0, 3), editorialLinks[0], portalLinks[3]]
-    : portalLinks;
+    ? [...portalLinks.slice(0, 3), editorialLinks[0], portalLinks[4]]
+    : portalLinks.slice(0, 5);
   const groups = mobile
     ? [{ label: "", links: mobileLinks }]
     : [
