@@ -11,13 +11,14 @@ export const demoPassword =
 export async function authenticateContext(
   context: BrowserContext,
   username = "employee-1",
+  password = demoPassword,
 ) {
   const csrfResponse = await context.request.get("/api/v1/auth/csrf");
   expect(csrfResponse.status()).toBe(200);
   const { csrf_token: csrfToken } = await csrfResponse.json();
   const loginResponse = await context.request.post("/api/v1/auth/login", {
     headers: { "X-CSRFToken": csrfToken },
-    data: { username, password: demoPassword },
+    data: { username, password },
   });
   expect(loginResponse.status()).toBe(200);
   const loginPayload = await loginResponse.json();

@@ -1,6 +1,10 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-import { authenticatedContext, demoPassword } from "./auth";
+import {
+  authenticateContext,
+  authenticatedContext,
+  demoPassword,
+} from "./auth";
 
 test.describe.configure({ mode: "serial", timeout: 60_000 });
 
@@ -164,6 +168,7 @@ test("one account gains Messenger entitlement without a new password", async ({
     `/api/v1/platform/users/${account.id}/grants/MESSENGER/MEMBER`,
   );
   expect(granted.status()).toBe(204);
+  await authenticateContext(member, username, activationPassword);
   await page.goto("/messages");
   await expect(page.getByRole("heading", { name: "Сообщения" })).toBeVisible();
 
