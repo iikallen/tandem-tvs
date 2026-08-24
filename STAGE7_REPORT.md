@@ -2,8 +2,8 @@
 
 Date: 2026-08-24
 Scope: Stage 6 security hardening and Messenger Core
-Result: **LOCAL AND CLEAN CI RELEASE GATES PASS. External authenticated WSS acceptance and the
-protected merge are pending. Stage 8 was not started.**
+Result: **PASS on the local gate, clean CI release gate, Cloudflare Access and authenticated WSS
+acceptance. The protected release follows the process below. Stage 8 was not started.**
 
 ## Delivered
 
@@ -77,8 +77,10 @@ frontend and PostgreSQL only to `127.0.0.1`; the tunnel route targets only `http
 - Connector DNS, UDP/QUIC, TCP/HTTP2 and Cloudflare API pre-checks passed.
 - Cloudflare Access completed and both external HTTPS health endpoints returned HTTP 200. Ready
   reported database, cache and portal components as healthy.
-- Authenticated Tandem login, `/messages` and `wss://` acceptance: **PENDING explicit approval to
-  transmit the local demo credential through the external hostname.**
+- Authenticated Tandem login succeeded through the external hostname, `/messages` loaded the real
+  Stage 7 inbox and its browser WebSocket reached `onopen`. The UI reported
+  `Обновления в реальном времени подключены`, proving the `wss://` upgrade through Cloudflare
+  Access and the named tunnel.
 
 ## Independent review
 
