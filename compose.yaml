@@ -93,10 +93,11 @@ services:
     volumes:
       - media-data:/app/media
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      test: ["CMD-SHELL", "uv run --no-sync celery -A config inspect ping --destination celery@$$HOSTNAME --timeout 5 >/dev/null"]
       interval: 10s
-      timeout: 3s
+      timeout: 7s
       retries: 10
+      start_period: 20s
     read_only: true
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=0700
@@ -132,10 +133,11 @@ services:
     volumes:
       - media-data:/app/media
     healthcheck:
-      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+      test: ["CMD-SHELL", "uv run --no-sync python -c \"import os,time; os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings.development'); import django; django.setup(); from django.core.cache import cache; heartbeat=cache.get('tandem:celery:reconcile-heartbeat'); assert heartbeat and time.time()-heartbeat < 60\""]
+      interval: 15s
+      timeout: 7s
+      retries: 3
+      start_period: 45s
     read_only: true
     tmpfs:
       - /tmp:uid=10001,gid=10001,mode=0700

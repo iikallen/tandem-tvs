@@ -1,86 +1,80 @@
-# Tandem Portal Stage 4 acceptance report
+# Tandem Portal Stage 4 hardening report
 
-Date: 2026-08-23  
-Scope: Stage 4 — editorial lifecycle, scheduling, targeting, taxonomy, media and versions  
-Result: **PASS locally; release tag is created only after green GitHub CI.** Stage 5 was not started.
+Date: 2026-08-24
+Scope: Stage 4 hardening and UI Kit v2 structural redesign
+Result: **PASS on the local release gate and clean Compose acceptance.** Stage 5 was not started.
 
-## Delivered
+## Hardening delivered
 
-- The publication lifecycle is centralized and transactional: `DRAFT`, `IN_REVIEW`,
-  `SCHEDULED`, `PUBLISHED`, `UNPUBLISHED`, and terminal `ARCHIVED`, with role checks and
-  optimistic `expected_revision` conflicts returned as HTTP 409.
-- Immutable canonical snapshots, hashes and changed-field lists are recorded for creation,
-  manual saves and lifecycle changes. Autosave runs after 2.5 seconds and coalesces snapshots to
-  at most one per actor per minute.
-- Celery worker and beat use Redis logical DB 2 and reconcile PostgreSQL every 15 seconds with
-  row locking and `skip_locked`. Scheduled publication and expiry are idempotent and restart-safe.
-- Exact units, unit subtrees, stable portal position groups, named employees and module roles are
-  supported. The same server-side visibility boundary protects feed, detail, discussions and media.
-- Pinning uses five unique slots, is separate from the regular feed and is removed automatically
-  on unpublish, expiry or archive.
-- Editors manage categories, tags and a reusable media library. Uploads use random storage keys,
-  a 25 MiB limit, extension/signature/declared-MIME checks, OOXML inspection and decoded image
-  validation. HTML, JavaScript, executables and SVG are rejected.
-- Media persists in the `media-data` volume and is delivered only after Django authorization via
-  `X-Accel-Redirect` to an Nginx `internal` location. Direct and IDOR access remains unavailable.
-- The structured editor supports tables, protected images, internal video, attachments and cover
-  assets by UUID only. Arbitrary media URLs and iframes are outside the accepted schema.
-- Duplication copies editorial content, taxonomy, audience and media references to a new draft,
-  without lifecycle times, pins, engagement or source audit history.
-- Editorial list/status tabs, review queue, editor/preview, schedule controls, media library,
-  taxonomy and version history are responsive and use the UI Kit token system.
+- Existing `AuditEvent` now records publication, category, tag and media changes with actor,
+  timestamp, target identity and complete previous/new JSON states. The migration backfills target
+  metadata for existing publication events; the trail remains append-only and has no new API/UI.
+- Position groups come exclusively from active portal adapter records. Audience validation rejects
+  missing/inactive identifiers and persists the adapter's canonical group name without a local-user
+  fallback.
+- Publication visibility ignores inactive target units and inactive ancestors during subtree checks.
+- Media upload removes a stored file when database persistence fails. Media deletion commits its DB
+  row and audit event atomically, then removes the file with `transaction.on_commit()`.
+- Rich-text validation enforces `assetImage` → image and `internalVideo` → video while attachments
+  retain support for every allowed ready asset.
+- Pin create/move uses an inner savepoint and returns a DRF validation response for a concurrently
+  occupied slot instead of leaking `IntegrityError` as HTTP 500.
+- Scheduled publication reconciliation writes a Redis heartbeat after success. Celery worker health
+  uses an address-specific ping; beat health requires a heartbeat newer than 60 seconds after a
+  45-second startup grace, matching the 15-second reconciliation period.
+- All Stage 4 production UI strings live in the existing i18n catalog. ESLint rejects Cyrillic
+  literals in production `.tsx` files outside that catalog while excluding test fixtures.
+- Regression coverage includes audit before/after states, position-group fail-closed behavior,
+  inactive ancestry, media rollback, media/node compatibility, concurrent pins, scheduler timing and
+  Celery heartbeat behavior.
+
+## UI Kit v2 redesign
+
+- The persistent shell now follows the supplied UI Kit's grouped portal/content navigation,
+  surface hierarchy, tokenized status treatments and account/footer pattern.
+- Home, news and all editorial routes use the same card, page-header, filter and action structure.
+- Editorial destinations are directly discoverable in the sidebar; redundant in-page navigation was
+  removed.
+- The responsive layout was checked at 360, 390, 768 and 1440 px. The five-item mobile navigation
+  fits at 360 px without horizontal overflow.
+- Visual comparison and QA evidence is stored under `docs/design/`; `design-qa.md` records no open
+  P0, P1 or P2 findings.
 
 ## Automated evidence
 
-- Backend: **102 passed** on Python 3.13 / Django 5.2 / pytest 9.1.1.
-- Coverage: **92.42% overall** with a 90% gate; publication domain modules are **95–100%** except
-  the upload service at 91%, while the aggregate Stage 4 publication domain gate is 95%.
-- Ruff format/check, basedpyright (0 errors/warnings), `ty check`, Django check and migration drift
-  all pass.
-- Frontend: Prettier, ESLint and TypeScript pass; **15 Vitest tests passed**; npm audit reports
-  **0 vulnerabilities**.
-- Playwright: **19/19 live Chromium tests passed**, including author autosave/reload, review,
-  editor publication, addressed/outsider authorization, actual protected media delivery and
-  360/390/768/1440 px overflow checks. Previous Stage 1–3 cases remain green.
-- Production dependency audit reports **no known vulnerabilities**. Bandit reports zero
-  Medium/High findings; its two Low findings are limited to deterministic seed/test settings.
+- Backend: **110 passed**; **93.00% overall coverage**, **99% discussions**, **96% publications**.
+- Ruff format/check, basedpyright, `ty check`, Django check and migration drift: PASS.
+- Frontend: Prettier, ESLint, TypeScript, **15 Vitest tests** and Vite production build: PASS.
+- Playwright: **19/19 Chromium E2E tests** passed, including live realtime delivery, editorial
+  lifecycle, protected media and responsive overflow checks.
+- `npm audit`, `pip-audit` and Bandit: no known dependency vulnerability and no Bandit finding.
+- Production settings check and `docker compose config --quiet`: PASS.
 
-## Real stack and restart evidence
+## Clean Compose and measured scheduler evidence
 
-A clean `down -v`, no-cache image build and healthy Compose startup were executed. The first
-acceptance attempt exposed and fixed named-volume ownership; the live Nginx test then exposed and
-fixed directory traversal permissions while retaining the internal authorization boundary.
-
-`backend/scripts/verify_stage4.py` ran against PostgreSQL, Celery/Redis DB 2 and the mounted media
-volume with a backend/worker/beat restart between preparation and verification. Final result:
+A clean `down`, image rebuild and `up --wait` were executed with PostgreSQL, Redis, backend, Celery
+worker, Celery beat, frontend and `cloudflared`. Every service became healthy. Stage 2 and Stage 3
+verifiers passed. Stage 4 preparation ran before a backend/worker/beat restart; verification after
+restart passed with PostgreSQL persistence, Celery Redis DB 2, immutable versions, protected media
+authorization and both scheduler bounds intact.
 
 ```text
-PASS: restart persistence; scheduled then expired; 4 immutable versions;
-duplicate=DRAFT; protected media editor=200, outsider=404, persisted=PASS
+publish_delay_seconds: 11.128
+unpublish_delay_seconds: 0.727
+accepted range for each actual deviation: 0–60 seconds
 ```
-
-Stage 2 and Stage 3 PostgreSQL/Redis verifiers remain part of `make prod`. Compose contains
-PostgreSQL, Redis, backend, Celery worker, Celery beat, frontend and the optional `tandem-tvs`
-Cloudflare tunnel only. Backend, PostgreSQL and Redis have no public host bindings; the local
-overlay publishes Nginx on loopback only.
 
 ## Cloudflare evidence
 
-- Tunnel: `tandem-tvs`; hostname: `https://tandem-tvs.chatlink.kz`; origin target:
+- Tunnel `tandem-tvs` is connected over QUIC and routes `tandem-tvs.chatlink.kz` to
   `http://frontend:80`.
-- The rebuilt `cloudflared` service is healthy. Unauthenticated external probes to `/`, live,
-  ready, profile, organization and protected-media routes receive Cloudflare Access HTTP 302,
-  proving the tunnel and Access boundary are active before origin authentication.
-- Authenticated origin/loopback checks return 200 for the application and health endpoints; the
-  real Nginx protected-media chain returns 200 to the editor and 404 to an unrelated employee.
+- Unauthenticated external requests to `/`, `/api/v1/health/live` and
+  `/api/v1/health/ready` return HTTP 302 to Cloudflare Access.
+- Only the frontend and local PostgreSQL development overlay bind to `127.0.0.1`; backend and Redis
+  have no host binding. None of backend, PostgreSQL or Redis is directly Internet-accessible.
 
-## Review and release boundary
+## Release boundary
 
-Static security review, dependency audits, the complete diff review and executable acceptance
-found no unresolved Critical or Major issue. The two material runtime findings (media-volume
-write ownership and Nginx read traversal) were fixed and covered by the real-stack acceptance and
-Playwright regression.
-
-Stage 4 ends here. Messenger delivery, chats, notifications, moderation and analytics are not
-implemented. `main` and tag `stage-4-complete` are updated only after the final Stage 4 CI run is
-green.
+The reviewed diff has no unresolved Critical or Major finding. The release workflow runs the exact
+`make prod` target on a clean Ubuntu runner before merge. `stage-4-complete` remains unchanged, no
+new tag is created, and Stage 5 remains out of scope.

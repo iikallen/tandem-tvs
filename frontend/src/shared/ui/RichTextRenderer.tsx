@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { RichTextNode } from "../api";
+import { t } from "../i18n";
 
 function safeHref(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -61,7 +62,7 @@ function renderNode(node: RichTextNode, key: number): ReactNode {
         className="attachment-link"
         href={`/api/v1/media/${assetId}/content`}
       >
-        Скачать вложение
+        {t("downloadAttachment")}
       </a>
     );
   if (node.type === "doc") return children;

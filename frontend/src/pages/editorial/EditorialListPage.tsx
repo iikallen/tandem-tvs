@@ -21,13 +21,13 @@ const statuses: Array<EditorialPublication["status"] | "ALL"> = [
 ];
 
 const labels: Record<string, string> = {
-  ALL: "Все",
-  DRAFT: "Черновики",
-  IN_REVIEW: "На согласовании",
-  SCHEDULED: "Запланированы",
-  PUBLISHED: "Опубликованы",
-  UNPUBLISHED: "Сняты",
-  ARCHIVED: "Архив",
+  ALL: t("all"),
+  DRAFT: t("filterDrafts"),
+  IN_REVIEW: t("filterInReview"),
+  SCHEDULED: t("filterScheduled"),
+  PUBLISHED: t("filterPublished"),
+  UNPUBLISHED: t("filterUnpublished"),
+  ARCHIVED: t("filterArchived"),
 };
 
 export function EditorialListPage() {
@@ -72,20 +72,10 @@ function EditorialList({
       <header className="page-header editorial-heading">
         <div>
           <p className="overline">{t("editorialSpace")}</p>
-          <h1>{review ? "Очередь согласования" : t("publications")}</h1>
+          <h1>{review ? t("reviewQueue") : t("publications")}</h1>
           <p className="page-description">{t("publicationsDescription")}</p>
         </div>
         <div className="button-row">
-          {editor && (
-            <Link className="button button--secondary" to="/editorial/media">
-              Медиа
-            </Link>
-          )}
-          {editor && (
-            <Link className="button button--secondary" to="/editorial/taxonomy">
-              Рубрики и теги
-            </Link>
-          )}
           <Link className="button" to="/editorial/publications/new">
             {t("newPublication")}
           </Link>
@@ -95,7 +85,7 @@ function EditorialList({
         <div
           className="status-tabs"
           role="tablist"
-          aria-label="Статусы публикаций"
+          aria-label={t("publicationStatuses")}
         >
           {statuses.map((item) => (
             <button
@@ -145,8 +135,8 @@ function EditorialCard({
     mutationFn: async (name: string) => {
       if (name === "duplicate") return api.duplicatePublication(publication.id);
       if (name === "pin") {
-        const slot = Number(window.prompt("Слот закрепления (1–5)", "1"));
-        if (!Number.isInteger(slot)) throw new Error("Укажите номер слота");
+        const slot = Number(window.prompt(t("pinSlotPrompt"), "1"));
+        if (!Number.isInteger(slot)) throw new Error(t("invalidPinSlot"));
         return api.pinPublication(publication.id, slot);
       }
       if (name === "unpin") return api.unpinPublication(publication.id);
@@ -178,20 +168,20 @@ function EditorialCard({
           className="button button--secondary"
           to={`/editorial/publications/${publication.id}`}
         >
-          Открыть
+          {t("open")}
         </Link>
         <Link
           className="button button--secondary"
           to={`/editorial/publications/${publication.id}/versions`}
         >
-          Версии
+          {t("versions")}
         </Link>
         <button
           type="button"
           className="button button--secondary"
           onClick={() => action.mutate("duplicate")}
         >
-          Дублировать
+          {t("duplicate")}
         </button>
         {publication.status === "DRAFT" && (
           <button
@@ -199,7 +189,7 @@ function EditorialCard({
             className="button button--secondary"
             onClick={() => action.mutate("submit-review")}
           >
-            На согласование
+            {t("submitReview")}
           </button>
         )}
         {editor && publication.status === "IN_REVIEW" && (
@@ -208,7 +198,7 @@ function EditorialCard({
             className="button button--secondary"
             onClick={() => action.mutate("return-to-draft")}
           >
-            Вернуть
+            {t("returnToDraft")}
           </button>
         )}
         {editor &&
@@ -220,7 +210,7 @@ function EditorialCard({
               className="button"
               onClick={() => action.mutate("publish")}
             >
-              Опубликовать
+              {t("publish")}
             </button>
           )}
         {editor && publication.status === "PUBLISHED" && (
@@ -231,7 +221,7 @@ function EditorialCard({
               action.mutate(publication.pin_slot ? "unpin" : "pin")
             }
           >
-            {publication.pin_slot ? "Открепить" : "Закрепить"}
+            {t(publication.pin_slot ? "unpin" : "pin")}
           </button>
         )}
         {editor && publication.status === "SCHEDULED" && (
@@ -240,7 +230,7 @@ function EditorialCard({
             className="button button--secondary"
             onClick={() => action.mutate("cancel-schedule")}
           >
-            Отменить план
+            {t("cancelSchedule")}
           </button>
         )}
         {editor && publication.status === "PUBLISHED" && (
@@ -249,7 +239,7 @@ function EditorialCard({
             className="button button--danger"
             onClick={() => setConfirmAction("unpublish")}
           >
-            Снять
+            {t("unpublish")}
           </button>
         )}
         {editor && publication.status === "UNPUBLISHED" && (
@@ -258,7 +248,7 @@ function EditorialCard({
             className="button button--danger"
             onClick={() => setConfirmAction("archive")}
           >
-            В архив
+            {t("archive")}
           </button>
         )}
       </div>
@@ -271,15 +261,17 @@ function EditorialCard({
         open={Boolean(confirmAction)}
         title={
           confirmAction === "archive"
-            ? "Архивировать публикацию?"
-            : "Снять публикацию?"
+            ? t("archiveQuestion")
+            : t("unpublishQuestion")
         }
         consequence={
           confirmAction === "archive"
-            ? "Архив — терминальное состояние. Вернуть материал можно только дублированием."
-            : "Публикация немедленно исчезнет из ленты и будет откреплена."
+            ? t("archiveConsequence")
+            : t("unpublishConsequence")
         }
-        confirmLabel={confirmAction === "archive" ? "Архивировать" : "Снять"}
+        confirmLabel={
+          confirmAction === "archive" ? t("archiveAction") : t("unpublish")
+        }
         busy={action.isPending}
         onCancel={() => setConfirmAction(undefined)}
         onConfirm={() => {

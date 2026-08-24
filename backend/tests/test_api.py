@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 from apps.identity import authentication
 from apps.identity.models import User
 from apps.identity.portal import PortalUnavailableError
-from apps.identity.portal.types import PortalEmployee
+from apps.identity.portal.types import PortalEmployee, PortalPositionGroup
 from apps.organization import views as organization_views
 
 
@@ -164,6 +164,35 @@ def test_employee_search_is_query_bounded_and_data_minimized(client, monkeypatch
         "job_title",
         "org_unit_external_id",
     }
+
+
+@pytest.mark.django_db
+@override_settings(MOCK_PORTAL_USER_ID="employee-1")
+def test_position_groups_are_portal_only_active_and_canonical(client, monkeypatch):
+    User.objects.create(
+        portal_id="local-only",
+        full_name="Local only",
+        position_group_external_id="local-group",
+        position_group_name="Local group",
+    )
+
+    class GroupAdapter:
+        def list_position_groups(self):
+            return (
+                PortalPositionGroup("editors", "Редакторы"),
+                PortalPositionGroup("inactive", "Неактивные", is_active=False),
+                PortalPositionGroup("authors", "Авторы"),
+            )
+
+    monkeypatch.setattr(organization_views, "get_portal_adapter", GroupAdapter)
+    response = client.get("/api/v1/organization/position-groups")
+
+    assert response.status_code == 200
+    assert response.data == [
+        {"external_id": "authors", "name": "Авторы"},
+        {"external_id": "editors", "name": "Редакторы"},
+    ]
+    assert "local-group" not in str(response.data)
 
 
 @pytest.mark.django_db

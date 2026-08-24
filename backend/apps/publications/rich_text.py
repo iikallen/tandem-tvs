@@ -48,9 +48,13 @@ def rich_text_to_plain_text(value: object) -> str:
 
 
 def rich_text_asset_ids(value: object) -> set[uuid.UUID]:
+    return set(rich_text_asset_references(value))
+
+
+def rich_text_asset_references(value: object) -> dict[uuid.UUID, set[str]]:
     validate_rich_text_document(value)
-    found: set[uuid.UUID] = set()
-    _collect_asset_ids(value, found)
+    found: dict[uuid.UUID, set[str]] = {}
+    _collect_asset_references(value, found)
     return found
 
 
@@ -230,18 +234,20 @@ def _collect_text(value: object, parts: list[str]) -> None:
         _collect_text(child, parts)
 
 
-def _collect_asset_ids(value: object, found: set[uuid.UUID]) -> None:
+def _collect_asset_references(value: object, found: dict[uuid.UUID, set[str]]) -> None:
     if not isinstance(value, Mapping):
         return
     node = cast("Mapping[str, object]", value)
-    if node.get("type") in {"assetImage", "internalVideo", "attachment"}:
+    node_type = node.get("type")
+    if node_type in {"assetImage", "internalVideo", "attachment"}:
         attrs = node.get("attrs")
         if isinstance(attrs, Mapping) and isinstance(attrs.get("asset_id"), str):
-            found.add(uuid.UUID(cast("str", attrs["asset_id"])))
+            asset_id = uuid.UUID(cast("str", attrs["asset_id"]))
+            found.setdefault(asset_id, set()).add(cast("str", node_type))
     content = node.get("content", [])
     if isinstance(content, list):
         for child in cast("list[object]", content):
-            _collect_asset_ids(child, found)
+            _collect_asset_references(child, found)
 
 
 def _mapping(value: object, message: str) -> Mapping[str, object]:

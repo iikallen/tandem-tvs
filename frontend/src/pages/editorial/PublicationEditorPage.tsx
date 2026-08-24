@@ -55,7 +55,7 @@ const protectedNode = (name: string, tag: "img" | "video" | "a") =>
       return [
         "a",
         { ...common, href: `/api/v1/media/${id}/content` },
-        "Скачать вложение",
+        t("downloadAttachment"),
       ];
     },
   });
@@ -175,7 +175,7 @@ function PublicationForm({
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState(
-    initial ? "Сохранено" : "Новый черновик",
+    initial ? t("saved") : t("newDraft"),
   );
   const [revision, setRevision] = useState(initial?.edit_revision ?? 0);
   const revisionRef = useRef(initial?.edit_revision ?? 0);
@@ -249,11 +249,11 @@ function PublicationForm({
       firstAutosave.current = false;
       return;
     }
-    setSaveState("Есть несохранённые изменения");
+    setSaveState(t("unsavedChanges"));
     const timer = window.setTimeout(async () => {
       if (busy.current) return;
       busy.current = true;
-      setSaveState("Автосохранение…");
+      setSaveState(t("autosaving"));
       try {
         const saved = await api.updatePublication(initial.id, {
           ...draft,
@@ -263,13 +263,13 @@ function PublicationForm({
         const nextRevision = saved.edit_revision ?? revisionRef.current + 1;
         revisionRef.current = nextRevision;
         setRevision(nextRevision);
-        setSaveState("Автосохранено");
+        setSaveState(t("autosaved"));
         setConflict(undefined);
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === "stale_revision")
           setConflict(caught);
         else setError(caught);
-        setSaveState("Не сохранено");
+        setSaveState(t("notSaved"));
       } finally {
         busy.current = false;
       }
@@ -298,7 +298,7 @@ function PublicationForm({
       await queryClient.invalidateQueries({ queryKey: ["editorial"] });
       await queryClient.invalidateQueries({ queryKey: ["news"] });
       if (!initial || action) navigate("/editorial/publications");
-      else setSaveState("Сохранено вручную");
+      else setSaveState(t("manuallySaved"));
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === "stale_revision")
         setConflict(caught);
@@ -346,17 +346,18 @@ function PublicationForm({
       {error ? <PageState error={error} /> : null}
       {conflict && (
         <div className="conflict-alert" role="alert">
-          <strong>Конфликт изменений</strong>
+          <strong>{t("changeConflict")}</strong>
           <p>
-            На сервере уже revision {conflict.currentRevision}. Скопируйте
-            нужный текст для сравнения или загрузите актуальную версию.
+            {t("conflictDescription", {
+              revision: conflict.currentRevision ?? "",
+            })}
           </p>
           <button
             className="button"
             type="button"
             onClick={() => window.location.reload()}
           >
-            Загрузить серверную версию
+            {t("loadServerVersion")}
           </button>
         </div>
       )}
@@ -409,7 +410,7 @@ function PublicationForm({
             </select>
           </label>
           <label>
-            Теги
+            {t("tags")}
             <select
               multiple
               value={selectedTags}
@@ -433,13 +434,13 @@ function PublicationForm({
             </select>
           </label>
           <label>
-            Обложка
+            {t("cover")}
             <select
               value={cover ?? ""}
               onChange={(event) => setCover(event.target.value)}
               disabled={!editable}
             >
-              <option value="">Без обложки</option>
+              <option value="">{t("noCover")}</option>
               {media
                 .filter((asset) => asset.kind === "IMAGE")
                 .map((asset) => (
@@ -450,7 +451,7 @@ function PublicationForm({
             </select>
           </label>
           <label>
-            Вложения
+            {t("attachments")}
             <select
               multiple
               value={attachments}
@@ -474,7 +475,7 @@ function PublicationForm({
           {canPublish && (
             <>
               <label>
-                Дата публикации
+                {t("publishDate")}
                 <input
                   type="datetime-local"
                   value={scheduledFor}
@@ -484,7 +485,7 @@ function PublicationForm({
                 />
               </label>
               <label>
-                Снять после
+                {t("expireDate")}
                 <input
                   type="datetime-local"
                   value={expiresAt}
@@ -521,7 +522,7 @@ function PublicationForm({
                 disabled={saving}
                 onClick={() => save()}
               >
-                Сохранить
+                {t("save")}
               </button>
               {(!initial || initial.status === "DRAFT") && (
                 <button
@@ -530,7 +531,7 @@ function PublicationForm({
                   disabled={saving}
                   onClick={() => save("submit-review")}
                 >
-                  На согласование
+                  {t("submitReview")}
                 </button>
               )}
               {canPublish && scheduledFor && initial && (
@@ -540,9 +541,9 @@ function PublicationForm({
                   disabled={saving}
                   onClick={schedule}
                 >
-                  {initial.status === "SCHEDULED"
-                    ? "Перенести публикацию"
-                    : "Запланировать"}
+                  {t(
+                    initial.status === "SCHEDULED" ? "reschedule" : "schedule",
+                  )}
                 </button>
               )}
               {canPublish && (
@@ -552,7 +553,7 @@ function PublicationForm({
                   disabled={saving}
                   onClick={() => save("publish")}
                 >
-                  Опубликовать
+                  {t("publish")}
                 </button>
               )}
             </>
@@ -629,16 +630,16 @@ function AudienceFields({
             );
           }}
         >
-          <option value="ORG_UNIT">Подразделение — точно</option>
-          <option value="ORG_SUBTREE">Подразделение и дочерние</option>
-          <option value="EMPLOYEE">Поимённо</option>
-          <option value="POSITION_GROUP">Должностная группа</option>
+          <option value="ORG_UNIT">{t("audienceOrgExact")}</option>
+          <option value="ORG_SUBTREE">{t("audienceOrgSubtree")}</option>
+          <option value="EMPLOYEE">{t("audienceNamed")}</option>
+          <option value="POSITION_GROUP">{t("audiencePositionGroup")}</option>
           <option value="ALL">{t("audienceAll")}</option>
         </select>
       </label>
       {(mode === "ORG_UNIT" || mode === "ORG_SUBTREE") && (
         <label>
-          Подразделения
+          {t("orgUnits")}
           <select
             multiple
             value={values}
@@ -700,7 +701,7 @@ function AudienceFields({
       )}
       {mode === "POSITION_GROUP" && (
         <label>
-          Должностные группы
+          {t("positionGroups")}
           <select
             multiple
             value={(audience.position_groups ?? []).map(
@@ -750,7 +751,7 @@ function EditorToolbar({
           ? asset.kind === "VIDEO"
           : true,
     );
-    const id = window.prompt("Asset ID", candidates[0]?.id ?? "");
+    const id = window.prompt(t("assetIdPrompt"), candidates[0]?.id ?? "");
     if (id && candidates.some((asset) => asset.id === id))
       editor
         .chain()
@@ -768,7 +769,7 @@ function EditorToolbar({
     [t("orderedList"), () => editor.chain().focus().toggleOrderedList().run()],
     [t("quote"), () => editor.chain().focus().toggleBlockquote().run()],
     [
-      "Таблица",
+      t("table"),
       () =>
         editor
           .chain()
@@ -776,9 +777,9 @@ function EditorToolbar({
           .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
           .run(),
     ],
-    ["Изображение", () => insert("assetImage")],
-    ["Видео", () => insert("internalVideo")],
-    ["Файл", () => insert("attachment")],
+    [t("image"), () => insert("assetImage")],
+    [t("video"), () => insert("internalVideo")],
+    [t("file"), () => insert("attachment")],
   ];
   return (
     <div

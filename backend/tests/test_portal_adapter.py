@@ -29,6 +29,11 @@ def test_adapter_contract_has_stable_identity_and_directory_data(adapter):
     units = adapter.list_org_units()
     assert {unit.external_id for unit in units} >= {"company", "communications"}
     assert any(unit.parent_external_id == "company" for unit in units)
+    groups = adapter.list_position_groups()
+    assert {group.external_id for group in groups if group.is_active} >= {
+        "specialists",
+        "communications-editors",
+    }
 
 
 def test_adapter_contract_covers_roles_blocked_user_search_and_health(adapter):
@@ -60,4 +65,6 @@ def test_unavailable_adapter_is_supported_and_fails_closed():
     assert isinstance(adapter, UnavailablePortalAdapter)
     with pytest.raises(PortalUnavailableError):
         adapter.get_employee("employee-1")
+    with pytest.raises(PortalUnavailableError):
+        adapter.list_position_groups()
     assert adapter.healthcheck().available is False

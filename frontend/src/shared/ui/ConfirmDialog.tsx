@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 
+import { t } from "../i18n";
+
 export function ConfirmDialog({
   open,
   title,
@@ -46,7 +48,7 @@ export function ConfirmDialog({
             disabled={busy}
             onClick={onCancel}
           >
-            Отмена
+            {t("cancel")}
           </button>
           <button
             className="button button--danger"

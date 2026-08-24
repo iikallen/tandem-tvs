@@ -8,7 +8,7 @@ import json
 import os
 import sys
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
@@ -122,7 +122,15 @@ def prepare() -> None:
     assert scheduled.status_code == 200, scheduled.data
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     STATE_FILE.write_text(
-        json.dumps({"publication": publication_id, "asset": asset_id}), encoding="utf-8"
+        json.dumps(
+            {
+                "publication": publication_id,
+                "asset": asset_id,
+                "scheduled_for": scheduled_for.isoformat(),
+                "expires_at": expires_at.isoformat(),
+            }
+        ),
+        encoding="utf-8",
     )
     print({"result": "PREPARED", "publication": publication_id, "asset": asset_id})
 
@@ -131,20 +139,24 @@ def verify() -> None:
     state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
     publication_id = state["publication"]
     asset_id = state["asset"]
-    saw_published = False
-    deadline = time.monotonic() + 75
-    while time.monotonic() < deadline:
+    scheduled_for = datetime.fromisoformat(state["scheduled_for"])
+    expires_at = datetime.fromisoformat(state["expires_at"])
+    deadline = expires_at + timedelta(seconds=60)
+    while True:
         publication = Publication.objects.get(pk=publication_id)
-        saw_published |= publication.status == Publication.Status.PUBLISHED
-        if saw_published and publication.status == Publication.Status.UNPUBLISHED:
+        if publication.status == Publication.Status.UNPUBLISHED:
             break
+        if timezone.now() >= deadline:
+            raise AssertionError("Celery missed the 60-second publish/expiry SLA")
         time.sleep(2)
-    else:
-        raise AssertionError(
-            "Celery did not publish and expire the scheduled item within 75 seconds"
-        )
 
     publication = Publication.objects.get(pk=publication_id)
+    assert publication.published_at is not None
+    assert publication.unpublished_at is not None
+    publish_delay = (publication.published_at - scheduled_for).total_seconds()
+    unpublish_delay = (publication.unpublished_at - expires_at).total_seconds()
+    assert 0 <= publish_delay <= 60, publish_delay
+    assert 0 <= unpublish_delay <= 60, unpublish_delay
     assert PublicationVersion.objects.filter(publication=publication).count() >= 3
     assert request("employee-1", "get", f"/api/v1/news/{publication_id}").status_code == 404
     assert request("admin-1", "get", f"/api/v1/news/{publication_id}").status_code == 404
@@ -173,6 +185,8 @@ def verify() -> None:
             "celery_redis_db": 2,
             "restart_persistence": "PASS",
             "scheduled_then_expired": "PASS",
+            "publish_delay_seconds": round(publish_delay, 3),
+            "unpublish_delay_seconds": round(unpublish_delay, 3),
             "outsider_after_expiry": 404,
             "immutable_versions": PublicationVersion.objects.filter(
                 publication=publication

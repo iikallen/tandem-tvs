@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from apps.identity.models import User
+from apps.identity.portal import get_portal_adapter
 
 from .models import (
     Category,
@@ -11,7 +12,7 @@ from .models import (
     PublicationVersion,
     Tag,
 )
-from .rich_text import rich_text_asset_ids
+from .rich_text import rich_text_asset_references
 from .services import audience_payload, create_publication, update_publication
 
 
@@ -74,6 +75,18 @@ class AudienceSerializer(serializers.Serializer):
         group_ids = [group["external_id"] for group in attrs["position_groups"]]
         if len(group_ids) != len(set(group_ids)):
             raise serializers.ValidationError("Position groups must be unique.")
+        if group_ids:
+            active_groups = {
+                group.external_id: group.name
+                for group in get_portal_adapter().list_position_groups()
+                if group.is_active
+            }
+            unknown = set(group_ids) - active_groups.keys()
+            if unknown:
+                raise serializers.ValidationError("Position group is unknown or inactive.")
+            attrs["position_groups"] = [
+                {"external_id": group_id, "name": active_groups[group_id]} for group_id in group_ids
+            ]
         return attrs
 
 
@@ -180,12 +193,24 @@ class EditorialPublicationSerializer(serializers.ModelSerializer):
             )
         body = attrs.get("body", getattr(self.instance, "body", None))
         try:
-            body_ids = rich_text_asset_ids(body)
+            body_references = rich_text_asset_references(body)
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"body": exc.messages}) from exc
+        body_ids = set(body_references)
         assets = list(MediaAsset.objects.filter(pk__in=body_ids, status=MediaAsset.Status.READY))
         if {asset.pk for asset in assets} != body_ids:
             raise serializers.ValidationError({"body": "Rich text references unknown media."})
+        expected_kinds = {
+            "assetImage": MediaAsset.Kind.IMAGE,
+            "internalVideo": MediaAsset.Kind.VIDEO,
+        }
+        for asset in assets:
+            for node_type in body_references[asset.pk]:
+                expected = expected_kinds.get(node_type)
+                if expected is not None and asset.kind != expected:
+                    raise serializers.ValidationError(
+                        {"body": f"{node_type} references incompatible media."}
+                    )
         attrs["body_assets"] = assets
         return attrs
 

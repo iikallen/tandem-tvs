@@ -1,10 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 
 import { api } from "../../shared/api";
 import { roleLabel, t, unitKindLabel } from "../../shared/i18n";
 import { Avatar } from "../../shared/ui/Avatar";
 import { Badge } from "../../shared/ui/Badge";
 import { Card } from "../../shared/ui/Card";
+import { EditIcon, NewsIcon, UserIcon, UsersIcon } from "../../shared/ui/icons";
 import { PageState } from "../../shared/ui/PageState";
 
 export function HomePage() {
@@ -13,6 +15,23 @@ export function HomePage() {
   if (profile.isError) return <PageState error={profile.error} />;
 
   const user = profile.data;
+  const canEdit = user.module_roles.some((role) =>
+    ["author", "editor", "admin", "administrator"].includes(role),
+  );
+  const shortcuts = [
+    { to: "/news", label: t("news"), icon: NewsIcon },
+    { to: "/employees", label: t("employees"), icon: UsersIcon },
+    { to: "/profile", label: t("profile"), icon: UserIcon },
+    ...(canEdit
+      ? [
+          {
+            to: "/editorial/publications",
+            label: t("editorial"),
+            icon: EditIcon,
+          },
+        ]
+      : []),
+  ];
   return (
     <div className="page-stack">
       <header className="page-header">
@@ -23,18 +42,40 @@ export function HomePage() {
         </div>
         <Badge tone="success">{t("ssoConnected")}</Badge>
       </header>
-      <Card className="profile-hero">
-        <Avatar name={user.full_name} imageUrl={user.avatar_url} size="lg" />
-        <div className="profile-hero__identity">
-          <h2>{user.full_name}</h2>
-          <p>{user.job_title || t("notSpecified")}</p>
-          <div className="badge-row">
-            {user.module_roles.map((role) => (
-              <Badge key={role}>{roleLabel(role)}</Badge>
+      <div className="dashboard-grid">
+        <Card className="profile-hero profile-hero--dashboard">
+          <Avatar name={user.full_name} imageUrl={user.avatar_url} size="lg" />
+          <div className="profile-hero__identity">
+            <p className="card-kicker">{t("profile")}</p>
+            <h2>{user.full_name}</h2>
+            <p>{user.job_title || t("notSpecified")}</p>
+            <div className="badge-row">
+              {user.module_roles.map((role) => (
+                <Badge key={role}>{roleLabel(role)}</Badge>
+              ))}
+            </div>
+          </div>
+        </Card>
+        <Card className="quick-links">
+          <div className="card-heading">
+            <div>
+              <p className="card-kicker">{t("workspace")}</p>
+              <h2>{t("quickLinks")}</h2>
+            </div>
+            <p>{t("quickLinksDescription")}</p>
+          </div>
+          <div className="quick-links__grid">
+            {shortcuts.map(({ to, label, icon: Icon }) => (
+              <Link className="quick-link" to={to} key={to}>
+                <span className="quick-link__icon">
+                  <Icon />
+                </span>
+                <strong>{label}</strong>
+              </Link>
             ))}
           </div>
-        </div>
-      </Card>
+        </Card>
+      </div>
       <div className="summary-grid">
         <Card title={t("contactDetails")}>
           <dl className="definition-list">

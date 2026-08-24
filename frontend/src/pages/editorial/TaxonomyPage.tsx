@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { api } from "../../shared/api";
+import { t } from "../../shared/i18n";
 import { Card } from "../../shared/ui/Card";
 import { PageState } from "../../shared/ui/PageState";
 import { EditorialGuard } from "./EditorialGuard";
@@ -63,13 +64,13 @@ function Taxonomy() {
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Редакция</p>
-          <h1>Рубрики и теги</h1>
+          <p className="overline">{t("editorial")}</p>
+          <h1>{t("categoriesAndTags")}</h1>
         </div>
       </header>
       <div className="taxonomy-grid">
         <Card>
-          <h2>Рубрики</h2>
+          <h2>{t("categories")}</h2>
           <InlineCreate
             value={categoryName}
             onChange={setCategoryName}
@@ -93,7 +94,7 @@ function Taxonomy() {
           ))}
         </Card>
         <Card>
-          <h2>Теги</h2>
+          <h2>{t("tags")}</h2>
           <InlineCreate
             value={tagName}
             onChange={setTagName}
@@ -136,7 +137,7 @@ function InlineCreate({
   return (
     <div className="inline-create">
       <label>
-        Название
+        {t("name")}
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
@@ -148,7 +149,7 @@ function InlineCreate({
         disabled={!value.trim()}
         onClick={onCreate}
       >
-        Добавить
+        {t("add")}
       </button>
     </div>
   );
@@ -171,7 +172,7 @@ function TaxonomyRow({
         type="button"
         onClick={onToggle}
       >
-        {active ? "Деактивировать" : "Активировать"}
+        {t(active ? "deactivate" : "activate")}
       </button>
     </div>
   );

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 
 import { api } from "../../shared/api";
+import { t } from "../../shared/i18n";
 import { Card } from "../../shared/ui/Card";
 import { ConfirmDialog } from "../../shared/ui/ConfirmDialog";
 import { PageState } from "../../shared/ui/PageState";
@@ -24,7 +25,7 @@ function MediaLibrary() {
   const upload = useMutation({
     mutationFn: api.uploadMedia,
     onSuccess: async () => {
-      setMessage("Файл загружен");
+      setMessage(t("fileUploaded"));
       await queryClient.invalidateQueries({ queryKey: ["editorial-media"] });
     },
   });
@@ -39,11 +40,9 @@ function MediaLibrary() {
     <div className="page-stack">
       <header className="page-header">
         <div>
-          <p className="overline">Редакция</p>
-          <h1>Медиабиблиотека</h1>
-          <p className="page-description">
-            Безопасные изображения, видео и документы можно переиспользовать.
-          </p>
+          <p className="overline">{t("editorial")}</p>
+          <h1>{t("mediaLibrary")}</h1>
+          <p className="page-description">{t("mediaDescription")}</p>
         </div>
       </header>
       <Card className="file-upload">
@@ -62,9 +61,9 @@ function MediaLibrary() {
           disabled={upload.isPending}
           onClick={() => input.current?.click()}
         >
-          Выберите файл
+          {t("chooseFile")}
         </button>
-        <span>или перетащите сюда · до 25 МБ</span>
+        <span>{t("dropFileHint")}</span>
         {upload.isError && (
           <p className="field-error" role="alert">
             {upload.error.message}
@@ -87,14 +86,14 @@ function MediaLibrary() {
             </div>
             <div className="button-row">
               <a className="button button--secondary" href={asset.content_url}>
-                Открыть
+                {t("open")}
               </a>
               <button
                 className="button button--danger"
                 type="button"
                 onClick={() => setDeleteId(asset.id)}
               >
-                Удалить
+                {t("delete")}
               </button>
             </div>
           </Card>
@@ -102,9 +101,9 @@ function MediaLibrary() {
       </div>
       <ConfirmDialog
         open={Boolean(deleteId)}
-        title="Удалить файл?"
-        consequence="Удаление разрешено только для файла, который не используется ни в одной публикации."
-        confirmLabel="Удалить"
+        title={t("deleteFileQuestion")}
+        consequence={t("deleteFileConsequence")}
+        confirmLabel={t("delete")}
         busy={remove.isPending}
         onCancel={() => setDeleteId(undefined)}
         onConfirm={() =>
@@ -120,6 +119,6 @@ function MediaLibrary() {
 
 function formatSize(value: number) {
   return value < 1024 * 1024
-    ? `${Math.ceil(value / 1024)} КБ`
-    : `${(value / 1024 / 1024).toFixed(1)} МБ`;
+    ? t("kilobytes", { size: Math.ceil(value / 1024) })
+    : t("megabytes", { size: (value / 1024 / 1024).toFixed(1) });
 }

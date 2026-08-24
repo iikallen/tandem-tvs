@@ -12,8 +12,8 @@ from PIL import Image, UnidentifiedImageError
 
 from apps.identity.models import User
 
-from .models import MediaAsset, MediaUsage
-from .services import is_editor
+from .models import AuditEvent, MediaAsset, MediaUsage
+from .services import is_editor, record_audit_event
 
 DEFAULT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 ALLOWED = {
@@ -74,7 +74,6 @@ def _image_dimensions(data: bytes) -> tuple[int, int]:
         raise ValidationError("Image content is invalid.") from exc
 
 
-@transaction.atomic
 def create_media_asset(*, upload: UploadedFile, actor: User) -> MediaAsset:
     max_bytes = int(getattr(settings, "MEDIA_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
     upload_size = upload.size or 0
@@ -111,8 +110,20 @@ def create_media_asset(*, upload: UploadedFile, actor: User) -> MediaAsset:
         height=height,
     )
     asset.file.save(storage_key, upload, save=False)
-    asset.full_clean()
-    asset.save()
+    try:
+        with transaction.atomic():
+            asset.full_clean()
+            asset.save()
+            record_audit_event(
+                actor=actor,
+                event_type=AuditEvent.Type.MEDIA_UPLOADED,
+                target_type=AuditEvent.TargetType.MEDIA,
+                target_id=asset.pk,
+                new_state=_media_state(asset),
+            )
+    except Exception:
+        asset.file.storage.delete(asset.file.name)
+        raise
     return asset
 
 
@@ -130,8 +141,30 @@ def delete_media_asset(asset: MediaAsset, *, actor: User) -> None:
     asset = MediaAsset.objects.select_for_update().get(pk=asset.pk)
     if MediaUsage.objects.filter(asset=asset).exists():
         raise ValidationError("Media used by a publication cannot be deleted.")
-    asset.file.delete(save=False)
+    previous = _media_state(asset)
+    storage = asset.file.storage
+    storage_name = asset.file.name
+    record_audit_event(
+        actor=actor,
+        event_type=AuditEvent.Type.MEDIA_DELETED,
+        target_type=AuditEvent.TargetType.MEDIA,
+        target_id=asset.pk,
+        previous_state=previous,
+    )
     asset.delete()
+    transaction.on_commit(lambda: storage.delete(storage_name), robust=True)
+
+
+def _media_state(asset: MediaAsset) -> dict[str, object]:
+    return {
+        "original_name": asset.original_name,
+        "storage_key": asset.storage_key,
+        "mime_type": asset.mime_type,
+        "size": asset.size,
+        "sha256": asset.sha256,
+        "kind": asset.kind,
+        "status": asset.status,
+    }
 
 
 # Imported late to keep model loading acyclic.

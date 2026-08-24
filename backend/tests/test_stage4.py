@@ -1,11 +1,15 @@
+import time
 from datetime import timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
 import pytest
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, transaction
 from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
@@ -14,6 +18,7 @@ from rest_framework.test import APIClient
 from apps.identity.managers import UserManager
 from apps.identity.models import User
 from apps.organization.models import OrgUnit
+from apps.publications import services as publication_services
 from apps.publications.media import (
     _detected_mime,
     _image_dimensions,
@@ -157,6 +162,28 @@ def test_full_lifecycle_scheduler_and_immutable_versions(stage4_domain):
         PublicationVersion.objects.update(reason="tampered")
     with pytest.raises(ValidationError, match="append-only"):
         version.delete()
+    events = list(AuditEvent.objects.filter(publication=publication))
+    assert [event.event_type for event in events] == [
+        AuditEvent.Type.CREATED,
+        AuditEvent.Type.SUBMITTED_FOR_REVIEW,
+        AuditEvent.Type.RETURNED_TO_DRAFT,
+        AuditEvent.Type.SCHEDULED,
+        AuditEvent.Type.SCHEDULED,
+        AuditEvent.Type.SCHEDULE_CANCELLED,
+        AuditEvent.Type.PUBLISHED,
+        AuditEvent.Type.UNPUBLISHED,
+        AuditEvent.Type.ARCHIVED,
+    ]
+    assert all(
+        event.target_type == AuditEvent.TargetType.PUBLICATION
+        and event.target_id == str(publication.pk)
+        and event.actor.pk in {author.pk, editor.pk}
+        for event in events
+    )
+    assert events[0].previous_state == {}
+    assert events[0].new_state["status"] == Publication.Status.DRAFT
+    assert events[-1].previous_state["status"] == Publication.Status.UNPUBLISHED
+    assert events[-1].new_state["status"] == Publication.Status.ARCHIVED
 
 
 @pytest.mark.django_db
@@ -232,6 +259,19 @@ def test_subtree_position_group_exact_and_named_audience(stage4_domain):
 
 
 @pytest.mark.django_db
+def test_inactive_subtree_ancestor_is_not_visible(stage4_domain):
+    author, editor, employee, _outsider, category, _root, branch, _department = stage4_domain
+    publication = make_publication(author, category)
+    replace_audience_rules(publication, org_unit_subtrees=[branch])
+    transition_publication(publication, action="publish", actor=editor)
+    assert Publication.objects.visible_to(employee).filter(pk=publication.pk).exists()
+
+    branch.is_active = False
+    branch.save(update_fields=["is_active"])
+    assert not Publication.objects.visible_to(employee).filter(pk=publication.pk).exists()
+
+
+@pytest.mark.django_db
 def test_pins_feed_exclusion_limits_and_automatic_cleanup(stage4_domain):
     author, editor, employee, _outsider, category, _root, _branch, _department = stage4_domain
     publications = [
@@ -293,6 +333,45 @@ def test_media_upload_validation_reuse_and_delete(stage4_domain, tmp_path):
         MediaUsage.objects.filter(publication__in=[first, second]).delete()
         delete_media_asset(asset, actor=editor)
         assert not MediaAsset.objects.filter(pk=asset.pk).exists()
+        deleted = AuditEvent.objects.get(
+            target_type=AuditEvent.TargetType.MEDIA,
+            target_id=str(asset.pk),
+            event_type=AuditEvent.Type.MEDIA_DELETED,
+        )
+        assert deleted.previous_state["original_name"] == "unsafe.png"
+        assert deleted.new_state == {}
+
+
+@pytest.mark.django_db
+def test_media_upload_failure_removes_file(stage4_domain, tmp_path, monkeypatch):
+    author = stage4_domain[0]
+
+    def fail_save(*_args, **_kwargs):
+        raise IntegrityError("forced commit failure")
+
+    monkeypatch.setattr(MediaAsset, "save", fail_save)
+    with override_settings(MEDIA_ROOT=tmp_path), pytest.raises(IntegrityError):
+        create_media_asset(upload=png_upload(), actor=author)
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+    assert not MediaAsset.objects.exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_media_delete_rollback_keeps_database_and_file(stage4_domain, tmp_path):
+    author, editor, *_rest = stage4_domain
+    with override_settings(MEDIA_ROOT=tmp_path):
+        asset = create_media_asset(upload=png_upload(), actor=author)
+        stored_path = asset.file.path
+        with pytest.raises(RuntimeError, match="rollback"), transaction.atomic():
+            delete_media_asset(asset, actor=editor)
+            raise RuntimeError("rollback")
+        assert MediaAsset.objects.filter(pk=asset.pk).exists()
+        assert stored_path and Path(stored_path).is_file()
+        assert not AuditEvent.objects.filter(
+            target_type=AuditEvent.TargetType.MEDIA,
+            target_id=str(asset.pk),
+            event_type=AuditEvent.Type.MEDIA_DELETED,
+        ).exists()
 
 
 @pytest.mark.django_db
@@ -382,14 +461,12 @@ def test_stage4_api_conflict_taxonomy_versions_and_transitions(stage4_domain):
         ).status_code
         == 200
     )
-    assert (
-        client.post(
-            "/api/v1/editorial/categories",
-            {"slug": "new-category", "name": "New", "sort_order": 3},
-            format="json",
-        ).status_code
-        == 201
+    new_category = client.post(
+        "/api/v1/editorial/categories",
+        {"slug": "new-category", "name": "New", "sort_order": 3},
+        format="json",
     )
+    assert new_category.status_code == 201
     tag = client.post(
         "/api/v1/editorial/tags", {"slug": "new-tag", "name": "New tag"}, format="json"
     )
@@ -400,6 +477,56 @@ def test_stage4_api_conflict_taxonomy_versions_and_transitions(stage4_domain):
         ).data["is_active"]
         is False
     )
+    category_event = AuditEvent.objects.get(
+        event_type=AuditEvent.Type.CATEGORY_CREATED,
+        target_type=AuditEvent.TargetType.CATEGORY,
+        target_id=str(new_category.data["id"]),
+    )
+    assert category_event.previous_state == {}
+    assert category_event.new_state["name"] == "New"
+    tag_events = list(
+        AuditEvent.objects.filter(
+            target_type=AuditEvent.TargetType.TAG,
+            target_id=str(tag.data["id"]),
+        )
+    )
+    assert [event.event_type for event in tag_events] == [
+        AuditEvent.Type.TAG_CREATED,
+        AuditEvent.Type.TAG_UPDATED,
+    ]
+    assert tag_events[1].previous_state["is_active"] is True
+    assert tag_events[1].new_state["is_active"] is False
+
+
+@pytest.mark.django_db
+def test_position_group_audience_uses_portal_id_and_canonical_name(stage4_domain):
+    _author, editor, *_rest, category, _root, _branch, _department = stage4_domain
+    client = APIClient()
+    client.force_authenticate(editor)
+    payload = {
+        "title": "Canonical position group",
+        "summary": "Portal owns the display name",
+        "body": body(),
+        "category": category.slug,
+        "audience": {
+            "everyone": False,
+            "org_units": [],
+            "org_unit_subtrees": [],
+            "employees": [],
+            "module_roles": [],
+            "position_groups": [{"external_id": "specialists", "name": "Forged local label"}],
+        },
+    }
+    created = client.post("/api/v1/editorial/publications", payload, format="json")
+    assert created.status_code == 201
+    assert created.data["audience"]["position_groups"] == [
+        {"external_id": "specialists", "name": "Специалисты"}
+    ]
+
+    payload["audience"]["position_groups"] = [{"external_id": "retired", "name": "Inactive"}]
+    rejected = client.post("/api/v1/editorial/publications", payload, format="json")
+    assert rejected.status_code == 400
+    assert "inactive" in str(rejected.data).lower()
 
 
 @pytest.mark.django_db
@@ -421,8 +548,11 @@ def test_scheduler_reconcile_is_idempotent_and_expires(stage4_domain):
     publication.refresh_from_db()
     assert publication.status == Publication.Status.UNPUBLISHED
     task = cast(Any, reconcile_publications_task)
+    cache.delete("tandem:celery:reconcile-heartbeat")
     result = task.apply().get()
     assert result == {"published": 0, "expired": 0}
+    heartbeat = cache.get("tandem:celery:reconcile-heartbeat")
+    assert heartbeat is not None and 0 <= time.time() - heartbeat < 5
 
 
 @pytest.mark.django_db
@@ -478,12 +608,24 @@ def test_media_upload_list_delete_api_and_editorial_errors(stage4_domain, tmp_pa
         )
         assert uploaded.status_code == 201
         asset_id = uploaded.data["id"]
+        uploaded_event = AuditEvent.objects.get(
+            event_type=AuditEvent.Type.MEDIA_UPLOADED,
+            target_type=AuditEvent.TargetType.MEDIA,
+            target_id=asset_id,
+        )
+        assert uploaded_event.new_state["original_name"] == "pixel.png"
         listing = client.get("/api/v1/editorial/media")
         assert listing.data["results"][0]["id"] == asset_id
         client.force_authenticate(author)
         assert client.delete(f"/api/v1/editorial/media/{asset_id}").status_code == 400
         client.force_authenticate(editor)
         assert client.delete(f"/api/v1/editorial/media/{asset_id}").status_code == 204
+        deleted_event = AuditEvent.objects.get(
+            event_type=AuditEvent.Type.MEDIA_DELETED,
+            target_type=AuditEvent.TargetType.MEDIA,
+            target_id=asset_id,
+        )
+        assert deleted_event.previous_state["original_name"] == "pixel.png"
     assert client.get("/api/v1/editorial/publications?status=UNKNOWN").status_code == 400
 
 
@@ -508,6 +650,69 @@ def test_pin_and_duplicate_http_endpoints(stage4_domain):
         client.put(f"/api/v1/news/{publication.pk}/pin", {"slot": 0}, format="json").status_code
         == 400
     )
+
+
+@pytest.mark.django_db
+def test_concurrent_pin_conflict_is_a_validation_response(stage4_domain, monkeypatch):
+    author, editor, *_rest, category, _root, _branch, _department = stage4_domain
+    publication = transition_publication(
+        make_publication(author, category), action="publish", actor=editor
+    )
+
+    def collide(*_args, **_kwargs):
+        raise IntegrityError("publication_pin_slot_key")
+
+    monkeypatch.setattr(publication_services.PublicationPin.objects, "update_or_create", collide)
+    client = APIClient()
+    client.force_authenticate(editor)
+    response = client.put(f"/api/v1/news/{publication.pk}/pin", {"slot": 1}, format="json")
+    assert response.status_code == 400
+    assert "occupied" in str(response.data).lower()
+
+
+@pytest.mark.django_db
+def test_rich_text_media_nodes_require_compatible_kinds(stage4_domain, tmp_path):
+    _author, editor, *_rest, category, _root, _branch, _department = stage4_domain
+    client = APIClient()
+    client.force_authenticate(editor)
+    with override_settings(MEDIA_ROOT=tmp_path):
+        image = create_media_asset(upload=png_upload(), actor=editor)
+        document = create_media_asset(
+            upload=SimpleUploadedFile("policy.pdf", b"%PDF-1.7\n", content_type="application/pdf"),
+            actor=editor,
+        )
+        payload = {
+            "title": "Media node contract",
+            "summary": "Kinds are enforced",
+            "category": category.slug,
+            "audience": audience_all(),
+        }
+        for node_type, asset in (("internalVideo", image), ("assetImage", document)):
+            response = client.post(
+                "/api/v1/editorial/publications",
+                {
+                    **payload,
+                    "body": {
+                        "type": "doc",
+                        "content": [{"type": node_type, "attrs": {"asset_id": str(asset.pk)}}],
+                    },
+                },
+                format="json",
+            )
+            assert response.status_code == 400
+            assert "incompatible" in str(response.data).lower()
+        attachment = client.post(
+            "/api/v1/editorial/publications",
+            {
+                **payload,
+                "body": {
+                    "type": "doc",
+                    "content": [{"type": "attachment", "attrs": {"asset_id": str(document.pk)}}],
+                },
+            },
+            format="json",
+        )
+        assert attachment.status_code == 201
 
 
 @pytest.mark.django_db

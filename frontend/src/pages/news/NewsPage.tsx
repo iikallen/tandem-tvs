@@ -125,13 +125,15 @@ export function NewsPage() {
         </div>
       </section>
       {(pinned.data?.length ?? 0) > 0 && (
-        <section className="pinned-news" aria-label="Закреплённые публикации">
-          <h2>Важное</h2>
+        <section className="pinned-news" aria-label={t("pinnedPublications")}>
+          <h2>{t("important")}</h2>
           <div className="editorial-list">
             {pinned.data?.map((publication) => (
               <Link key={publication.id} to={`/news/${publication.id}`}>
                 <Card>
-                  <Badge>Закреплено · {publication.pin_slot}</Badge>
+                  <Badge>
+                    {t("pinnedSlot", { slot: publication.pin_slot ?? "" })}
+                  </Badge>
                   <h3>{publication.title}</h3>
                   <p>{publication.summary}</p>
                 </Card>
@@ -160,6 +162,13 @@ export function NewsPage() {
               <Card
                 className={`news-card ${publication.is_read ? "" : "is-unread"}`}
               >
+                {publication.cover && (
+                  <img
+                    className="news-card__cover"
+                    src={publication.cover.content_url}
+                    alt=""
+                  />
+                )}
                 <div className="news-card__topline">
                   <Badge>{publication.category.name}</Badge>
                   {!publication.is_read && (

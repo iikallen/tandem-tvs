@@ -1,7 +1,13 @@
 from django.conf import settings
 from django.http import HttpRequest
 
-from .types import PortalEmployee, PortalHealth, PortalIdentity, PortalOrgUnit
+from .types import (
+    PortalEmployee,
+    PortalHealth,
+    PortalIdentity,
+    PortalOrgUnit,
+    PortalPositionGroup,
+)
 
 ORG_UNITS = (
     PortalOrgUnit(external_id="company", name="Tandem TVS", kind="company"),
@@ -73,6 +79,14 @@ EMPLOYEES = (
     ),
 )
 
+POSITION_GROUPS = (
+    PortalPositionGroup(external_id="specialists", name="Специалисты"),
+    PortalPositionGroup(external_id="communications-authors", name="Авторы коммуникаций"),
+    PortalPositionGroup(external_id="communications-editors", name="Редакторы коммуникаций"),
+    PortalPositionGroup(external_id="administrators", name="Администраторы"),
+    PortalPositionGroup(external_id="retired", name="Архивная группа", is_active=False),
+)
+
 
 class MockPortalAdapter:
     def authenticate_request(self, request: HttpRequest) -> PortalIdentity | None:
@@ -105,6 +119,9 @@ class MockPortalAdapter:
 
     def list_org_units(self) -> tuple[PortalOrgUnit, ...]:
         return ORG_UNITS
+
+    def list_position_groups(self) -> tuple[PortalPositionGroup, ...]:
+        return POSITION_GROUPS
 
     def healthcheck(self) -> PortalHealth:
         return PortalHealth(available=True)
