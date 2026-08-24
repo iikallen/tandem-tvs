@@ -6,7 +6,9 @@ export interface OrgUnitSummary {
 }
 
 export interface Me {
-  portal_id: string;
+  id: number;
+  username: string;
+  portal_id: string | null;
   full_name: string;
   email: string;
   job_title: string;
@@ -14,6 +16,30 @@ export interface Me {
   avatar_url: string;
   org_unit: OrgUnitSummary | null;
   module_roles: string[];
+  is_active: boolean;
+  activated_at: string | null;
+  access: {
+    platform: string[];
+    news: string[];
+    messenger: string[];
+  };
+}
+
+export interface AuthSession {
+  authenticated: boolean;
+  user: Me | null;
+}
+
+export interface PlatformUser extends Omit<Me, "org_unit"> {
+  org_unit: number | null;
+}
+
+export interface UserSummary {
+  id?: number;
+  username?: string;
+  portal_id: string | null;
+  full_name: string;
+  job_title: string;
 }
 
 export interface PositionGroup {
@@ -81,7 +107,7 @@ export interface PublicationSummary {
   title: string;
   summary: string;
   category: Category;
-  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  author: UserSummary;
   published_at: string;
   tags?: Tag[];
   cover: MediaAsset | null;
@@ -104,7 +130,7 @@ export interface PublicationDetail extends PublicationSummary {
 
 export interface Comment {
   id: string;
-  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  author: UserSummary;
   body: string | null;
   status: "ACTIVE" | "DELETED" | "HIDDEN" | "REMOVED";
   thread_root: string | null;
@@ -127,10 +153,7 @@ export interface ReactionSummary {
   total: number;
   counts: Record<string, number>;
   mine: string[];
-  actors?: Record<
-    string,
-    Array<Pick<Me, "portal_id" | "full_name" | "job_title">>
-  >;
+  actors?: Record<string, Employee[]>;
   enabled_types?: ReactionType[];
 }
 
@@ -140,7 +163,7 @@ export type ReactionType =
 export interface Notification {
   id: string;
   notification_type: "COMMENT_REPLY" | "COMMENT_MENTION";
-  actor: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  actor: UserSummary;
   publication_id: string;
   comment_id: string;
   created_at: string;
@@ -190,7 +213,7 @@ export interface EditorialPublication {
   category: string;
   tags?: string[];
   cover?: string | null;
-  author: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  author: UserSummary;
   status:
     | "DRAFT"
     | "IN_REVIEW"
@@ -217,7 +240,7 @@ export interface EditorialPublication {
 
 export interface PublicationVersion {
   version_number: number;
-  actor: Pick<Me, "portal_id" | "full_name" | "job_title">;
+  actor: UserSummary;
   reason: string;
   snapshot: Record<string, unknown>;
   changed_fields: string[];
@@ -251,16 +274,34 @@ export class ApiError extends Error {
   }
 }
 
+let csrfToken = "";
+
+async function ensureCsrf(): Promise<string> {
+  if (csrfToken) return csrfToken;
+  const response = await fetch("/api/v1/auth/csrf", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok)
+    throw new ApiError(response.status, "csrf_error", response.statusText);
+  const payload = (await response.json()) as { csrf_token: string };
+  csrfToken = payload.csrf_token;
+  return csrfToken;
+}
+
 async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
 ): Promise<T> {
+  const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
+  const token = unsafe ? await ensureCsrf() : "";
   const response = await fetch(path, {
     method,
-    credentials: "include",
+    credentials: "same-origin",
     headers: {
       Accept: "application/json",
+      ...(unsafe ? { "X-CSRFToken": token } : {}),
       ...(body === undefined || body instanceof FormData
         ? {}
         : { "Content-Type": "application/json" }),
@@ -310,6 +351,77 @@ export function cursorFromUrl(url: string | null): string | undefined {
 }
 
 export const api = {
+  csrf: async () => {
+    csrfToken = "";
+    return ensureCsrf();
+  },
+  session: () => request<AuthSession>("/api/v1/auth/session"),
+  login: async (username: string, password: string) => {
+    const result = await request<{ user: Me; csrf_token: string }>(
+      "/api/v1/auth/login",
+      "POST",
+      { username, password },
+    );
+    csrfToken = result.csrf_token;
+    return result;
+  },
+  logout: async () => {
+    await request<void>("/api/v1/auth/logout", "POST");
+    csrfToken = "";
+  },
+  activate: (token: string, password: string, passwordConfirm: string) =>
+    request<{ status: string }>("/api/v1/auth/activate", "POST", {
+      token,
+      password,
+      password_confirm: passwordConfirm,
+    }),
+  requestPasswordReset: (email: string) =>
+    request<{ detail: string }>("/api/v1/auth/password/reset/request", "POST", {
+      email,
+    }),
+  resetPassword: (token: string, password: string, passwordConfirm: string) =>
+    request<{ status: string }>("/api/v1/auth/password/reset/confirm", "POST", {
+      token,
+      password,
+      password_confirm: passwordConfirm,
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<void>("/api/v1/auth/password/change", "POST", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  platformUsers: (search = "") =>
+    request<PlatformUser[]>(
+      `/api/v1/platform/users${search ? `?search=${encodeURIComponent(search)}` : ""}`,
+    ),
+  createPlatformUser: (data: Record<string, unknown>) =>
+    request<PlatformUser>("/api/v1/platform/users", "POST", data),
+  updatePlatformUser: (id: number, data: Record<string, unknown>) =>
+    request<PlatformUser>(`/api/v1/platform/users/${id}`, "PATCH", data),
+  grantAccess: (id: number, module: string, role: string) =>
+    request<void>(
+      `/api/v1/platform/users/${id}/grants/${module}/${role}`,
+      "PUT",
+    ),
+  revokeAccess: (id: number, module: string, role: string) =>
+    request<void>(
+      `/api/v1/platform/users/${id}/grants/${module}/${role}`,
+      "DELETE",
+    ),
+  createInvitation: (id: number) =>
+    request<{ activation_url: string }>(
+      `/api/v1/platform/users/${id}/invitation`,
+      "POST",
+    ),
+  createAdminPasswordReset: (id: number) =>
+    request<{ reset_url: string }>(
+      `/api/v1/platform/users/${id}/password-reset`,
+      "POST",
+    ),
+  messengerAccess: () =>
+    request<{ allowed: boolean; implementation: string }>(
+      "/api/v1/messenger/access",
+    ),
   me: () => request<Me>("/api/v1/me"),
   orgUnits: () => request<OrgUnitSummary[]>("/api/v1/organization/units"),
   positionGroups: () =>
@@ -399,7 +511,7 @@ export const api = {
       reason,
     }),
   mentionCandidates: (id: string, search: string) =>
-    request<Array<Pick<Me, "portal_id" | "full_name" | "job_title">>>(
+    request<Employee[]>(
       `/api/v1/news/${id}/mention-candidates?search=${encodeURIComponent(search)}`,
     ),
   acknowledge: (id: string) =>

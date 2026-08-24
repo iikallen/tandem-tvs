@@ -16,6 +16,7 @@ from apps.publications.models import (
     Publication,
     PublicationView,
 )
+from tests.helpers import force_authenticate_portal_fixture
 
 
 def body(text: str = "Подключайтесь безопасно") -> dict[str, object]:
@@ -43,7 +44,7 @@ def draft_payload(**overrides):
 
 
 def as_user(client: APIClient, settings, portal_id: str, method: str, path: str, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    force_authenticate_portal_fixture(client, portal_id)
     return getattr(client, method)(path, data, format="json")
 
 

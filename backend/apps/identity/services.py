@@ -5,7 +5,8 @@ from django.utils import timezone
 
 from apps.organization.models import OrgUnit
 
-from .models import User
+from .managers import UserManager
+from .models import AccessGrant, User
 from .portal.base import PortalAdapter
 from .portal.types import PortalEmployee, PortalOrgUnit
 
@@ -52,9 +53,13 @@ def sync_org_units(adapter: OrgUnitSource) -> dict[str, OrgUnit]:
 def provision_user(adapter: PortalAdapter, employee: PortalEmployee) -> User:
     with transaction.atomic():
         units = sync_org_units(adapter)
-        user, _ = User.objects.get_or_create(
+        user, created = User.objects.get_or_create(
             portal_id=employee.portal_id,
-            defaults={"full_name": employee.full_name},
+            defaults={
+                "username": UserManager.normalize_username(employee.portal_id),
+                "full_name": employee.full_name,
+                "is_active": employee.is_active,
+            },
         )
         user.email = employee.email
         user.full_name = employee.full_name
@@ -68,16 +73,38 @@ def provision_user(adapter: PortalAdapter, employee: PortalEmployee) -> User:
             if employee.org_unit_external_id is not None
             else None
         )
-        user.module_roles = list(employee.roles)
-        user.is_active = employee.is_active
         user.last_portal_sync_at = timezone.now()
-        user.set_unusable_password()
         user.save()
+        if created:
+            grant_legacy_roles(user, employee.roles)
         return user
 
 
 def deactivate_projection(portal_id: str) -> None:
     User.objects.filter(portal_id=portal_id).update(
-        is_active=False,
         last_portal_sync_at=timezone.now(),
+    )
+
+
+def grant_legacy_roles(user: User, roles: tuple[str, ...] | list[str]) -> None:
+    normalized = {role.strip().casefold() for role in roles}
+    grants = {(AccessGrant.Module.NEWS, AccessGrant.Role.MEMBER)}
+    if "author" in normalized:
+        grants.add((AccessGrant.Module.NEWS, AccessGrant.Role.AUTHOR))
+    if "editor" in normalized:
+        grants.add((AccessGrant.Module.NEWS, AccessGrant.Role.EDITOR))
+    if "moderator" in normalized:
+        grants.add((AccessGrant.Module.NEWS, AccessGrant.Role.MODERATOR))
+    if normalized.intersection({"admin", "administrator"}):
+        grants.update(
+            {
+                (AccessGrant.Module.PLATFORM, AccessGrant.Role.ADMIN),
+                (AccessGrant.Module.NEWS, AccessGrant.Role.ADMIN),
+            }
+        )
+    if user.is_active:
+        grants.add((AccessGrant.Module.MESSENGER, AccessGrant.Role.MEMBER))
+    AccessGrant.objects.bulk_create(
+        [AccessGrant(user=user, module=module, role=role) for module, role in grants],
+        ignore_conflicts=True,
     )

@@ -15,8 +15,8 @@ export function HomePage() {
   if (profile.isError) return <PageState error={profile.error} />;
 
   const user = profile.data;
-  const canEdit = user.module_roles.some((role) =>
-    ["author", "editor", "admin", "administrator"].includes(role),
+  const canEdit = user.access.news.some((role) =>
+    ["AUTHOR", "EDITOR", "ADMIN"].includes(role),
   );
   const shortcuts = [
     { to: "/news", label: t("news"), icon: NewsIcon },
@@ -50,8 +50,8 @@ export function HomePage() {
             <h2>{user.full_name}</h2>
             <p>{user.job_title || t("notSpecified")}</p>
             <div className="badge-row">
-              {user.module_roles.map((role) => (
-                <Badge key={role}>{roleLabel(role)}</Badge>
+              {user.access.news.map((role) => (
+                <Badge key={role}>{roleLabel(role.toLowerCase())}</Badge>
               ))}
             </div>
           </div>

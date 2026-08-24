@@ -32,6 +32,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.identity.middleware.AuthSessionExpiryMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -127,6 +128,35 @@ STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "identity.User"
+AUTHENTICATION_BACKENDS = ["apps.identity.backends.CaseInsensitiveModelBackend"]
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.Argon2PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+]
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 15},
+    },
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "apps.identity.validators.LocalPasswordBlocklistValidator"},
+]
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+SESSION_COOKIE_NAME: str = "tandem_session"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_PATH = "/"
+SESSION_COOKIE_DOMAIN = None
+SESSION_COOKIE_AGE = int(os.getenv("AUTH_SESSION_MAX_AGE_SECONDS", "43200"))
+AUTH_SESSION_MAX_AGE_SECONDS = SESSION_COOKIE_AGE
+AUTH_SESSION_IDLE_SECONDS = int(os.getenv("AUTH_SESSION_IDLE_SECONDS", "1800"))
+CSRF_USE_SESSIONS = True
+AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
+AUTH_RECOVERY_MODE = os.getenv("AUTH_RECOVERY_MODE", "ADMIN_ONLY")
+AUTH_PUBLIC_BASE_URL = os.getenv("AUTH_PUBLIC_BASE_URL", "http://localhost:8080")
+STAGE6_DEMO_PASSWORD = os.getenv("STAGE6_DEMO_PASSWORD", "")
+ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "true").lower() == "true"
 DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
 MEDIA_URL = "/_protected_media/"
@@ -144,7 +174,7 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": ["apps.identity.authentication.PortalAuthentication"],
+    "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "apps.core.exceptions.api_exception_handler",
@@ -180,11 +210,11 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
-    "SERVE_AUTHENTICATION": ["apps.identity.authentication.PortalAuthentication"],
+    "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
 }
 API_DOCS_ENABLED: bool = False
 
-PORTAL_ADAPTER: str = ""
+PORTAL_ADAPTER: str = "unavailable"
 ALLOW_MOCK_PORTAL_ADAPTER: bool = False
 MOCK_PORTAL_USER_ID = os.getenv("MOCK_PORTAL_USER_ID", "employee-1")

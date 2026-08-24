@@ -48,10 +48,11 @@ from apps.publications.models import (
     Publication,
     PublicationView,
 )
+from tests.helpers import force_authenticate_portal_fixture
 
 
 def call(client, settings, portal_id, method, path, data=None):
-    settings.MOCK_PORTAL_USER_ID = portal_id
+    force_authenticate_portal_fixture(client, portal_id)
     return getattr(client, method)(path, data, format="json")
 
 

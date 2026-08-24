@@ -26,7 +26,23 @@ from apps.discussions.views import (
     StopWordDetailView,
     StopWordListCreateView,
 )
-from apps.identity.views import MeView
+from apps.identity.views import (
+    ActivateView,
+    CsrfView,
+    LoginView,
+    LogoutView,
+    MessengerAccessView,
+    MeView,
+    PasswordChangeView,
+    PasswordResetConfirmView,
+    PasswordResetRequestView,
+    PlatformGrantView,
+    PlatformInvitationView,
+    PlatformPasswordResetView,
+    PlatformUserDetailView,
+    PlatformUserListCreateView,
+    SessionView,
+)
 from apps.organization.views import EmployeeSearchView, OrgUnitListView, PositionGroupListView
 from apps.publications.views import (
     CategoryListView,
@@ -58,6 +74,44 @@ from apps.publications.views import (
 )
 
 urlpatterns = [
+    path("api/v1/auth/csrf", CsrfView.as_view(), name="auth-csrf"),
+    path("api/v1/auth/login", LoginView.as_view(), name="auth-login"),
+    path("api/v1/auth/session", SessionView.as_view(), name="auth-session"),
+    path("api/v1/auth/logout", LogoutView.as_view(), name="auth-logout"),
+    path("api/v1/auth/password/change", PasswordChangeView.as_view(), name="auth-password-change"),
+    path(
+        "api/v1/auth/password/reset/request",
+        PasswordResetRequestView.as_view(),
+        name="auth-password-reset-request",
+    ),
+    path(
+        "api/v1/auth/password/reset/confirm",
+        PasswordResetConfirmView.as_view(),
+        name="auth-password-reset-confirm",
+    ),
+    path("api/v1/auth/activate", ActivateView.as_view(), name="auth-activate"),
+    path("api/v1/platform/users", PlatformUserListCreateView.as_view(), name="platform-users"),
+    path(
+        "api/v1/platform/users/<int:user_id>",
+        PlatformUserDetailView.as_view(),
+        name="platform-user-detail",
+    ),
+    path(
+        "api/v1/platform/users/<int:user_id>/grants/<str:module>/<str:role>",
+        PlatformGrantView.as_view(),
+        name="platform-user-grant",
+    ),
+    path(
+        "api/v1/platform/users/<int:user_id>/invitation",
+        PlatformInvitationView.as_view(),
+        name="platform-user-invitation",
+    ),
+    path(
+        "api/v1/platform/users/<int:user_id>/password-reset",
+        PlatformPasswordResetView.as_view(),
+        name="platform-user-password-reset",
+    ),
+    path("api/v1/messenger/access", MessengerAccessView.as_view(), name="messenger-access"),
     path("api/v1/news", NewsListView.as_view(), name="news-list"),
     path("api/v1/news/pinned", NewsPinnedListView.as_view(), name="news-pinned-list"),
     path("api/v1/news/categories", CategoryListView.as_view(), name="news-category-list"),

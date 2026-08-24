@@ -15,11 +15,12 @@ from apps.discussions.tickets import TicketClaims, consume_ticket, create_ticket
 from apps.identity.models import User
 from apps.publications.models import AudienceRule, Category, Publication
 from config.asgi import application
+from tests.helpers import force_authenticate_portal_fixture
 
 
 def make_publication(settings):
     client = APIClient()
-    settings.MOCK_PORTAL_USER_ID = "employee-1"
+    force_authenticate_portal_fixture(client, "employee-1")
     assert client.get("/api/v1/me").status_code == 200
     user = User.objects.get(portal_id="employee-1")
     category = Category.objects.create(slug="realtime", name="Realtime")

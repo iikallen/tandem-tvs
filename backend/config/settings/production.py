@@ -62,7 +62,11 @@ REALTIME_ALLOWED_ORIGINS = [
 if not REALTIME_ALLOWED_ORIGINS:
     raise ImproperlyConfigured("REALTIME_ALLOWED_ORIGINS is required in production")
 
-PORTAL_ADAPTER = required("PORTAL_ADAPTER")
+AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
+if AUTH_MODE != "LOCAL_ONLY":
+    raise ImproperlyConfigured("Stage 6 production requires AUTH_MODE=LOCAL_ONLY")
+ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "false").lower() == "true"
+PORTAL_ADAPTER = os.getenv("PORTAL_ADAPTER", "unavailable")
 ALLOW_MOCK_PORTAL_ADAPTER = False
 if PORTAL_ADAPTER == "mock":
     raise ImproperlyConfigured("MockPortalAdapter is forbidden in production")
@@ -71,6 +75,11 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 SECURE_SSL_REDIRECT = True
 SESSION_COOKIE_SECURE = True
+SESSION_COOKIE_NAME = "__Host-tandem_session"
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+SESSION_COOKIE_PATH = "/"
+SESSION_COOKIE_DOMAIN = None
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31_536_000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True

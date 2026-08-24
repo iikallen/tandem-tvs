@@ -3,7 +3,7 @@ from typing import cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import Count, F, Window
+from django.db.models import Count, F, Q, Window
 from django.db.models.functions import RowNumber
 from django.http import Http404
 from django.utils import timezone
@@ -13,6 +13,7 @@ from rest_framework.response import Response
 
 from apps.core.views import PrivateResponseMixin
 from apps.identity.models import User
+from apps.identity.permissions import HasNewsAccess, IsNewsModerator
 from apps.publications.engagement import resolve_recipient_users
 from apps.publications.media import create_media_asset
 from apps.publications.models import AuditEvent
@@ -85,6 +86,7 @@ def _serialize_roots(view, page):
 
 
 class CommentListCreateView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = CommentSerializer
     pagination_class = CommentCursorPagination
 
@@ -145,6 +147,7 @@ class CommentListCreateView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentRepliesView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = CommentSerializer
     pagination_class = ReplyCursorPagination
 
@@ -167,6 +170,7 @@ class CommentRepliesView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentDetailView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = CommentSerializer
     throttle_scope = "comment_edit"
 
@@ -226,6 +230,7 @@ def _reaction_summary(queryset, user):
 
 
 class ReactionSummaryView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = ReactionSummarySerializer
 
     def get(self, request, publication_id):
@@ -238,6 +243,7 @@ class ReactionSummaryView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class ReactionDetailView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = ReactionSerializer
     throttle_scope = "reaction"
 
@@ -267,6 +273,7 @@ class ReactionDetailView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentReactionSummaryView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = ReactionSummarySerializer
 
     def get(self, request, publication_id, comment_id):
@@ -280,6 +287,7 @@ class CommentReactionSummaryView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentReactionDetailView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = ReactionSerializer
     throttle_scope = "reaction"
 
@@ -315,6 +323,8 @@ class CommentReactionDetailView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class MentionCandidateView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
+
     def get(self, request, publication_id):
         publication = visible_publication_or_404(request.user, publication_id)
         search = request.query_params.get("search", "").strip().casefold()
@@ -329,6 +339,7 @@ class MentionCandidateView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentMediaUploadView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     parser_classes = [MultiPartParser, FormParser]
     throttle_scope = "comment_upload"
 
@@ -347,6 +358,7 @@ class CommentMediaUploadView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class CommentReportView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = CommentReportSerializer
 
     def post(self, request, publication_id, comment_id):
@@ -364,6 +376,7 @@ class CommentReportView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class NotificationListView(PrivateResponseMixin, generics.ListAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = NotificationSerializer
     pagination_class = None
 
@@ -374,6 +387,8 @@ class NotificationListView(PrivateResponseMixin, generics.ListAPIView):
 
 
 class NotificationReadView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
+
     def post(self, request, notification_id):
         notification = generics.get_object_or_404(
             Notification, pk=notification_id, recipient=request.user
@@ -455,7 +470,7 @@ class StopWordDetailView(PrivateResponseMixin, generics.UpdateAPIView):
 
 
 class ModerationQueueView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [IsEditorRole]
+    permission_classes = [IsNewsModerator]
 
     def get(self, request):
         reports = CommentReport.objects.filter(status=CommentReport.Status.OPEN).select_related(
@@ -485,7 +500,7 @@ class ModerationQueueView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class ModerationCommentActionView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [IsEditorRole]
+    permission_classes = [IsNewsModerator]
 
     def post(self, request, comment_id, action):
         comment = generics.get_object_or_404(
@@ -499,7 +514,7 @@ class ModerationCommentActionView(PrivateResponseMixin, generics.GenericAPIView)
 
 
 class ModerationReportResolveView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [IsEditorRole]
+    permission_classes = [IsNewsModerator]
 
     def post(self, request, report_id):
         with transaction.atomic():
@@ -524,10 +539,12 @@ class ModerationReportResolveView(PrivateResponseMixin, generics.GenericAPIView)
 
 
 class CommentRestrictionView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [IsEditorRole]
+    permission_classes = [IsNewsModerator]
 
     def post(self, request, portal_id):
-        user = generics.get_object_or_404(User, portal_id=portal_id, is_active=True)
+        user = generics.get_object_or_404(
+            User.objects.filter(Q(portal_id=portal_id) | Q(username=portal_id)), is_active=True
+        )
         hours = request.data.get("hours", 24)
         if not isinstance(hours, int) or not 1 <= hours <= 8760:
             raise serializers.ValidationError({"hours": "Use an integer from 1 to 8760."})
@@ -542,7 +559,7 @@ class CommentRestrictionView(PrivateResponseMixin, generics.GenericAPIView):
                 actor=request.user,
                 event_type=AuditEvent.Type.USER_RESTRICTED,
                 target_type=AuditEvent.TargetType.USER,
-                target_id=user.portal_id,
+                target_id=user.portal_id or user.username,
                 new_state={"restriction_id": row.pk, "expires_at": row.expires_at.isoformat()},
             )
         return Response(
@@ -550,7 +567,9 @@ class CommentRestrictionView(PrivateResponseMixin, generics.GenericAPIView):
         )
 
     def delete(self, request, portal_id):
-        user = generics.get_object_or_404(User, portal_id=portal_id)
+        user = generics.get_object_or_404(
+            User.objects.filter(Q(portal_id=portal_id) | Q(username=portal_id))
+        )
         now = timezone.now()
         with transaction.atomic():
             CommentRestriction.objects.filter(user=user, revoked_at__isnull=True).update(
@@ -560,13 +579,14 @@ class CommentRestrictionView(PrivateResponseMixin, generics.GenericAPIView):
                 actor=request.user,
                 event_type=AuditEvent.Type.RESTRICTION_REVOKED,
                 target_type=AuditEvent.TargetType.USER,
-                target_id=user.portal_id,
+                target_id=user.portal_id or user.username,
                 new_state={"revoked_at": now.isoformat()},
             )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RealtimeTicketView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = RealtimeTicketSerializer
     throttle_scope = "realtime_ticket"
 

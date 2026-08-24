@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "jest-axe";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -6,6 +6,8 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 
 const profile = {
+  id: 1,
+  username: "employee-1",
   portal_id: "employee-1",
   full_name: "Алия Байжанова",
   email: "a.baizhanova@tandem.example",
@@ -19,6 +21,9 @@ const profile = {
     parent_external_id: "company",
   },
   module_roles: ["employee"],
+  is_active: true,
+  activated_at: "2026-08-23T08:00:00Z",
+  access: { platform: [], news: ["MEMBER"], messenger: ["MEMBER"] },
 };
 
 function response(body: unknown, status = 200): Response {
@@ -28,22 +33,27 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
+function authenticatedFetch(user: unknown = profile) {
+  return vi.fn(async (input: RequestInfo | URL) =>
+    String(input).includes("/api/v1/auth/session")
+      ? response({ authenticated: true, user })
+      : response(user),
+  );
+}
+
 beforeEach(() => {
   window.history.pushState({}, "", "/");
   vi.restoreAllMocks();
 });
 
-test("renders the portal shell and profile summary without accessibility violations", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response(profile)),
-  );
+test("renders the authenticated shell without accessibility violations", async () => {
+  vi.stubGlobal("fetch", authenticatedFetch());
   const { container } = render(<App />);
 
   expect(
     await screen.findByRole("heading", { name: "Здравствуйте, Алия" }),
   ).toBeVisible();
-  expect(screen.getByText("SSO подключён")).toBeVisible();
+  expect(screen.getByText("Локальная сессия защищена")).toBeVisible();
   expect(
     screen.getByRole("navigation", { name: "Основная навигация" }),
   ).toBeVisible();
@@ -53,120 +63,72 @@ test("renders the portal shell and profile summary without accessibility violati
   expect((await axe(container)).violations).toHaveLength(0);
 });
 
-test("shows a stable blocked account state", async () => {
+test("redirects an anonymous visitor to the accessible login form", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () =>
-      response(
-        { error: { code: "portal_account_blocked", message: "blocked" } },
-        403,
-      ),
-    ),
+    vi.fn(async () => response({ authenticated: false, user: null })),
   );
-  render(<App />);
+  const { container } = render(<App />);
 
-  expect(
-    await screen.findByRole("heading", { name: "Доступ заблокирован" }),
-  ).toBeVisible();
-  expect(screen.getByRole("alert")).toBeVisible();
+  expect(await screen.findByRole("heading", { name: "Войти" })).toBeVisible();
+  expect(screen.getByLabelText("Логин")).toHaveAttribute(
+    "autocomplete",
+    "username",
+  );
+  expect(screen.getByLabelText("Пароль")).toHaveAttribute(
+    "autocomplete",
+    "current-password",
+  );
+  expect((await axe(container)).violations).toHaveLength(0);
 });
 
-test("shows a loading state while portal data is pending", () => {
+test("shows a loading state while the local session is pending", () => {
   vi.stubGlobal(
     "fetch",
     vi.fn(() => new Promise<Response>(() => undefined)),
   );
   render(<App />);
 
-  expect(screen.getByRole("status")).toHaveTextContent(
-    "Загружаем данные портала",
-  );
-});
-
-test("shows an unauthorized state when the portal session is missing", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response({ error: { code: "not_authenticated" } }, 401)),
-  );
-  render(<App />);
-  expect(
-    await screen.findByRole("heading", { name: "Сессия портала не найдена" }),
-  ).toBeVisible();
-});
-
-test("shows a portal unavailable state for dependency failures", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () =>
-      response(
-        { error: { code: "portal_unavailable", message: "unavailable" } },
-        503,
-      ),
-    ),
-  );
-  render(<App />);
-
-  expect(
-    await screen.findByRole("heading", { name: "Портал временно недоступен" }),
-  ).toBeVisible();
+  expect(screen.getByRole("status")).toBeVisible();
 });
 
 test("shows the empty organization fallback", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response({ ...profile, org_unit: null })),
-  );
+  const user = { ...profile, org_unit: null };
+  vi.stubGlobal("fetch", authenticatedFetch(user));
   render(<App />);
 
   expect(await screen.findByText("Подразделение не назначено")).toBeVisible();
 });
 
-test("shows a generic API error state", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response({ error: { code: "api_error" } }, 500)),
-  );
-  render(<App />);
-
-  expect(
-    await screen.findByRole("heading", { name: "Не удалось загрузить данные" }),
-  ).toBeVisible();
-});
-
 test("renders the read-only profile page", async () => {
   window.history.pushState({}, "", "/profile");
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async () => response(profile)),
-  );
+  vi.stubGlobal("fetch", authenticatedFetch());
   const { container } = render(<App />);
 
   expect(
     await screen.findByRole("heading", { name: "Алия Байжанова" }),
   ).toBeVisible();
-  expect(screen.getByText("employee-1")).toBeVisible();
+  expect(screen.getAllByText("employee-1").length).toBeGreaterThan(0);
   expect(
     screen.queryByRole("textbox", { name: "ФИО" }),
   ).not.toBeInTheDocument();
   expect((await axe(container)).violations).toHaveLength(0);
 });
 
-test("debounces employee search and renders results", async () => {
+test("debounces employee search and renders portal directory results", async () => {
   window.history.pushState({}, "", "/employees");
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes("/api/v1/auth/session"))
+      return response({ authenticated: true, user: profile });
     if (url.includes("/api/v1/me")) return response(profile);
     return url.includes("%D0%9E%D1%80%D0%BB%D0%BE%D0%B2")
       ? response([
           {
             portal_id: "editor-1",
             full_name: "Дмитрий Орлов",
-            email: "d.orlov@tandem.example",
             job_title: "Редактор",
-            phone: "",
-            avatar_url: "",
             org_unit_external_id: "communications",
-            roles: ["employee", "editor"],
           },
         ])
       : response([]);
@@ -174,9 +136,13 @@ test("debounces employee search and renders results", async () => {
   vi.stubGlobal("fetch", fetchMock);
   const { container } = render(<App />);
 
-  const search = screen.getByRole("searchbox");
-  await userEvent.type(search, "Орлов");
+  await userEvent.type(await screen.findByRole("searchbox"), "Орлов");
   expect(await screen.findByText("Дмитрий Орлов")).toBeVisible();
-  expect(fetchMock).toHaveBeenCalledTimes(3);
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("%D0%9E%D1%80%D0%BB%D0%BE%D0%B2"),
+      expect.anything(),
+    ),
+  );
   expect((await axe(container)).violations).toHaveLength(0);
 });

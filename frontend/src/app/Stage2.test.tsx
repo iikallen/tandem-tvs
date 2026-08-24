@@ -6,6 +6,8 @@ import { beforeEach, expect, test, vi } from "vitest";
 import { App } from "./App";
 
 const employee = {
+  id: 1,
+  username: "employee-1",
   portal_id: "employee-1",
   full_name: "Алия Байжанова",
   email: "a@example.invalid",
@@ -14,11 +16,21 @@ const employee = {
   avatar_url: "",
   org_unit: null,
   module_roles: ["employee"],
+  is_active: true,
+  activated_at: "2026-08-23T08:00:00Z",
+  access: { platform: [], news: ["MEMBER"], messenger: ["MEMBER"] },
 };
 const editor = {
   ...employee,
+  id: 2,
+  username: "editor-1",
   portal_id: "editor-1",
   module_roles: ["employee", "editor"],
+  access: {
+    platform: [],
+    news: ["MEMBER", "EDITOR"],
+    messenger: ["MEMBER"],
+  },
 };
 const category = { id: 1, slug: "company", name: "Компания", sort_order: 0 };
 const publication = {
@@ -55,6 +67,8 @@ test("renders, filters, and infinitely loads the addressed news feed", async () 
   window.history.pushState({}, "", "/news");
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
+    if (url.includes("/api/v1/auth/session"))
+      return response({ authenticated: true, user: employee });
     if (url.includes("/api/v1/me")) return response(employee);
     if (url.includes("/api/v1/news/categories")) return response([category]);
     if (url.includes("cursor=next"))
@@ -89,8 +103,11 @@ test("renders publication JSON safely without executable markup", async () => {
   window.history.pushState({}, "", `/news/${publication.id}`);
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) =>
-      String(input).includes("/api/v1/me")
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/auth/session"))
+        return response({ authenticated: true, user: employee });
+      return url.includes("/api/v1/me")
         ? response(employee)
         : response({
             ...publication,
@@ -107,8 +124,8 @@ test("renders publication JSON safely without executable markup", async () => {
                 },
               ],
             },
-          }),
-    ),
+          });
+    }),
   );
   render(<App />);
 
@@ -121,7 +138,11 @@ test("hides editorial navigation and route from an employee", async () => {
   window.history.pushState({}, "", "/editorial/publications");
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => response(employee)),
+    vi.fn(async (input: RequestInfo | URL) =>
+      String(input).includes("/api/v1/auth/session")
+        ? response({ authenticated: true, user: employee })
+        : response(employee),
+    ),
   );
   render(<App />);
 
@@ -160,6 +181,8 @@ test("editor creates and publishes through the role-gated workspace", async () =
       const url = String(input);
       const method = init?.method ?? "GET";
       calls.push({ url, method });
+      if (url.includes("/api/v1/auth/session"))
+        return response({ authenticated: true, user: editor });
       if (url.includes("/api/v1/me")) return response(editor);
       if (url.includes("/api/v1/news/categories")) return response([category]);
       if (url.includes("/api/v1/organization/units")) return response([]);

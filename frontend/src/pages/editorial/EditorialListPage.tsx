@@ -286,7 +286,5 @@ function EditorialCard({
 }
 
 function isEditor(me: Me) {
-  return me.module_roles.some((role) =>
-    ["editor", "admin", "administrator"].includes(role),
-  );
+  return me.access.news.some((role) => ["EDITOR", "ADMIN"].includes(role));
 }

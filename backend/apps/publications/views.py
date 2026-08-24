@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from apps.core.views import PrivateResponseMixin
 from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
+from apps.identity.permissions import HasNewsAccess
 
 from .engagement import (
     acknowledge,
@@ -176,6 +177,7 @@ class EditorialPublicationVersionDetailView(PrivateResponseMixin, generics.Retri
 
 
 class CategoryListView(PrivateResponseMixin, generics.ListAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = CategorySerializer
     pagination_class = None
     queryset = Category.objects.filter(is_active=True)
@@ -294,6 +296,8 @@ class EditorialMediaDeleteView(PrivateResponseMixin, generics.DestroyAPIView):
 
 
 class MediaContentView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
+
     def get(self, request, asset_id):
         asset = generics.get_object_or_404(MediaAsset, pk=asset_id, status=MediaAsset.Status.READY)
         if not can_read_media(request.user, asset):
@@ -347,6 +351,7 @@ def employee_news_queryset(user):
 
 
 class NewsListView(PrivateResponseMixin, generics.ListAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = NewsPublicationSerializer
     pagination_class = NewsCursorPagination
 
@@ -371,6 +376,7 @@ class NewsListView(PrivateResponseMixin, generics.ListAPIView):
 
 
 class NewsPinnedListView(PrivateResponseMixin, generics.ListAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = NewsPublicationSerializer
     pagination_class = None
 
@@ -404,6 +410,7 @@ class NewsPinView(PrivateResponseMixin, generics.GenericAPIView):
 
 
 class NewsDetailView(PrivateResponseMixin, generics.RetrieveAPIView):
+    permission_classes = [HasNewsAccess]
     serializer_class = NewsPublicationDetailSerializer
 
     def get_object(self):
@@ -417,6 +424,8 @@ class NewsDetailView(PrivateResponseMixin, generics.RetrieveAPIView):
 
 
 class NewsAcknowledgementView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [HasNewsAccess]
+
     def post(self, request, publication_id):
         publication = visible_publication_or_404(request.user, publication_id)
         if not PublicationRecipient.objects.filter(publication=publication).exists():

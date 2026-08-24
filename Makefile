@@ -1,7 +1,7 @@
 UV ?= uv
 NPM ?= npm
 
-.PHONY: format check test test-postgres test-stage4 test-stage5 test-realtime e2e build prod
+.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-realtime e2e build prod
 
 format:
 	cd backend && $(UV) run ruff format .
@@ -23,6 +23,7 @@ check:
 
 test:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest
+	cd backend && $(UV) run coverage report --include="apps/identity/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/discussions/*" --fail-under=95
 	cd backend && $(UV) run coverage report --include="apps/publications/*" --fail-under=95
 	cd frontend && $(NPM) test
@@ -44,6 +45,12 @@ test-stage5:
 	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage5.py verify
 
+test-stage6:
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage6.py prepare
+	docker compose restart redis backend celery-worker celery-beat
+	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage6.py verify
+
 test-realtime:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
@@ -55,6 +62,6 @@ e2e:
 build:
 	cd frontend && $(NPM) run build
 
-prod: check test test-postgres test-stage4 test-stage5 test-realtime e2e build
+prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-realtime e2e build
 	cd backend && $(UV) run python scripts/check_production.py
 	docker compose config --quiet

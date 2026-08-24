@@ -1,14 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+import { authenticatedContext } from "./auth";
+
 test.describe.configure({ mode: "serial" });
 
 test("thread, mention notification, reactions, acknowledgement and moderation work live", async ({
   browser,
 }) => {
   const replyBody = `Ответ участника ${Date.now()}`;
-  const editor = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "editor-1" },
-  });
+  const editor = await authenticatedContext(browser, "editor-1");
   await editor.request.patch("/api/v1/editorial/settings/engagement", {
     data: { enabled_reaction_types: ["LIKE", "INSIGHTFUL"] },
   });
@@ -53,15 +53,9 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
     ).status(),
   ).toBe(200);
 
-  const employee = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "employee-1" },
-  });
-  const participant = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "author-1" },
-  });
-  const moderator = await browser.newContext({
-    extraHTTPHeaders: { "X-Mock-Portal-User": "admin-1" },
-  });
+  const employee = await authenticatedContext(browser, "employee-1");
+  const participant = await authenticatedContext(browser, "author-1");
+  const moderator = await authenticatedContext(browser, "admin-1");
   await moderator.request.delete(
     "/api/v1/editorial/moderation/users/author-1/restriction",
   );

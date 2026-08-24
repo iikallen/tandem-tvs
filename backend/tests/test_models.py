@@ -29,13 +29,13 @@ def test_portal_id_is_unique_and_immutable():
 
 
 @pytest.mark.django_db
-def test_projected_user_never_has_a_usable_password():
+def test_portal_linked_user_can_have_a_local_password():
     user = create_user(portal_id="employee-1", full_name="Алия Байжанова")
     assert not user.has_usable_password()
 
     user.set_password("must-not-survive")
     user.save()
-    assert not user.has_usable_password()
+    assert user.check_password("must-not-survive")
 
 
 @pytest.mark.django_db

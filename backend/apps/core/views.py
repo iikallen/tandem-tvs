@@ -62,7 +62,7 @@ class ReadyView(PublicAPIView):
         except Exception:
             components["portal"] = "unavailable"
 
-        is_ready = all(value == "ok" for value in components.values())
+        is_ready = components["database"] == "ok" and components["cache"] == "ok"
         return Response(
             {"status": "ok" if is_ready else "unavailable", "components": components},
             status=200 if is_ready else 503,

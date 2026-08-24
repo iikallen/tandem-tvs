@@ -1,6 +1,6 @@
 import { useState, type ComponentType, type SVGProps } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { NavLink, Outlet } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { t } from "../i18n";
@@ -21,6 +21,17 @@ const portalLinks: NavItem[] = [
   { to: "/profile", label: t("profile"), icon: UserIcon },
   { to: "/notifications", label: t("notifications"), icon: NewsIcon },
 ];
+
+const messengerLink: NavItem = {
+  to: "/messages",
+  label: t("messenger"),
+  icon: NewsIcon,
+};
+const platformLink: NavItem = {
+  to: "/platform/users",
+  label: t("userManagement"),
+  icon: UsersIcon,
+};
 
 const editorialLinks: NavItem[] = [
   {
@@ -46,16 +57,23 @@ const editorialLinks: NavItem[] = [
 
 function Navigation({ mobile = false }: { mobile?: boolean }) {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
-  const canEdit = me.data?.module_roles?.some((role) =>
-    ["author", "editor", "admin", "administrator"].includes(role),
+  const canEdit = me.data?.access.news.some((role) =>
+    ["AUTHOR", "EDITOR", "ADMIN"].includes(role),
   );
+  const canMessage = Boolean(me.data?.access.messenger.length);
+  const isPlatformAdmin = me.data?.access.platform.includes("ADMIN");
+  const expandedPortalLinks = [
+    ...portalLinks,
+    ...(canMessage ? [messengerLink] : []),
+    ...(isPlatformAdmin ? [platformLink] : []),
+  ];
   const mobileLinks = canEdit
-    ? [...portalLinks.slice(0, 3), editorialLinks[0], portalLinks[4]]
-    : portalLinks.slice(0, 5);
+    ? [...expandedPortalLinks.slice(0, 3), editorialLinks[0], portalLinks[4]]
+    : expandedPortalLinks.slice(0, 5);
   const groups = mobile
     ? [{ label: "", links: mobileLinks }]
     : [
-        { label: t("portalSection"), links: portalLinks },
+        { label: t("portalSection"), links: expandedPortalLinks },
         ...(canEdit
           ? [{ label: t("editorialSection"), links: editorialLinks }]
           : []),
@@ -83,6 +101,8 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
 export function AppShell() {
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const toggleLabel = theme === "light" ? t("themeDark") : t("themeLight");
   return (
     <div className="app-shell" data-theme={theme}>
@@ -112,6 +132,23 @@ export function AppShell() {
             aria-label={toggleLabel}
           >
             {toggleLabel}
+          </button>
+          <button
+            className="theme-button"
+            type="button"
+            onClick={async () => {
+              await api.logout();
+              queryClient.setQueryData(["session"], {
+                authenticated: false,
+                user: null,
+              });
+              queryClient.removeQueries({
+                predicate: (query) => query.queryKey[0] !== "session",
+              });
+              navigate("/login", { replace: true });
+            }}
+          >
+            {t("logout")}
           </button>
         </div>
       </aside>

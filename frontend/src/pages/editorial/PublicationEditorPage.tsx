@@ -106,8 +106,8 @@ function PublicationLoader() {
       categories={categories.data}
       tags={Array.isArray(tags.data) ? tags.data : []}
       media={Array.isArray(media.data?.results) ? media.data.results : []}
-      canPublish={me.data.module_roles.some((role) =>
-        ["editor", "admin", "administrator"].includes(role),
+      canPublish={me.data.access.news.some((role) =>
+        ["EDITOR", "ADMIN"].includes(role),
       )}
     />
   );

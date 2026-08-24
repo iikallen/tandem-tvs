@@ -59,7 +59,13 @@ function ModerationContent() {
             moderate.mutate({ id: report.comment.id, action })
           }
           onResolve={() => resolve.mutate(report.id)}
-          onRestrict={() => restrict.mutate(report.comment.author.portal_id)}
+          onRestrict={() =>
+            restrict.mutate(
+              report.comment.author.portal_id ??
+                report.comment.author.username ??
+                "",
+            )
+          }
         />
       ))}
       {queue.data.flags.map((comment) => (
@@ -68,7 +74,11 @@ function ModerationContent() {
           comment={comment}
           title={t("stopWordFlag")}
           onAction={(action) => moderate.mutate({ id: comment.id, action })}
-          onRestrict={() => restrict.mutate(comment.author.portal_id)}
+          onRestrict={() =>
+            restrict.mutate(
+              comment.author.portal_id ?? comment.author.username ?? "",
+            )
+          }
         />
       ))}
     </div>

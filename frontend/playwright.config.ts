@@ -2,7 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  fullyParallel: false,
+  // Live acceptance tests share one Compose database and deliberately mutate
+  // the same seeded identities. Keep the release gate deterministic.
+  workers: 1,
   retries: 0,
   reporter: "line",
   use: {
