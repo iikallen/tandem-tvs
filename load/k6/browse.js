@@ -30,11 +30,15 @@ export function browse() {
       "publication loaded": (response) => response.status === 200,
     });
   }
-  const search = http.get(
-    `${baseUrl}/api/v1/search?q=${encodeURIComponent("безопасность қауіпсіздік")}`,
-    requestParams("search"),
-  );
-  check(search, { "search loaded": (response) => response.status === 200 });
+  // Search is a deliberate action, not part of every feed refresh. Staggering
+  // retains more than 1,000 samples in the full 180-user release profile.
+  if ((__VU + __ITER) % 10 === 0) {
+    const search = http.get(
+      `${baseUrl}/api/v1/search?q=${encodeURIComponent("безопасность қауіпсіздік")}`,
+      requestParams("search"),
+    );
+    check(search, { "search loaded": (response) => response.status === 200 });
+  }
   sleep(thinkSeconds);
 }
 

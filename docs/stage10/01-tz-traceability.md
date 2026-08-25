@@ -50,8 +50,8 @@
 | T3.1 | Employee reads addressed news, discusses/reacts, chats/groups/files | NEWS/MESSENGER member grants and object-scoped APIs | Cross-module member tests | S2-S9 accepted | S2-S9 | PASS |
 | T3.2 | Author creates drafts/submits and edits own unpublished work | NEWS/AUTHOR with own-publication queryset/lifecycle guards | Publication/Stage 4 tests | S4 accepted | S4 | PASS |
 | T3.3 | Editor publishes/edits/unpublishes, manages audience/pins/categories and moderates comments | NEWS/EDITOR handles editorial work; moderation is a separate grant by design | Permission tests | Combined editor+moderator grants supported | S4-S6 | ACCEPTED_REQUIREMENT_CHANGE |
-| T3.4 | Moderator acts on comment and message complaints and restricts comment author | Comment moderation exists; message complaint/moderation domain is missing | Comment moderation tests only | PENDING | Code inspection | FAIL |
-| T3.5 | Module admin configures categories/rights/channels/file limits/retention and sees full audit/statistics | Platform/NEWS/MESSENGER admin grants split duties; categories/channels/stats exist, but audit viewer and admin file/retention configuration are missing | Partial permission/analytics tests | PENDING | Code inspection | FAIL |
+| T3.4 | Moderator acts on comment and message complaints and restricts comment author | Comment and message report queues support dismiss/violation decisions and timed author restrictions | `test_message_reports.py`, Stage 5 moderation tests | Stage 10 gate | Stage 10 | PASS |
+| T3.5 | Module admin configures categories/rights/channels/file limits/retention and sees full audit/statistics | Split Platform/NEWS/MESSENGER admin grants; editorial settings, audit viewer and category/department analytics | `test_engagement_media_and_retention_policy_validation_and_enforcement`, `Stage10Editorial.test.tsx` | Stage 10 gate | Stage 10 | PASS |
 
 Архитектурная таблица Т2 также покрыта без буквального копирования её иллюстративной схемы:
 
@@ -80,7 +80,7 @@
 | P90 | Скачиваемые вложения с размером и типом | Protected media metadata/content endpoint | Stage 4/8 media tests | S4/S8 accepted | S4, S8 | PASS |
 | P91 | Полноэкранная галерея изображений | News detail media gallery UI | Frontend/E2E | S4 accepted | S4 | PASS |
 | P92 | Обязательное ознакомление и списки | Acknowledgement endpoint, recipient snapshots, lists/CSV | `test_recipient_acknowledgement_analytics_lists_csv_and_parity` | S5 accepted | S5 | PASS |
-| P93 | Поделиться новостью в мессенджер ссылкой со свёрнутым preview | Backend recognizes an authorized `/news/...` URL and serializes `resource_preview`; no share action or preview renderer was found in the frontend | Backend serializer coverage only | End-to-end share UX PENDING | Code inspection | FAIL |
+| P93 | Поделиться новостью в мессенджер ссылкой со свёрнутым preview | News share action opens Messenger draft; serializer and renderer reauthorize and display the internal preview | Stage 10 serializer/frontend tests | Stage 10 gate | Stage 10 | PASS |
 | P94 | Уникальный просмотр без накрутки повторами | Unique employee/publication view row/service | `test_publication_view_service_is_idempotent_and_preserves_first_view` | S2 accepted | S2 | PASS |
 | P96 | Комментарий только при доступе и открытом обсуждении | Scoped comment service plus discussion flag | Discussion/Stage 5 tests | S3/S5 accepted | S3, S5 | PASS |
 | P97 | Ветки с ограниченной глубиной | Parent/root model and bounded depth validation | Discussion API tests | S3 accepted | S3 | PASS |
@@ -92,7 +92,7 @@
 | P103 | Модераторское удаление оставляет tombstone и журнал | Soft state plus append-only audit previous/new state | Stage 5 tests | S5 accepted | S5 | PASS |
 | P105 | Like base; admin may enable expanded reactions | Engagement settings and enabled reaction set | `test_reactions_reports_moderation_restrictions_and_windows` | S5 accepted | S5 | PASS |
 | P106 | Reactions on publications and comments | Both reaction domains implemented | Discussion/Stage 5 tests | S3/S5 accepted | S3, S5 | PASS |
-| P107 | Counts, actor list, toggle-off | API returns counts/actors and supports idempotent remove; frontend shows counts/toggle but no actor list | API reaction tests only | Actor-list UX PENDING | Code inspection | FAIL |
+| P107 | Counts, actor list, toggle-off | API returns counts/actors and idempotent toggle-off; news detail renders actor names and roles | API reaction and Stage 10 frontend tests | Stage 10 gate | Stage 10 | PASS |
 | P108 | Realtime counter updates | Publication WebSocket events as refetch hints | Realtime/frontend tests | S3 accepted | S3 | PASS |
 | P109 | One employee reaction per object | Database uniqueness/idempotent services | Reaction concurrency/idempotence tests | S3 accepted | S3 | PASS |
 
@@ -110,11 +110,11 @@
 | P118 | Reusable media library | READY asset library and usage links | Stage 4 media tests | S4 accepted | S4 | PASS |
 | P119 | Publication versions with author/time and diffable state | Immutable version snapshots | Stage 4 version tests | S4 accepted | S4 | PASS |
 | P120 | Duplicate as basis for new draft | Duplicate service/API | `test_duplicate_copies_editorial_material_but_not_state_or_pin` | S4 accepted | S4 | PASS |
-| P122 | Moderation queue for comment and message complaints with leave/hide/delete/restrict actions | Comment reports/actions/restrictions exist; no message-report endpoint/model was found | Comment moderation tests only | Messenger moderation acceptance PENDING | Code inspection | FAIL |
+| P122 | Moderation queue for comment and message complaints with leave/hide/delete/restrict actions | Separate authorized comment/message queues; message dismiss/violation decision, tombstone and timed restriction | `test_message_reports.py`, Stage 5 moderation tests | Stage 10 gate | Stage 10 | PASS |
 | P123 | Close discussion per publication | Publication discussion flag | Stage 5 tests | S5 accepted | S5 | PASS |
 | P124 | Stop-word automatic flag | Configurable normalized stop words | Stage 5 tests | S5 accepted | S5 | PASS |
 | P125 | Publication views/reach/reactions/comments/ack ratio | Publication analytics API/UI | Stage 5 analytics tests | S5 accepted | S5 | PASS |
-| P126 | Period summary by category and department with table export | Period/category aggregate and publication CSV exist; department metrics exist only inside per-publication details and are absent from the summary export | Stage 5 parity covers existing output | Full department summary/export PENDING | Code inspection | FAIL |
+| P126 | Period summary by category and department with table export | Period/category summary plus department reach/acknowledgement table and CSV export | `test_department_analytics_summary_and_csv_export`, frontend tests | Stage 10 gate | Stage 10 | PASS |
 
 ## 5. Messenger и вложения
 
@@ -123,7 +123,7 @@
 | T4.1 | Direct conversation | Idempotent two-member `DIRECT` | `test_people_and_direct_creation_are_local_filtered_idempotent_and_ordered`, concurrency test | S7 accepted | S7 | PASS |
 | T4.2 | Group with name, admins, membership changes/leave | `GROUP` memberships and admin services | `test_group_roles_membership_and_private_idor`, Stage 8 mutations | S7/S8 accepted | S7, S8 | PASS |
 | T4.3 | Channel writers/readers and optional discussion | `CHANNEL` roles ADMIN/WRITER/MEMBER and discussion mode | Stage 9 channel tests | S9 accepted | S9 | PASS |
-| P129 | Inbox sort, unread, search by conversation title/participants, pin/mute/archive | Sort/unread/pin/mute/archive exist; no conversation-list title/participant search was found | Existing Messenger tests do not cover inbox search | Inbox search PENDING | Code inspection | FAIL |
+| P129 | Inbox sort, unread, search by conversation title/participants, pin/mute/archive | Server-scoped inbox search plus existing sort/unread/pin/mute/archive state | Stage 10 Messenger API/frontend tests | Stage 10 gate | Stage 10 | PASS |
 | P131 | Realtime delivery without refresh | Channels WebSocket plus PostgreSQL outbox | Messenger/realtime tests | S7 measured below 1 s; Stage 10 load PENDING | S7-S9 | PASS |
 | P132 | Sent/delivered/read and group read count | Sequence, delivery/read pointers and receipts | `test_read_pointer_unread_and_receipts`, group count test | S7 accepted | S7 | PASS |
 | P133 | Typing and presence | Ephemeral WebSocket events/leases | Realtime/Stage 7 tests | S7 accepted | S7 | PASS |
@@ -133,19 +133,19 @@
 | P137 | Message reactions | Unique reaction service/API | Stage 8 tests | S8 accepted | S8 | PASS |
 | P138 | Pin message in conversation header | Scoped pin service/API | Stage 8 tests | S8 accepted | S8 | PASS |
 | P139 | Mentions and bounded `@all` | Explicit mention rows and 10/hour all-mention throttle | Stage 9 mention/rate tests | S9 accepted | S9 | PASS |
-| P140 | Conversation search by text/author/date/attachments | Authorized API supports all filters; frontend exposes only free-text search | Backend filter/IDOR test | Complete search controls PENDING | Code inspection | FAIL |
+| P140 | Conversation search by text/author/date/attachments | Authorized API and Messenger controls expose text, author, date and attachment filters | Stage 9 backend and Stage 10 frontend tests | Stage 10 gate | Stage 10 | PASS |
 | P141 | Upward history pagination and exact context | Cursor history and bounded context API | Message/history/context tests | S7/S9 accepted | S7, S9 | PASS |
 | P142 | Per-chat unsent draft | Frontend local draft state | Frontend/E2E | S8 accepted | S8 | PASS |
 | P143 | Internal material preview | Re-authorized publication preview, no arbitrary fetch | Stage 9 tests | S9 accepted | S9 | PASS |
 | P144 | No E2EE requirement in v1; HTTPS transport | Server-side searchable storage, HTTPS edge | Production settings tests | External TLS recheck PENDING | Stage 6/S9 | PASS |
 | P146 | Files in chats/news/comments | Shared protected media domain | Stage 4/5/8 media tests | S4/S5/S8 accepted | S4-S8 | PASS |
-| P147 | Drag/drop, clipboard paste, progress and cancel | File inputs and indeterminate progress exist; drag/drop, clipboard paste and upload cancellation were not found | No complete regression found | PENDING | Code inspection | FAIL |
+| P147 | Drag/drop, clipboard paste, progress and cancel | Messenger composer supports file input, drop, clipboard paste, progress state and AbortController cancellation | `Stage7.test.tsx` upload interaction regression | Stage 10 gate | Stage 10 | PASS |
 | P148 | Multiple files per message | Multiple attachment relations | Stage 8 tests | S8 accepted | S8 | PASS |
-| P149 | Inline image/video preview; metadata for other files | Messenger currently renders all attachments as download links with name/size; inline image/video preview was not found | Media authorization tests do not cover required preview UX | PENDING | Code inspection | FAIL |
-| P150 | Admin-configurable file size/types and clear rejection | Server validates 25 MB env limit and a hard-coded extension/MIME allowlist with clear errors; no module-admin configuration UI/model was found | Validation tests cover rejection only | Admin configuration PENDING | Code inspection | FAIL |
+| P149 | Inline image/video preview; metadata for other files | Authorized image/video elements render inline; other assets keep name, size and download metadata | Stage 10 Messenger frontend/media tests | Stage 10 gate | Stage 10 | PASS |
+| P150 | Admin-configurable file size/types and clear rejection | NEWS Admin settings persist upload byte limit, allowed extensions and retention; server enforces signature/type/size with clear errors | Stage 10 policy API/frontend tests | Stage 10 gate | Stage 10 | PASS |
 | P151 | Malware scan when corporate scanner exists | Fail-closed integration point; no scanner is configured in repository | PENDING | Customer scanner availability PENDING | Customer infrastructure | OPS_DEPENDENT |
 | P152 | File visible only through parent authorization | Media content endpoint reauthorizes publication/comment/message membership interval | Stage 4/8 IDOR tests | S4/S8 accepted | S4, S8 | PASS |
-| P153 | Separate chat tab containing all attachments | Authorized attachment results can be filtered at API level, but no separate attachments tab was found in the Messenger UI | No complete tab regression found | PENDING | Code inspection | FAIL |
+| P153 | Separate chat tab containing all attachments | Dedicated Messenger attachments tab uses the authorized conversation search result | Stage 10 Messenger frontend/API tests | Stage 10 gate | Stage 10 | PASS |
 
 ## 6. Уведомления и поиск
 
@@ -172,7 +172,7 @@
 | T5.5 | Unique view and separate acknowledgement | `PublicationView`, `PublicationRecipient`, `Acknowledgement` | S2/S5 tests | S2/S5 accepted | S2, S5 | PASS |
 | T5.6 | Threaded comment, attachment and visible edit/moderation state | `Comment`, attachments/mentions/revisions/status | S3/S5 tests | S3/S5 accepted | S3, S5 | PASS |
 | T5.7 | Unique typed reactions on news/comment/message | Discussion and Messenger reaction models/constraints | S3/S5/S8 tests | S3-S8 accepted | S3, S5, S8 | PASS |
-| T5.8 | Complaint with reporter/reason/state/moderator decision | Comment report domain exists; Messenger complaint domain is missing | Comment tests only | PENDING | Code inspection | FAIL |
+| T5.8 | Complaint with reporter/reason/state/moderator decision | Comment and Messenger report domains store reporter, reason, state, decision, moderator and timestamps | `test_message_reports.py`, Stage 5 moderation tests | Stage 10 gate | Stage 10 | PASS |
 | T5.9 | Direct/group/channel conversation and settings | `Conversation` type/title/discussion/activity fields | S7-S9 tests | S7-S9 accepted | S7-S9 | PASS |
 | T5.10 | Membership role/interval/read/delivery/settings/pin/archive | `ConversationMembership` | Messenger/Stage 8/9 tests | S7-S9 accepted | S7-S9 | PASS |
 | T5.11 | Message reply/forward/attachments/timestamps/state | `Message` and related mutation/audit models | Stage 7/8/9 tests | S7-S9 accepted | S7-S9 | PASS |

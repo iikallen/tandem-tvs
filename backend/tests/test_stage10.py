@@ -26,6 +26,7 @@ from apps.notifications.models import (
     NotificationFanoutEvent,
     PushSubscription,
 )
+from apps.notifications.services import dispatch_pending_fanout
 from apps.ops import tasks as ops_tasks
 from apps.ops.management.commands.seed_load_profile import (
     Command as SeedLoadProfileCommand,
@@ -74,6 +75,25 @@ def test_load_seed_rerun_never_rewinds_live_conversation_sequence():
     conversation.refresh_from_db()
     assert conversation.last_sequence == 3
     assert Message.objects.filter(conversation=conversation, sequence=3, pk=live.pk).exists()
+
+
+@pytest.mark.django_db
+def test_notification_fanout_default_batch_finishes_in_bounded_slices():
+    NotificationFanoutEvent.objects.bulk_create(
+        [
+            NotificationFanoutEvent(
+                event_key=f"stage10-batch-{index}",
+                event_type=Notification.Type.COMMENT_REPLY,
+                source_id=uuid.uuid4(),
+                payload={"recipient_ids": []},
+            )
+            for index in range(26)
+        ]
+    )
+
+    assert dispatch_pending_fanout() == 10
+    assert NotificationFanoutEvent.objects.filter(processed_at__isnull=False).count() == 10
+    assert NotificationFanoutEvent.objects.filter(processed_at__isnull=True).count() == 16
 
 
 @pytest.mark.django_db

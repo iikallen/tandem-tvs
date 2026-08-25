@@ -322,7 +322,7 @@ def process_fanout_event(event_id: object) -> bool:
         return False
 
 
-def dispatch_pending_fanout(limit: int = 100) -> int:
+def dispatch_pending_fanout(limit: int = 10) -> int:
     ids = list(
         NotificationFanoutEvent.objects.filter(
             processed_at__isnull=True, available_at__lte=timezone.now()

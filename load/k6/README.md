@@ -19,5 +19,11 @@ required 15-minute hold.
 The full HTTP profile uses a 30-second think time between complete user journeys; smoke uses one
 second. Override `THINK_SECONDS` only for an explicitly documented diagnostic run.
 
+Every portal user refreshes the feed and opens a publication. Global search is deterministically
+staggered across 10% of portal iterations because it is a deliberate action, not part of every
+feed refresh; the full run still records more than 1,000 search samples. `LOAD_RAMP_DURATION` and
+`LOAD_HOLD_DURATION` may shorten a calibration, but release evidence always uses the five- and
+thirty-minute defaults.
+
 Set `WS_BASE_URL` only when the WebSocket origin differs from `BASE_URL`. `LOAD_USER_COUNT` and
 `LOAD_USER_OFFSET` select disjoint `load-NNNN` account ranges for distributed runners.

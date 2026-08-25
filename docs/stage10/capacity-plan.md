@@ -33,14 +33,14 @@ Record the release values:
 
 | Budget item | Value |
 | --- | ---: |
-| `max_connections` | `PENDING` |
-| PostgreSQL reserved connections | `PENDING` |
-| Additional DBA/maintenance reserve | `PENDING` |
-| Maximum backend connections across all replicas | `PENDING` |
-| Celery worker connection budget | `PENDING` |
+| `max_connections` | 400 |
+| PostgreSQL reserved connections | 3 |
+| Maximum backend connections across all replicas | 320 |
+| Celery worker connection budget | 4 |
 | Migration job | 1 active connection during deployment |
-| Monitoring/backup/restore reserve | `PENDING` |
-| Unallocated surge headroom | `PENDING` |
+| DBA/monitoring/backup/restore reserve | 30 |
+| Unallocated surge headroom | 42 |
+| Allocated total including reserved connections | 400 |
 
 Required equation:
 
@@ -49,7 +49,7 @@ backend + Celery + migration + monitoring/backup + DBA reserve + surge headroom
 <= max_connections - PostgreSQL reserved connections
 ```
 
-Django currently uses `CONN_MAX_AGE=60`. The Compose baseline is one Uvicorn process and Celery concurrency 2; neither is permission to assume only three total connections under async/threaded load. Measure `pg_stat_activity` during the full run. Do not increase Uvicorn workers or Celery concurrency until the measured peak, CPU saturation and p95 identify a bottleneck and the connection equation remains valid.
+Django production uses `CONN_MAX_AGE=0`, four Uvicorn workers and Celery concurrency 2. The values follow the measured single-process serialization bottleneck and preserve the explicit 400-connection budget above; they are not a generic scale recommendation. Record `pg_stat_activity`, CPU saturation and p95 during the final full run before accepting this allocation.
 
 ## Query profiling
 

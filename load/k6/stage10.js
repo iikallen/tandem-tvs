@@ -3,6 +3,8 @@ import { messenger } from "./messenger.js";
 import { realtime } from "./websocket.js";
 
 const smoke = __ENV.PROFILE === "smoke";
+const rampDuration = __ENV.LOAD_RAMP_DURATION || "5m";
+const holdDuration = __ENV.LOAD_HOLD_DURATION || "30m";
 
 function scenario(exec, vus) {
   if (smoke) return { executor: "constant-vus", exec, vus, duration: "1m" };
@@ -11,8 +13,8 @@ function scenario(exec, vus) {
     exec,
     startVUs: 0,
     stages: [
-      { duration: "5m", target: vus },
-      { duration: "30m", target: vus },
+      { duration: rampDuration, target: vus },
+      { duration: holdDuration, target: vus },
     ],
   };
 }

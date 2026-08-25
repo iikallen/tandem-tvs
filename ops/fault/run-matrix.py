@@ -50,7 +50,59 @@ def wait_running(compose: list[str], service: str, timeout: int) -> None:
     raise RuntimeError(f"{service} did not return to running state in {timeout}s")
 
 
-def wait_ready(url: str, timeout: int) -> None:
+def ensure_stopped(compose: list[str], service: str) -> None:
+    running = run([*compose, "ps", "--status", "running", "-q", service], capture=True)
+    if running:
+        raise RuntimeError(f"{service} remained running during the injected fault")
+
+
+def backend_ready_status(compose: list[str]) -> int:
+    script = """\
+import os
+import urllib.error
+import urllib.request
+
+host = os.environ["DJANGO_ALLOWED_HOSTS"].split(",")[0]
+request = urllib.request.Request(
+    "http://127.0.0.1:8000/api/v1/health/ready",
+    headers={"Host": host, "X-Forwarded-Proto": "https"},
+)
+try:
+    print(urllib.request.urlopen(request, timeout=5).status)
+except urllib.error.HTTPError as error:
+    print(error.code)
+"""
+    output = run(
+        [
+            *compose,
+            "exec",
+            "-T",
+            "backend",
+            "uv",
+            "run",
+            "--no-sync",
+            "python",
+            "-c",
+            script,
+        ],
+        capture=True,
+    )
+    return int(output.splitlines()[-1])
+
+
+def wait_backend_status(compose: list[str], status: int, timeout: int) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            if backend_ready_status(compose) == status:
+                return
+        except (subprocess.CalledProcessError, ValueError):
+            pass
+        time.sleep(2)
+    raise RuntimeError(f"backend readiness did not return {status} in {timeout}s")
+
+
+def wait_url_ready(url: str, timeout: int) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -63,7 +115,7 @@ def wait_ready(url: str, timeout: int) -> None:
     raise RuntimeError(f"{url} did not become ready in {timeout}s")
 
 
-def wait_unavailable(url: str, timeout: int = 30) -> None:
+def wait_url_unavailable(url: str, timeout: int = 30) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -183,13 +235,14 @@ def main() -> int:
     parser.add_argument("--compose-file", action="append", default=[])
     parser.add_argument("--project-name", required=True)
     parser.add_argument(
-        "--ready-url",
-        default=os.environ.get("TANDEM_READY_URL", "http://localhost:8080/api/v1/health/ready"),
-    )
-    parser.add_argument(
         "--external-ready-url",
         default=os.environ.get("TANDEM_EXTERNAL_READY_URL", ""),
         help="Cloudflare hostname readiness URL, required to test the tunnel fault.",
+    )
+    parser.add_argument(
+        "--skip-cloudflared",
+        action="store_true",
+        help="Test cloudflared separately with an Access-authorized external browser.",
     )
     parser.add_argument("--timeout", type=int, default=180)
     args = parser.parse_args()
@@ -199,7 +252,7 @@ def main() -> int:
         parser.error("set TANDEM_ENVIRONMENT_PURPOSE=stage10-load")
     if not re.fullmatch(r"stage10-fault-[a-z0-9-]+", args.project_name):
         parser.error("--project-name must match stage10-fault-<isolated-id>")
-    if not args.external_ready_url.startswith("https://"):
+    if not args.skip_cloudflared and not args.external_ready_url.startswith("https://"):
         parser.error("set TANDEM_EXTERNAL_READY_URL to the Cloudflare HTTPS readiness URL")
     files = args.compose_file or ["compose.yaml", "compose.prod.yaml"]
     missing = [name for name in files if not Path(name).is_file()]
@@ -209,26 +262,37 @@ def main() -> int:
     for name in files:
         compose.extend(("-f", name))
 
-    wait_ready(args.ready_url, args.timeout)
+    wait_running(compose, "backend", args.timeout)
+    wait_running(compose, "frontend", args.timeout)
+    wait_backend_status(compose, 200, args.timeout)
     database_name = current_database(compose)
     if not re.fullmatch(r"stage10_load_[a-z0-9_]+", database_name):
         parser.error("fault matrix refuses a database outside stage10_load_*")
     baseline = snapshot(compose)
     try:
-        for sequence, service in enumerate(SERVICES, 1):
+        services = tuple(
+            service
+            for service in SERVICES
+            if not (args.skip_cloudflared and service == "cloudflared")
+        )
+        if args.skip_cloudflared:
+            print("FAULT cloudflared: EXTERNAL ACCESS-AUTHORIZED CHECK REQUIRED", flush=True)
+        for sequence, service in enumerate(services, 1):
             print(f"FAULT stop {service}", flush=True)
             stopped = False
             probe_id = ""
             try:
                 run([*compose, "stop", "--timeout", "10", service])
                 stopped = True
-                if service in {"backend", "frontend", "postgres"}:
-                    wait_unavailable(args.ready_url)
+                if service == "postgres":
+                    wait_backend_status(compose, 503, args.timeout)
+                elif service in {"backend", "frontend"}:
+                    ensure_stopped(compose, service)
                 elif service == "cloudflared":
-                    wait_ready(args.ready_url, args.timeout)
-                    wait_unavailable(args.external_ready_url)
+                    wait_backend_status(compose, 200, args.timeout)
+                    wait_url_unavailable(args.external_ready_url)
                 else:
-                    wait_ready(args.ready_url, args.timeout)
+                    wait_backend_status(compose, 200, args.timeout)
                 if service in {"redis", "celery-worker"}:
                     probe_id = create_probe(
                         compose,
@@ -242,9 +306,9 @@ def main() -> int:
                 if stopped:
                     run([*compose, "up", "-d", service])
                     wait_running(compose, service, args.timeout)
-                    wait_ready(args.ready_url, args.timeout)
+                    wait_backend_status(compose, 200, args.timeout)
                     if service == "cloudflared":
-                        wait_ready(args.external_ready_url, args.timeout)
+                        wait_url_ready(args.external_ready_url, args.timeout)
             if probe_id:
                 verify_probe(compose, probe_id, args.timeout)
                 baseline = snapshot(compose)

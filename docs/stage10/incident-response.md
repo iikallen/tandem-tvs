@@ -10,6 +10,12 @@
 
 Customer-specific contacts, paging targets and deadlines: `PENDING`.
 
+Cloudflare Access can return its own login response while the origin connector is unavailable. If
+the fault runner cannot use an approved Access service token, run it with `--skip-cloudflared` and
+stop/recover `cloudflared` separately while an Access-authorized external browser continuously
+probes `/api/v1/health/ready`. Record the external failure and recovery; an anonymous Access
+redirect alone is not tunnel-outage evidence.
+
 ## First ten minutes
 
 1. Open an incident record with UTC start, reporter, symptom and affected surface. Do not paste secrets/private content.

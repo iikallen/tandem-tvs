@@ -28,6 +28,9 @@ cleanup() {
         docker compose -f "$compose_file" exec -T postgres \
             dropdb --if-exists --force -U "$postgres_user" "$nonempty_db" >/dev/null 2>&1 || true
     fi
+    if [ "$restore_media_chown_with_sudo" = "1" ] && [ -d "$work_dir" ]; then
+        sudo -n chown -R "$(id -u):$(id -g)" "$work_dir" >/dev/null 2>&1 || true
+    fi
     rm -rf -- "$work_dir"
 }
 trap cleanup EXIT HUP INT TERM
@@ -42,6 +45,9 @@ media_volume="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "
 test -n "$network"
 test -n "$postgres_volume"
 test -n "$media_volume"
+
+docker compose -f "$compose_file" exec -T backend \
+    uv run --no-sync python manage.py verify_media_integrity
 
 container_environment="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$backend_id")"
 postgres_db="$(printf '%s\n' "$container_environment" | sed -n 's/^POSTGRES_DB=//p')"
