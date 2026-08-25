@@ -73,6 +73,11 @@ jobs:
           echo "APP_GIT_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
 
       - name: Start clean deployment
+        env:
+          DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,tandem-tvs.chatlink.kz
+          DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz
+          REALTIME_ALLOWED_ORIGINS: http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz
+          AUTH_PUBLIC_BASE_URL: http://localhost:8080
         run: docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait --wait-timeout 180
 
       - name: Run full production gate
