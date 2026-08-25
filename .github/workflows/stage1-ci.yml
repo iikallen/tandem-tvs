@@ -86,6 +86,10 @@ jobs:
           DJANGO_CSRF_TRUSTED_ORIGINS: http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz
           REALTIME_ALLOWED_ORIGINS: http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz
           AUTH_PUBLIC_BASE_URL: http://localhost:8080
+          PRODUCTION_DJANGO_ALLOWED_HOSTS: tandem-tvs.chatlink.kz
+          PRODUCTION_DJANGO_CSRF_TRUSTED_ORIGINS: https://tandem-tvs.chatlink.kz
+          PRODUCTION_REALTIME_ALLOWED_ORIGINS: https://tandem-tvs.chatlink.kz
+          PRODUCTION_AUTH_PUBLIC_BASE_URL: https://tandem-tvs.chatlink.kz
         run: make prod
 
       - name: Run Stage 10 load smoke

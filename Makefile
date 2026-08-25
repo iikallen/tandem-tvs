@@ -125,5 +125,5 @@ build:
 	cd frontend && $(NPM) run build
 
 prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-stage9 test-stage10 test-realtime e2e build
-	cd backend && $(UV) run python scripts/check_production.py
+	cd backend && DJANGO_ALLOWED_HOSTS="$${PRODUCTION_DJANGO_ALLOWED_HOSTS:-$$DJANGO_ALLOWED_HOSTS}" DJANGO_CSRF_TRUSTED_ORIGINS="$${PRODUCTION_DJANGO_CSRF_TRUSTED_ORIGINS:-$$DJANGO_CSRF_TRUSTED_ORIGINS}" REALTIME_ALLOWED_ORIGINS="$${PRODUCTION_REALTIME_ALLOWED_ORIGINS:-$$REALTIME_ALLOWED_ORIGINS}" AUTH_PUBLIC_BASE_URL="$${PRODUCTION_AUTH_PUBLIC_BASE_URL:-$$AUTH_PUBLIC_BASE_URL}" $(UV) run python scripts/check_production.py
 	docker compose -f compose.yaml -f compose.prod.yaml config --quiet
