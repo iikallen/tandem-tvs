@@ -83,7 +83,7 @@ test-stage9:
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage9.py verify
 
 test-stage10:
-	docker compose exec -T backend uv run --no-sync python scripts/verify_stage10.py
+	docker compose exec -T backend sh -c 'if [ "$$DJANGO_SETTINGS_MODULE" = "config.settings.production" ]; then exec uv run --no-sync python scripts/verify_stage10.py; else echo "Stage 10 runtime verification deferred to production-shaped Compose"; fi'
 
 backup-drill:
 	sh ops/backup/test-backup-restore.sh

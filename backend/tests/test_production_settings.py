@@ -288,6 +288,13 @@ def test_production_compose_activates_tunnel_and_bounds_logs():
     assert production.count("logging: *production-logging") == 8
 
 
+def test_stage10_runtime_verifier_only_runs_in_production_compose():
+    makefile = (Path(__file__).resolve().parents[2] / "Makefile").read_text()
+
+    assert '"$$DJANGO_SETTINGS_MODULE" = "config.settings.production"' in makefile
+    assert "Stage 10 runtime verification deferred to production-shaped Compose" in makefile
+
+
 def test_acceptance_scripts_reject_optimized_python():
     backend = Path(__file__).resolve().parents[1]
     for script in ("check_production.py", "verify_stage10.py"):
