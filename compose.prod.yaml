@@ -53,7 +53,7 @@ x-production-logging: &production-logging
 services:
   postgres:
     image: tandem-tvs-postgres:${APP_GIT_SHA:?APP_GIT_SHA is required}
-    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"]
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
