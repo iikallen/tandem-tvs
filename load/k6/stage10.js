@@ -3,28 +3,25 @@ import { messenger } from "./messenger.js";
 import { realtime } from "./websocket.js";
 
 const smoke = __ENV.PROFILE === "smoke";
-const duration = smoke ? "1m" : "30m";
+
+function scenario(exec, vus) {
+  if (smoke) return { executor: "constant-vus", exec, vus, duration: "1m" };
+  return {
+    executor: "ramping-vus",
+    exec,
+    startVUs: 0,
+    stages: [
+      { duration: "2m", target: vus },
+      { duration: "30m", target: vus },
+    ],
+  };
+}
 
 export const options = {
   scenarios: {
-    portal_readers: {
-      executor: "constant-vus",
-      exec: "browseScenario",
-      vus: smoke ? 4 : 180,
-      duration,
-    },
-    messenger_users: {
-      executor: "constant-vus",
-      exec: "messengerScenario",
-      vus: smoke ? 2 : 90,
-      duration,
-    },
-    active_realtime: {
-      executor: "constant-vus",
-      exec: "realtimeScenario",
-      vus: smoke ? 2 : 30,
-      duration,
-    },
+    portal_readers: scenario("browseScenario", smoke ? 4 : 180),
+    messenger_users: scenario("messengerScenario", smoke ? 2 : 90),
+    active_realtime: scenario("realtimeScenario", smoke ? 2 : 30),
   },
   thresholds: {
     http_req_failed: ["rate<0.01"],

@@ -7,6 +7,8 @@ import { realtime } from "./websocket.js";
 
 const activeSockets = new Trend("tandem_active_socket_observed");
 const monitorFailures = new Rate("tandem_ops_monitor_failures");
+const rampSeconds = Number(__ENV.WS_RAMP_SECONDS || "120");
+const holdSeconds = Number(__ENV.WS_HOLD_SECONDS || "900");
 
 export const options = {
   scenarios: {
@@ -14,14 +16,13 @@ export const options = {
       executor: "per-vu-iterations",
       vus: 300,
       iterations: 1,
-      maxDuration: "16m",
+      maxDuration: `${rampSeconds + holdSeconds + 60}s`,
     },
     socket_monitor: {
       executor: "constant-vus",
       exec: "monitorSockets",
       vus: 1,
-      startTime: "10s",
-      duration: "15m30s",
+      duration: `${rampSeconds + holdSeconds + 30}s`,
     },
   },
   thresholds: {
@@ -35,7 +36,9 @@ export const options = {
 };
 
 export default function () {
-  realtime(900000, false);
+  const delaySeconds = (rampSeconds * (__VU - 1)) / 299;
+  sleep(delaySeconds);
+  realtime((holdSeconds + rampSeconds - delaySeconds) * 1000, false);
 }
 
 export function monitorSockets() {

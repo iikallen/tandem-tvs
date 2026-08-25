@@ -65,9 +65,13 @@ def test_production_settings_load_with_complete_operator_configuration(monkeypat
             "connect_timeout": 5,
             "options": "-c statement_timeout=15000",
         }
+        assert production.DATABASES["default"]["CONN_MAX_AGE"] == 0
         channel_host = production.CHANNEL_LAYERS["default"]["CONFIG"]["hosts"][0]
         assert channel_host["socket_connect_timeout"] == 1
         assert "socket_timeout" not in channel_host
+        assert production.REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"] == [
+            "rest_framework.renderers.JSONRenderer"
+        ]
         assert production.USE_X_FORWARDED_HOST is False
     finally:
         sys.modules.pop("config.settings.production", None)

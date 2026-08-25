@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.validators import validate_email
 
+from . import base as base_settings
 from .base import *  # noqa: F403
 
 
@@ -66,6 +67,10 @@ def redis_target(name: str, url: str) -> tuple[str, int, int]:
 
 
 DEBUG = False
+REST_FRAMEWORK = {
+    **base_settings.REST_FRAMEWORK,
+    "DEFAULT_RENDERER_CLASSES": ["rest_framework.renderers.JSONRenderer"],
+}
 SECRET_KEY = required("DJANGO_SECRET_KEY")
 forbid_value(
     "DJANGO_SECRET_KEY",
@@ -120,6 +125,7 @@ POSTGRES_STATEMENT_TIMEOUT_MS = bounded_integer(
     "POSTGRES_STATEMENT_TIMEOUT_MS", 15_000, 1_000, 120_000
 )
 production_database = cast(dict[str, Any], DATABASES["default"])  # noqa: F405
+production_database["CONN_MAX_AGE"] = 0
 database_options = production_database.get("OPTIONS", {})
 if not isinstance(database_options, dict):
     raise ImproperlyConfigured("Production database OPTIONS must be a mapping")
