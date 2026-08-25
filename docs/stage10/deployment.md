@@ -144,7 +144,7 @@ curl -fsS https://<hostname>/api/v1/health/ready
 curl -fsS https://<hostname>/api/v1/runtime/meta
 ```
 
-Expected: live 200; ready 200 with PostgreSQL/media usable; runtime version `1.0.0` and the exact deployed SHA. Inspect response headers for valid HTTPS, HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Permissions-Policy` and CSP Report-Only.
+Expected: live 200; ready 200 with PostgreSQL/media usable; runtime version `1.0.0` and the exact deployed SHA. Inspect response headers for valid HTTPS, HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Permissions-Policy` and enforced CSP.
 
 Use the monitoring token only from the monitoring/admin network:
 

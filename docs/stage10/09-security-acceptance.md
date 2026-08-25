@@ -10,7 +10,7 @@ Historical Stage 9 review reported zero unresolved Critical/High/Major findings 
 | Development defaults | No development secret/password, demo admin/password, mock adapter, localhost/wildcard production origin | `PENDING` |
 | Release identity | Semantic `APP_VERSION`, exact 40-hex SHA, immutable image labels/tags | `PENDING` |
 | Host/proxy/origin | Allowed hosts/origins exact; trusted Cloudflare client IP only from tunnel subnet; direct origin blocked | `PENDING` |
-| HTTPS/headers | Valid TLS, HSTS, nosniff, DENY frame, Permissions-Policy; CSP Report-Only browser audit before enforcement | `PENDING` |
+| HTTPS/headers | Valid TLS, HSTS, nosniff, DENY frame, Permissions-Policy; CSP enforced after clean browser audit | `PENDING` |
 | XSS/rich text | Structured allowlist, safe links/media node kinds, no `unsafe-eval`; no unexplained CSP violations | `PENDING` |
 | CSRF/session | HttpOnly/Secure/SameSite session, CSRF on mutations, rotation, idle/absolute expiry, security-epoch invalidation | `PENDING` |
 | Password/recovery | Argon2, generic denial, throttles, hash-only expiring one-use capabilities, no secret logs/URL query token | `PENDING` |

@@ -163,7 +163,8 @@ def test_nginx_access_log_and_prometheus_rules_preserve_observability_privacy():
     assert "method=$request_method status=$status" in log_format
     protected_media = nginx.split("location /_protected_media/", 1)[1].split("location /ws/", 1)[0]
     assert "X-Frame-Options DENY" in protected_media
-    assert "Content-Security-Policy-Report-Only" in protected_media
+    assert "Content-Security-Policy" in protected_media
+    assert "Content-Security-Policy-Report-Only" not in protected_media
     assert "clamp_min" not in alerts
     assert "absent(tandem_postgres_up)" in alerts
 

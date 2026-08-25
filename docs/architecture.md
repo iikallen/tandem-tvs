@@ -48,7 +48,7 @@ Redis is never the business durability boundary. A realtime event carries identi
 
 ### Frontend and edge
 
-Nginx serves the immutable Vite build and proxies HTTP/WebSocket traffic to Django. It applies HSTS, clickjacking, MIME, referrer and permissions headers. CSP is introduced as Report-Only and may be enforced only after the full browser suite reports no unexplained violations. The named Cloudflare tunnel makes outbound connections; no database, Redis or Django host port is an Internet origin.
+Nginx serves the immutable Vite build and proxies HTTP/WebSocket traffic to Django. It applies HSTS, clickjacking, MIME, referrer and permissions headers. CSP is enforced after the full browser suite and external responsive sweep reported no unexplained violations. The named Cloudflare tunnel makes outbound connections; no database, Redis or Django host port is an Internet origin.
 
 Two `cloudflared` connectors on one host improve connector-process tolerance only. Host-level availability requires another physical host and a separate PostgreSQL/media HA design; this repository does not claim host-level HA.
 
