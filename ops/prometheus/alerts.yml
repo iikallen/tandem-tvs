@@ -1,0 +1,66 @@
+groups:
+  - name: tandem-production
+    rules:
+      - alert: TandemHighHttpErrorRate
+        expr: sum(rate(tandem_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(tandem_http_requests_total[5m])), 1) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: More than 1% of Tandem requests return 5xx
+
+      - alert: TandemHighEndpointLatency
+        expr: histogram_quantile(0.95, sum by (le, route) (rate(tandem_http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: A Tandem endpoint has p95 latency above two seconds
+
+      - alert: TandemRealtimeBacklog
+        expr: tandem_realtime_outbox_oldest_seconds > 30
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Realtime delivery backlog is stale
+
+      - alert: TandemNotificationBacklog
+        expr: tandem_notification_fanout_oldest_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Notification fanout backlog is stale
+
+      - alert: TandemCeleryHeartbeatMissing
+        expr: tandem_celery_heartbeat_age_seconds < 0 or tandem_celery_heartbeat_age_seconds > 60
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Celery reconciliation heartbeat is missing or stale
+
+      - alert: TandemPostgresUnavailable
+        expr: tandem_postgres_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Tandem cannot reach PostgreSQL
+
+      - alert: TandemRedisUnavailable
+        expr: tandem_redis_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Tandem realtime, cache, or background queues cannot reach Redis
+
+      - alert: TandemMediaIntegrityFailure
+        expr: tandem_media_up == 0 or tandem_media_integrity_failures > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Protected media storage is unavailable or inconsistent

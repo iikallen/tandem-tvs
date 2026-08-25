@@ -47,6 +47,11 @@ const platformLink: NavItem = {
   label: t("userManagement"),
   icon: UsersIcon,
 };
+const auditLink: NavItem = {
+  to: "/editorial/audit",
+  label: t("auditLog"),
+  icon: EditIcon,
+};
 
 const editorialLinks: NavItem[] = [
   {
@@ -77,6 +82,11 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
   );
   const canMessage = Boolean(me.data?.access.messenger.length);
   const isPlatformAdmin = me.data?.access.platform.includes("ADMIN");
+  const isNewsAdmin = me.data?.access.news.includes("ADMIN");
+  const allowedEditorialLinks = [
+    ...editorialLinks,
+    ...(isNewsAdmin ? [auditLink] : []),
+  ];
   const expandedPortalLinks = [
     ...portalLinks,
     ...(canMessage ? [messengerLink] : []),
@@ -96,7 +106,7 @@ function Navigation({ mobile = false }: { mobile?: boolean }) {
     : [
         { label: t("portalSection"), links: expandedPortalLinks },
         ...(canEdit
-          ? [{ label: t("editorialSection"), links: editorialLinks }]
+          ? [{ label: t("editorialSection"), links: allowedEditorialLinks }]
           : []),
       ];
   return (

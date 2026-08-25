@@ -273,6 +273,79 @@ class MessageReaction(models.Model):
         return f"{self.message.pk}:{self.user.pk}:{self.reaction_type}"
 
 
+class MessageReport(models.Model):
+    class State(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        RESOLVED = "RESOLVED", "Resolved"
+
+    class Decision(models.TextChoices):
+        DISMISSED = "DISMISSED", "Dismissed"
+        MESSAGE_DELETED = "MESSAGE_DELETED", "Message deleted"
+        AUTHOR_RESTRICTED = "AUTHOR_RESTRICTED", "Author restricted"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(Message, on_delete=models.PROTECT, related_name="reports")
+    reporter = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="messenger_message_reports",
+    )
+    reason = models.CharField(max_length=500)
+    state = models.CharField(max_length=16, choices=State, default=State.OPEN)
+    decision = models.CharField(max_length=20, choices=Decision, blank=True)
+    moderator_note = models.CharField(max_length=500, blank=True)
+    moderated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="moderated_messenger_message_reports",
+    )
+    moderated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["state", "-created_at"], name="msg_report_queue_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["message", "reporter"], name="messenger_message_reporter_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.message.pk}: {self.state}"
+
+
+class MessengerRestriction(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="messenger_restrictions",
+    )
+    reason = models.CharField(max_length=500, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_messenger_restrictions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(
+                fields=["user", "revoked_at", "expires_at"],
+                name="messenger_restrict_active_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.pk}: {self.expires_at or 'indefinite'}"
+
+
 class MessageAttachment(models.Model):
     message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="attachments")
     asset = models.ForeignKey(

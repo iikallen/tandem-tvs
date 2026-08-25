@@ -1,4 +1,5 @@
 import os
+import re
 from urllib.parse import parse_qs, urlsplit
 
 from django.core.exceptions import ImproperlyConfigured
@@ -11,6 +12,11 @@ def required(name: str) -> str:
     if not value:
         raise ImproperlyConfigured(f"{name} is required in production")
     return value
+
+
+def forbid_value(name: str, value: str, forbidden: set[str]) -> None:
+    if value.casefold() in {item.casefold() for item in forbidden}:
+        raise ImproperlyConfigured(f"{name} contains a development value")
 
 
 def redis_target(name: str, url: str) -> tuple[str, int, int]:
@@ -28,20 +34,46 @@ def redis_target(name: str, url: str) -> tuple[str, int, int]:
 
 DEBUG = False
 SECRET_KEY = required("DJANGO_SECRET_KEY")
+forbid_value(
+    "DJANGO_SECRET_KEY",
+    SECRET_KEY,
+    {
+        "development-only-change-me",
+        "development-only-not-for-production",
+    },
+)
 ALLOWED_HOSTS = [
     *[host.strip() for host in required("DJANGO_ALLOWED_HOSTS").split(",") if host.strip()],
     "127.0.0.1",
 ]
+if any(host in {"*", "localhost"} for host in ALLOWED_HOSTS[:-1]):
+    raise ImproperlyConfigured("DJANGO_ALLOWED_HOSTS contains a development value")
 CSRF_TRUSTED_ORIGINS = [
     origin.strip() for origin in required("DJANGO_CSRF_TRUSTED_ORIGINS").split(",")
 ]
+if any(
+    not origin.startswith("https://") or "localhost" in origin for origin in CSRF_TRUSTED_ORIGINS
+):
+    raise ImproperlyConfigured("DJANGO_CSRF_TRUSTED_ORIGINS must contain production HTTPS origins")
 if not os.getenv("DATABASE_URL"):
     for database_setting in ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_HOST"):
         required(database_setting)
+database_password = str(DATABASES["default"].get("PASSWORD", ""))  # noqa: F405
+forbid_value(
+    "Production database password",
+    database_password,
+    {"", "tandem", "tandem-development-only", "replace-for-shared-environments"},
+)
+if postgres_password := os.getenv("POSTGRES_PASSWORD"):
+    forbid_value(
+        "POSTGRES_PASSWORD",
+        postgres_password,
+        {"tandem", "tandem-development-only", "replace-for-shared-environments"},
+    )
 REDIS_URL = required("REDIS_URL")
 REALTIME_REDIS_URL = required("REALTIME_REDIS_URL")
-CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/2")
-CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_BROKER_URL = required("CELERY_BROKER_URL")
+CELERY_RESULT_BACKEND = required("CELERY_RESULT_BACKEND")
 cache_target = redis_target("REDIS_URL", REDIS_URL)
 realtime_target = redis_target("REALTIME_REDIS_URL", REALTIME_REDIS_URL)
 celery_broker_target = redis_target("CELERY_BROKER_URL", CELERY_BROKER_URL)
@@ -61,6 +93,8 @@ REALTIME_ALLOWED_ORIGINS = [
 ]
 if not REALTIME_ALLOWED_ORIGINS:
     raise ImproperlyConfigured("REALTIME_ALLOWED_ORIGINS is required in production")
+if any(not origin.startswith("https://") for origin in REALTIME_ALLOWED_ORIGINS):
+    raise ImproperlyConfigured("REALTIME_ALLOWED_ORIGINS must contain HTTPS origins")
 
 AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
 if AUTH_MODE != "LOCAL_ONLY":
@@ -85,14 +119,32 @@ if WEB_PUSH_ENABLED:  # noqa: F405
     VAPID_SUBJECT = required("VAPID_SUBJECT")
     if not (VAPID_SUBJECT.startswith("mailto:") or VAPID_SUBJECT.startswith("https://")):
         raise ImproperlyConfigured("VAPID_SUBJECT must be a mailto: or HTTPS URI")
+    if VAPID_SUBJECT.endswith("example.invalid"):
+        raise ImproperlyConfigured("VAPID_SUBJECT contains a development value")
 if NOTIFICATION_EMAIL_ENABLED:  # noqa: F405
     DEFAULT_FROM_EMAIL = required("DEFAULT_FROM_EMAIL")
     EMAIL_HOST = required("EMAIL_HOST")
+    if DEFAULT_FROM_EMAIL.endswith("example.invalid") or EMAIL_HOST == "localhost":
+        raise ImproperlyConfigured("Email configuration contains a development value")
 ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "false").lower() == "true"
+if ALLOW_BOOTSTRAP_LOCAL_ADMIN:
+    raise ImproperlyConfigured("ALLOW_BOOTSTRAP_LOCAL_ADMIN is forbidden in production")
+if os.getenv("STAGE6_DEMO_PASSWORD", "").strip():
+    raise ImproperlyConfigured("STAGE6_DEMO_PASSWORD is forbidden in production")
 PORTAL_ADAPTER = os.getenv("PORTAL_ADAPTER", "unavailable")
 ALLOW_MOCK_PORTAL_ADAPTER = False
-if PORTAL_ADAPTER == "mock":
-    raise ImproperlyConfigured("MockPortalAdapter is forbidden in production")
+if PORTAL_ADAPTER != "unavailable":
+    raise ImproperlyConfigured("Production requires PORTAL_ADAPTER=unavailable")
+
+APP_VERSION = required("APP_VERSION")
+APP_GIT_SHA = required("APP_GIT_SHA")
+if not re.fullmatch(r"\d+\.\d+\.\d+", APP_VERSION):
+    raise ImproperlyConfigured("APP_VERSION must be a semantic version")
+if not re.fullmatch(r"[0-9a-f]{40}", APP_GIT_SHA):
+    raise ImproperlyConfigured("APP_GIT_SHA must be a full lowercase Git commit SHA")
+OPS_MONITORING_TOKEN = required("OPS_MONITORING_TOKEN")
+if len(OPS_MONITORING_TOKEN) < 32:
+    raise ImproperlyConfigured("OPS_MONITORING_TOKEN must contain at least 32 characters")
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True

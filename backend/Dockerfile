@@ -1,5 +1,11 @@
 FROM python:3.13.14-slim-bookworm AS runtime
 
+ARG APP_VERSION=development
+ARG APP_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="Tandem TVS backend" \
+    org.opencontainers.image.version=$APP_VERSION \
+    org.opencontainers.image.revision=$APP_GIT_SHA
+
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

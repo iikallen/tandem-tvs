@@ -75,6 +75,12 @@ export function NewsDetailPage() {
           {new Date(item.published_at).toLocaleDateString("ru-RU")} ·{" "}
           {t("views", { count: item.view_count })}
         </p>
+        <Link
+          className="button button--secondary"
+          to={`/messages?share=${encodeURIComponent(`/news/${item.id}`)}`}
+        >
+          {t("shareInMessenger")}
+        </Link>
       </header>
       <Card>
         <RichTextRenderer document={item.body} />
@@ -226,6 +232,27 @@ function ReactionBar({ publicationId }: { publicationId: string }) {
               <span aria-hidden="true">{meta.icon}</span> {meta.label} ·{" "}
               {reactions.data.counts[type] ?? 0}
             </button>
+          );
+        })}
+      </div>
+      <div className="reaction-actor-lists">
+        {enabled.map((type) => {
+          const actors = reactions.data.actors?.[type] ?? [];
+          if (!actors.length) return null;
+          return (
+            <details key={type}>
+              <summary>
+                {reactionLabels[type].label} · {t("reactionActors")}
+              </summary>
+              <ul>
+                {actors.map((actor) => (
+                  <li key={actor.id ?? actor.portal_id ?? actor.full_name}>
+                    {actor.full_name}
+                    {actor.job_title ? <small>{actor.job_title}</small> : null}
+                  </li>
+                ))}
+              </ul>
+            </details>
           );
         })}
       </div>

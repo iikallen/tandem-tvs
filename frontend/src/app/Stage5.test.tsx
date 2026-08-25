@@ -114,6 +114,16 @@ test("renders acknowledgement, threaded replies and configured reactions", async
           counts: { LIKE: 1, INSIGHTFUL: 1 },
           mine: [],
           enabled_types: ["LIKE", "INSIGHTFUL"],
+          actors: {
+            LIKE: [
+              {
+                id: 9,
+                portal_id: "reactor-1",
+                full_name: "Данияр Реагировавший",
+                job_title: "Аналитик",
+              },
+            ],
+          },
         });
       if (
         url.endsWith(`/news/${id}/acknowledgement`) &&
@@ -154,6 +164,8 @@ test("renders acknowledgement, threaded replies and configured reactions", async
   expect(await screen.findByText("Корневой комментарий")).toBeVisible();
   expect(screen.getByText("Ответ в ветке")).toBeVisible();
   expect(screen.getByRole("button", { name: /Полезно/ })).toBeVisible();
+  await userEvent.click(screen.getByText("Нравится · Кто поставил реакцию"));
+  expect(screen.getByText("Данияр Реагировавший")).toBeVisible();
   await userEvent.click(
     screen.getByRole("button", { name: "Подтвердить ознакомление" }),
   );
@@ -202,14 +214,31 @@ test("shows editorial analytics with exact values and CSV action", async () => {
             departments: [],
           },
         ],
+        departments: [
+          {
+            department: "Разработка",
+            publications: 1,
+            recipients: 10,
+            views: 7,
+            reach_percent: "70.0",
+            acknowledged: 6,
+            acknowledgement_percent: "60.0",
+          },
+        ],
       });
     }),
   );
   render(<App />);
   expect(await screen.findByText("Регламент VPN")).toBeVisible();
-  expect(screen.getByText("70.0%")).toBeVisible();
+  expect(screen.getAllByText("70.0%")).toHaveLength(2);
   expect(screen.getByRole("link", { name: "Экспорт CSV" })).toHaveAttribute(
     "href",
     "/api/v1/editorial/analytics.csv",
   );
+  expect(
+    screen.getByRole("link", { name: "Экспорт подразделений CSV" }),
+  ).toHaveAttribute("href", "/api/v1/editorial/analytics/departments.csv");
+  expect(
+    screen.getByRole("heading", { name: "Сводка по подразделениям" }),
+  ).toBeVisible();
 });

@@ -1,12 +1,11 @@
-from django.core.cache import cache
-from django.db import connection
+from django.conf import settings
 from django.utils.cache import patch_cache_control
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.identity.portal import get_portal_adapter
+from apps.ops.health import dependency_status
 
 from .serializers import HealthSerializer, ReadinessSerializer, RuntimeMetaSerializer
 
@@ -40,31 +39,11 @@ class LiveView(PublicAPIView):
 class ReadyView(PublicAPIView):
     @extend_schema(responses=ReadinessSerializer)
     def get(self, request):
-        components: dict[str, str] = {}
-
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1")
-                cursor.fetchone()
-            components["database"] = "ok"
-        except Exception:
-            components["database"] = "unavailable"
-
-        try:
-            cache.set("readiness", "ok", timeout=5)
-            components["cache"] = "ok" if cache.get("readiness") == "ok" else "unavailable"
-        except Exception:
-            components["cache"] = "unavailable"
-
-        try:
-            portal_health = get_portal_adapter().healthcheck()
-            components["portal"] = "ok" if portal_health.available else "unavailable"
-        except Exception:
-            components["portal"] = "unavailable"
-
-        is_ready = components["database"] == "ok" and components["cache"] == "ok"
+        components = dependency_status()
+        is_ready = components["postgres"] == "ok" and components["media"] == "ok"
+        response_status = "ok" if is_ready and components["redis"] == "ok" else "degraded"
         return Response(
-            {"status": "ok" if is_ready else "unavailable", "components": components},
+            {"status": response_status if is_ready else "unavailable", "components": components},
             status=200 if is_ready else 503,
         )
 
@@ -75,7 +54,8 @@ class RuntimeMetaView(PublicAPIView):
         return Response(
             {
                 "application": "Tandem Portal",
-                "version": "1.0.0",
+                "version": settings.APP_VERSION,
+                "revision": settings.APP_GIT_SHA,
                 "default_locale": "ru",
                 "supported_locales": ["ru"],
                 "planned_locales": ["kk"],

@@ -29,6 +29,31 @@ services:
       retries: 20
     restart: unless-stopped
 
+  migrate:
+    build: ./backend
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "migrate", "--noinput"]
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-tandem}
+      POSTGRES_USER: ${POSTGRES_USER:-tandem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      AUTH_MODE: LOCAL_ONLY
+      PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
+      ALLOW_BOOTSTRAP_LOCAL_ADMIN: "false"
+      STAGE6_DEMO_PASSWORD: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
   backend:
     build: ./backend
     environment:
@@ -69,8 +94,8 @@ services:
       EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
       EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:

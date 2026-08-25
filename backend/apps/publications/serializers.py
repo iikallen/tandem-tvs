@@ -5,6 +5,7 @@ from apps.identity.models import User
 
 from .models import (
     Acknowledgement,
+    AuditEvent,
     Category,
     MediaAsset,
     Publication,
@@ -20,6 +21,24 @@ class UserSummarySerializer(serializers.ModelSerializer):
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = User
         fields = ["id", "username", "portal_id", "full_name", "job_title"]
+
+
+class AuditEventSerializer(serializers.ModelSerializer):
+    actor = UserSummarySerializer(read_only=True)
+
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
+        model = AuditEvent
+        fields = [
+            "id",
+            "event_type",
+            "target_type",
+            "target_id",
+            "actor",
+            "previous_state",
+            "new_state",
+            "created_at",
+        ]
+        read_only_fields = fields
 
 
 class CategorySerializer(serializers.ModelSerializer):

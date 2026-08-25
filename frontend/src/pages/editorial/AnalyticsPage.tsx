@@ -40,12 +40,20 @@ function AnalyticsContent() {
           <h1>{t("analytics")}</h1>
           <p className="page-description">{t("analyticsDescription")}</p>
         </div>
-        <a
-          className="button button--secondary"
-          href="/api/v1/editorial/analytics.csv"
-        >
-          {t("exportCsv")}
-        </a>
+        <div className="header-actions">
+          <a
+            className="button button--secondary"
+            href="/api/v1/editorial/analytics.csv"
+          >
+            {t("exportCsv")}
+          </a>
+          <a
+            className="button button--secondary"
+            href="/api/v1/editorial/analytics/departments.csv"
+          >
+            {t("exportDepartmentCsv")}
+          </a>
+        </div>
       </header>
       <div className="metric-grid">
         <Metric label={t("recipients")} value={totals.recipients} />
@@ -88,6 +96,37 @@ function AnalyticsContent() {
             ))}
           </tbody>
         </table>
+      </Card>
+      <Card className="table-card">
+        <h2>{t("departmentAnalytics")}</h2>
+        {(analytics.data.departments ?? []).length ? (
+          <table>
+            <thead>
+              <tr>
+                <th>{t("department")}</th>
+                <th>{t("publicationsCount")}</th>
+                <th>{t("recipients")}</th>
+                <th>{t("uniqueViews")}</th>
+                <th>{t("reach")}</th>
+                <th>{t("acknowledged")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {analytics.data.departments.map((item) => (
+                <tr key={item.department}>
+                  <td>{item.department}</td>
+                  <td>{item.publications}</td>
+                  <td>{item.recipients}</td>
+                  <td>{item.views}</td>
+                  <td>{item.reach_percent}%</td>
+                  <td>{item.acknowledgement_percent}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p>{t("departmentAnalyticsEmpty")}</p>
+        )}
       </Card>
       {selected ? (
         <PublicationStats

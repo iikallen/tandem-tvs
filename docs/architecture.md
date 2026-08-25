@@ -1,260 +1,136 @@
-# Tandem Portal Stage 1 architecture
+# Tandem TVS production architecture
 
-Status: discovery baseline verified against the TZ and UI Kit originals
-Last reviewed: 2026-08-23
-
-## Requirement authority
-
-The TZ is authoritative for product behavior and acceptance. Its order of precedence is goals, acceptance criteria, functional requirements, then the remaining sections. It deliberately specifies what the module must achieve, while leaving the concrete portal transport, models, and most technical details to implementation.
-
-The UI Kit is authoritative for the portal's visual language. It describes itself as a systematization and extension, not a redesign. The `PortalAdapter`, local projections, endpoint layout, health checks, Redis cache, ASGI server, Nginx, and optional Cloudflare profile below are implementation decisions from the Stage 1 brief; they are not misrepresented as direct TZ requirements.
-
-## Purpose
-
-Stage 1 establishes a standalone, production-shaped module and a narrow integration seam for the existing Tandem corporate portal. It proves deployment, identity projection, access enforcement, employee/organization reads, and the portal UI shell. It does not implement news or messaging features.
+Status: Stage 10 release candidate architecture.
+Last reviewed: 2026-08-25
 
 ## System context
 
 ```text
-Employee browser
-      |
-      v
-Cloudflare Access (standalone environment policy)
-      |
-Cloudflare Tunnel (optional Compose profile)
-      |
-      v
-Nginx :80
-  |-- / --------------------> React static SPA
-  `-- /api/* ---------------> Django ASGI
-                                  |-- PortalAdapter
-                                  |     `-- MockPortalAdapter (dev/test only)
-                                  |-- PostgreSQL (local projections)
-                                  `-- Redis (Django cache)
+                         Browser
+                            |
+                  Cloudflare Access policy
+                            |
+                   named Cloudflare Tunnel
+                            |
+                            v
+                    Nginx / React SPA
+                            |
+                  /api + /ws + /media
+                            |
+                            v
+                Django ASGI / DRF / Channels
+                  |           |           |
+                  v           v           v
+             PostgreSQL     Redis      Media volume
+                  |           |
+                  |        cache / channel layer /
+                  |        Celery broker and result
+                  |
+                  +---- Celery worker / beat
 ```
 
-Cloudflare may protect the standalone deployment; it is not treated as the future portal SSO contract. The TZ requires valid public HTTPS, while the developer-stand brief selects Cloudflare termination and an optional named tunnel. The real portal authentication mechanism remains unknown until the portal team answers the integration questions.
+Cloudflare is the selected external edge, not an identity provider for Tandem. Production authentication is local (`LOCAL_ONLY`) with Argon2 credentials, HttpOnly database sessions and CSRF protection. This intentionally supersedes the original portal-only SSO requirement under the approved Stage 6 amendment.
+
+## Sources of truth
+
+| Data | Authority | Failure behavior |
+| --- | --- | --- |
+| Accounts, active state, credentials, grants and sessions | PostgreSQL | PostgreSQL failure makes the application not ready. |
+| News, comments, audit, Messenger, notifications and search source rows | PostgreSQL | Committed rows survive process/Redis restart. |
+| Protected binary content | Media volume, linked from PostgreSQL | Unwritable required media makes readiness fail; integrity is checked separately. |
+| Cache, WebSocket fanout and task transport | Redis | Disposable acceleration/infrastructure; outage is degraded, durable outboxes retry. |
+| Optional directory profile/org data | `PortalAdapter` import boundary | Production `unavailable` adapter fails closed and cannot modify local security state. |
+| Release identity | `APP_VERSION` + exact 40-character `APP_GIT_SHA` | Returned as safe runtime metadata and embedded in image labels. |
+
+Redis is never the business durability boundary. A realtime event carries identifiers/version hints, not private message content; clients refetch authorized REST state.
+
+## Runtime components
+
+### Frontend and edge
+
+Nginx serves the immutable Vite build and proxies HTTP/WebSocket traffic to Django. It applies HSTS, clickjacking, MIME, referrer and permissions headers. CSP is introduced as Report-Only and may be enforced only after the full browser suite reports no unexplained violations. The named Cloudflare tunnel makes outbound connections; no database, Redis or Django host port is an Internet origin.
+
+Two `cloudflared` connectors on one host improve connector-process tolerance only. Host-level availability requires another physical host and a separate PostgreSQL/media HA design; this repository does not claim host-level HA.
+
+### Django applications
+
+- `identity`: local accounts, Argon2/session authentication, recovery, invitations, `AccessGrant`, security events, optional directory import.
+- `organization`: active org units and position groups used by audiences and people search.
+- `publications`: news, taxonomy, audiences, versions, pins, media, acknowledgements, analytics and append-only editorial audit.
+- `discussions`: threaded comments, mentions, reactions, reports, restrictions, stop words and publication realtime hints.
+- `messenger`: direct/group/channel conversations, interval memberships, messages, receipts, attachments, reactions, pins, forwarding and search.
+- `notifications`: durable fanout, grouping, preferences, in-app state, generic Web Push, internal SMTP delivery and notification sockets.
+- `search`: authorization-first PostgreSQL search across publications, comments, messages, files and employees with separate RU/KZ configurations.
+- `realtime`: one-use session-bound tickets, socket leases/security invalidation and durable outbox delivery.
+- `ops`: detailed health, low-cardinality metrics, bounded operational cleanup, media integrity and restored-state verification.
+- `core`: public liveness/readiness and safe runtime metadata.
+
+### Background processing
+
+Celery worker executes schedule reconciliation, realtime outbox, notification fanout/delivery and bounded cleanup. Beat schedules recurring reconciliation and cleanup. Durable work state lives in PostgreSQL; Redis broker loss delays work but must not delete committed source data.
+
+Migrations do not run in the application entrypoint. Production Compose starts a one-shot `migrate` service after PostgreSQL is healthy; backend starts only after that job exits successfully. This avoids concurrent migration attempts when backend replicas are later introduced.
 
 ## Trust boundaries
 
-1. **Internet to Cloudflare.** Public HTTPS terminates at Cloudflare for the standalone environment.
-2. **Cloudflare Tunnel to Nginx.** Only the web entry point is reachable. PostgreSQL, Redis, and Django are not published directly.
-3. **Nginx to Django.** Proxy metadata is trusted only from the controlled reverse-proxy path and only when production settings explicitly configure it.
-4. **Django to PortalAdapter.** All portal-specific authentication and directory behavior crosses the adapter contract.
-5. **Adapter to local projections.** Portal data may be cached/projected for module relations and performance, but the portal remains authoritative.
+1. **Internet -> Cloudflare Access/Tunnel.** Cloudflare Access is the external admission policy; TLS is terminated at the managed edge.
+2. **Tunnel -> Nginx.** Only Nginx joins the tunnel edge network. Forwarded metadata is trusted only from this topology.
+3. **Nginx -> Django.** Nginx exposes application routes, protected media proxy responses and WebSocket upgrade; Django owns authorization.
+4. **Django -> PostgreSQL/media.** These are the durable business and binary boundaries. Backups cover both and go to a separate corporate mount.
+5. **Django/Celery/Channels -> Redis.** Redis contains disposable transport/acceleration state; URLs and queue contents are never public health detail.
+6. **Optional outbound delivery.** SMTP must be internal/configured. Standards Web Push necessarily contacts browser vendors, so it stays disabled until explicit customer security approval; payloads are generic wake-ups.
 
-An arbitrary browser-supplied `X-User`, `X-Portal-User`, or similar header is not an authentication mechanism. Mock identity injection is restricted to development/test configuration and must be impossible in production.
+## Authorization model
 
-## Backend boundaries
+Access consists of authentication, module grant and object membership/audience. A hidden React button is never an authorization control.
 
-### `core`
+- `PLATFORM/ADMIN` manages accounts/grants but does not imply NEWS or MESSENGER membership.
+- NEWS roles are MEMBER, AUTHOR, EDITOR, MODERATOR and ADMIN.
+- MESSENGER grants allow entry; conversation membership intervals determine content visibility.
+- Channel membership roles ADMIN/WRITER/MEMBER determine channel mutations.
+- Publication feed/detail/comments/media/search begin from `visible_to(user)` or the equivalent scoped queryset.
+- A known UUID never grants access. Non-members receive a denial/hidden-object response consistently.
+- Platform administrators cannot read private chats unless they are normal members of that conversation.
 
-Owns cross-cutting runtime concerns only:
+The exhaustive mapping is in [`stage10/permissions-matrix.md`](stage10/permissions-matrix.md).
 
-- liveness and readiness;
-- runtime metadata;
-- shared exception/API configuration;
-- cache/database dependency checks.
+## Data and transaction boundaries
 
-### `identity`
+- PostgreSQL transactions commit business mutation and outbox/audit rows together.
+- Realtime/notification delivery happens after commit and is idempotent.
+- Message client IDs and database constraints prevent duplicate committed messages on retry.
+- Media upload removes an already-written file when its database transaction fails. Media deletion commits the database/audit change first and removes the file in `transaction.on_commit()`.
+- Protected files are returned only after reauthorizing their current parent publication/comment/message visibility.
+- Editorial, moderation, security and Messenger audit trails are append-only through the application.
 
-Owns:
+## Health and observability
 
-- the custom passwordless user projection;
-- portal authentication for DRF;
-- JIT provisioning and per-request profile/status synchronization;
-- module-role representation and backend authorization helpers;
-- the `portal` integration boundary.
-
-It does not own registration, local credentials, password reset, or an employee directory master.
-
-### `identity.portal`
-
-Defines typed domain values and the minimum adapter contract:
-
-```text
-PortalAdapter
-  authenticate_request(request) -> PortalIdentity | None
-  get_employee(portal_id) -> PortalEmployee | None
-  search_employees(query) -> sequence[PortalEmployee]
-  list_org_units() -> sequence[PortalOrgUnit]
-  healthcheck() -> PortalHealth
-```
-
-Exact parameters, failure types, pagination, consistency, and role semantics must be finalized from the real portal contract. Typed dataclasses or similarly strict value objects are preferred over `dict[str, Any]`.
-
-`MockPortalAdapter` is the only Stage 1 implementation. It contains deterministic active employee, author, editor, admin, blocked employee, departments, and a parent-child hierarchy. Adapter contract tests are reusable for a future real implementation.
-
-### `organization`
-
-Owns the local `OrgUnit` projection and organization read API. Stable external IDs allow future module entities to reference organization units without turning PostgreSQL into the directory source of truth.
-
-## Data ownership
-
-| Data | Authority | Local behavior |
+| Endpoint | Audience | Meaning |
 | --- | --- | --- |
-| Portal identity key | Existing portal | Stored as immutable unique `User.portal_id` |
-| Employee profile | Existing portal | Refreshed projection for module use |
-| Active/blocked state | Existing portal | Checked on every authenticated request; local projection updated |
-| Module password | None | Always unusable; never accepted |
-| Organization hierarchy | Existing portal | Local projection keyed by stable external IDs |
-| Module roles | Contract to confirm | Read from the trusted adapter and enforced server-side |
-| Stage 1 application health | This module | Computed from the application and dependencies |
+| `/api/v1/health/live` | public | Process responds; no dependency claim. |
+| `/api/v1/health/ready` | public | PostgreSQL and required media usable. Redis outage is degraded, not false readiness failure. |
+| `/internal/health` | monitoring token | Named dependency status without credentials, hostnames or queue payloads. |
+| `/internal/metrics` | monitoring token | Low-cardinality Prometheus text exposition. |
+| `/api/v1/runtime/meta` | public safe metadata | Version/revision and non-secret runtime capabilities. |
 
-Deletion, rename, reassignment, and stale-record behavior require a confirmed portal synchronization contract. Until then, the mock demonstrates semantics without implying a real transport.
+Metrics label only method, route name and status code; never user, conversation, message or publication IDs. Security events, business audit and application logs remain distinct records with distinct purposes.
 
-## Authentication request flow
+## Deployment and recovery
 
-```text
-HTTP request
-  -> DRF PortalAuthentication
-  -> configured PortalAdapter.authenticate_request
-  -> no trusted identity: reject
-  -> adapter.get_employee(identity.portal_id)
-  -> employee missing: reject
-  -> employee blocked/inactive: reject on this request
-  -> upsert local User projection by portal_id
-  -> set_unusable_password()
-  -> synchronize allowed profile fields, org link, roles, and timestamp
-  -> request.user
-  -> DRF IsAuthenticated + endpoint permission
-```
+Development uses `compose.yaml` plus `compose.local.yaml`. Production always overlays `compose.prod.yaml`; required-variable syntax and Django production checks reject missing/known-development secrets, weak DB credentials, localhost/wildcard origins, mock portal adapter, bootstrap admin and invalid release metadata.
 
-The status check occurs for every new authenticated request. A frontend-only guard is never sufficient. The final choice between HTTP 401 and 403 for blocked users is part of the API error contract and must be consistent across backend, frontend states, and tests.
+Images are built/tagged by exact Git SHA. A deployment follows: preflight -> backup -> immutable build -> one-shot migrate -> start -> health -> functional smoke -> backlog/metrics acceptance. Rollback reuses the previous immutable images only when schema compatibility allows it; destructive migration rollback requires the isolated restore procedure.
 
-## Local models
+Backups contain PostgreSQL custom-format dump plus protected media tar and SHA-256 manifest on an operator-supplied mount that is outside both data volumes. Restore is allowed only into an explicitly confirmed isolated database and empty media directory, followed by state/media verification. PITR/WAL archiving is an optional customer RPO decision, not silently claimed by this repository.
 
-### User projection
+See [`stage10/deployment.md`](stage10/deployment.md), [`stage10/rollback.md`](stage10/rollback.md) and [`stage10/backup-restore.md`](stage10/backup-restore.md).
 
-Minimum planned fields:
+## Capacity and availability boundary
 
-- internal `id`;
-- immutable, unique `portal_id`;
-- `email`, `full_name`, `job_title`, `phone`, `avatar_url`;
-- nullable organization relation;
-- `is_active`, `last_portal_sync_at`, `created_at`, `updated_at`.
+The original design envelope is 1 000 users, 300 concurrent sessions, about 20 000 peak messages/day and about 100 GB media growth/year. Stage 10 acceptance requires a 300-session 30-minute k6 profile and a separate 300-authenticated-WebSocket 15-minute profile. Worker counts and connection budgets are changed only from those measurements.
 
-The model omits `username` unless the reviewed TZ or a framework constraint proves it necessary. A custom manager creates only projected users and always makes the password unusable. `AUTH_USER_MODEL` is configured before the first migration.
+The 99% availability target is a post-go-live SLO. Stage 10 can prove monitoring, alerting, recovery controls, soak/fault behavior and the start of measurement; a short release test cannot honestly prove a long observation period.
 
-### Organization projection
+## Release boundary
 
-Minimum planned fields:
-
-- internal `id`;
-- unique stable `external_id`;
-- `name`, `kind`, self-referencing nullable `parent`;
-- `is_active`, `created_at`, `updated_at`.
-
-Cycle handling, ordering, root semantics, and deletion policy remain contract questions.
-
-## API surface
-
-All business endpoints are authenticated by default.
-
-| Endpoint | Purpose | Source |
-| --- | --- | --- |
-| `GET /api/v1/me` | Current read-only projected profile and module roles | Adapter + local projection |
-| `GET /api/v1/organization/units` | Organization structure | Controlled projection/adapter |
-| `GET /api/v1/organization/employees?search=` | Employee directory search | Adapter or explicitly controlled read model |
-| `GET /api/v1/runtime/meta` | Non-secret frontend runtime metadata | Module config |
-| `GET /api/v1/health/live` | Process liveness | Module |
-| `GET /api/v1/health/ready` | Dependency readiness | Module, DB, cache, adapter as defined |
-
-Profile mutation endpoints are excluded. Health endpoints are anonymous. Runtime metadata is anonymous only if every returned field is safe for public disclosure.
-
-## Frontend architecture
-
-The React application is a static production bundle. React Router owns `/`, `/employees`, and `/profile`; TanStack Query owns server state. A small i18n resource layer supplies every visible string, with Russian initially and Kazakh addable without component changes.
-
-The reviewed UI Kit supplies the exact Stage 1 foundations. The frontend will extract them into project-owned CSS tokens and components rather than copying the standalone documentation page.
-
-### Semantic token baseline
-
-| Role | Light | Dark |
-| --- | --- | --- |
-| page / surface / subtle / elevated / sidebar | `#F7F8FB` / `#FFFFFF` / `#F1F3F8` / `#FFFFFF` / `#FBFBFD` | `#0F1117` / `#1A1E28` / `#232834` / `#222836` / `#14161F` |
-| border default / input / strong / soft | `#ECEEF3` / `#E7E9EF` / `#D5D9E0` / `#F3F4F7` | `#262B36` / `#2C3240` / `#3A4150` / `#20242E` |
-| text primary / secondary / muted | `#14171F` / `#4B5566` / `#6B7280` | `#F3F4F7` / `#B7BCC6` / `#9CA3AF` |
-| text faint / placeholder / disabled | `#9CA3AF` / `#AEB4C2` / `#B7BCC6` | `#818A9C` / `#7E8797` / `#5A6272` |
-| primary / hover / soft | `#3D5AFE` / `#2A54E0` / `#EAF0FE` | `#5B79FE` / `#7C97FE` / `#1C2440` |
-| accent / soft | `#F2733A` / `#FDEEE4` | `#F58F5C` / `#3A2416` |
-| focus ring / halo | `#3D5AFE` / `#FFFFFF` | `#7C97FE` / `#0F1117` |
-
-The focus treatment is `0 0 0 2px var(--focus-halo), 0 0 0 4px var(--focus-ring)`.
-
-### Elevation baseline
-
-| Token | Light | Dark |
-| --- | --- | --- |
-| card | `0 1px 2px rgba(20,23,31,0.05)` | `0 1px 2px rgba(0,0,0,0.3)` |
-| card hover | `0 10px 24px -12px rgba(20,23,31,0.16)` | `0 10px 24px -12px rgba(0,0,0,0.5)` |
-| popover | `0 12px 28px rgba(20,23,31,0.12)` | `0 12px 28px rgba(0,0,0,0.55)` |
-| dropdown | `0 16px 32px -10px rgba(15,23,42,0.22)` | `0 16px 32px -10px rgba(0,0,0,0.6)` |
-| modal | `0 24px 48px -12px rgba(20,23,31,0.24)` | `0 24px 48px -12px rgba(0,0,0,0.6)` |
-| toast | `0 10px 30px -10px rgba(20,23,31,0.25)` | `0 10px 30px -10px rgba(0,0,0,0.6)` |
-
-### Typography, geometry, and motion
-
-- Manrope Variable is the main family. Embedded Inter subsets patch `Ә ә Ғ ғ Қ қ Ң ң Ұ ұ` with `size-adjust: 98.9%`; the WOFF2 assets are available in the bundle for self-hosting.
-- Type roles: display `28/800/1.2`; h1 `24/800/1.25`; h2 `20/700/1.3`; h3 `17/700/1.35`; body-lg `15/500/1.5`; body `13/500/1.5`; label `12.5/600/1.4`; caption `11.5/500/1.4`; overline `11/800/1.4`; mono `12/500`.
-- Spacing scale: `4, 8, 12, 16, 20, 24, 32, 40, 48, 64` px. Radius scale: `8, 10, 12, 16, 20` px.
-- Control heights: `30, 34, 38, 42, 44` px. Icon sizes: `16, 18, 20` px.
-- Motion durations: `120, 150, 260` ms. Easing: `cubic-bezier(0,0,.2,1)` and `cubic-bezier(.4,0,.2,1)`. Reduced motion is honored except for essential loading indication.
-- Layer order: content 0, sticky 10, sidebar 20, dropdown 30, drawer 40, modal 50, popover 60, toast 70, tooltip 80.
-
-### Stage 1 component mapping
-
-The shell uses the UI Kit's Sidebar, PageHeader/Breadcrumbs/BackLink, FilterBar/Toolbar, Button/IconButton, SearchInput, Avatar/UserChip, Card/DefinitionList/FieldRow, Badge/StatusBadge, DataTable/list states, Skeleton/Spinner, EmptyState, Alert/ApiErrorNote, and permission-gated UI rules. Icon-only controls require an accessible label and tooltip. Permission-sensitive actions are hidden by default and always authorized by the backend.
-
-Both light and dark reference themes rendered correctly during discovery. At 360 px the standalone kit reflowed without an obvious horizontal break; the application itself will still be tested independently at 360, 390, 768, and 1440 px because the reference page is not the product shell.
-
-## Deployment architecture
-
-Production Compose contains:
-
-- Nginx/static frontend image built with `npm ci` and `vite build`;
-- Django backend running a production ASGI server;
-- PostgreSQL with a named persistent volume;
-- Redis used as the Django cache;
-- optional `cloudflared` profile using a token from environment/secrets.
-
-Service dependencies use health checks and `condition: service_healthy` where readiness ordering matters. A tunnel deployment targets `http://nginx:80` and need not publish an Nginx host port. Local development may publish explicit ports through a development override.
-
-## Configuration and failure policy
-
-- Settings modules: `base`, `development`, `production`, and `test`.
-- Production has `DEBUG=False`.
-- `SECRET_KEY`, database credentials, allowed hosts, CSRF trusted origins, Redis URL, and tunnel token come from environment or a secret store.
-- Production fails during startup if required settings are absent or if the selected adapter is the mock.
-- `SECURE_PROXY_SSL_HEADER` is enabled only for the controlled proxy topology.
-- Logs are structured and emitted to stdout without secrets or sensitive portal payloads.
-- `.env` files are ignored; `.env.example` contains safe placeholders only.
-
-## Security invariants
-
-- No `/login`, `/register`, password reset, token login, Basic Authentication, or DRF token endpoint.
-- No usable local employee passwords.
-- No client-controlled identity header in production.
-- No access decision enforced only in React.
-- No direct publication of backend, PostgreSQL, or Redis.
-- No secret in Git, frontend runtime metadata, image layers, logs, or documentation examples.
-- No speculative real portal endpoint, cookie, database query, or signing key.
-- Production deployment runs Django deploy checks and uses a production ASGI server.
-
-## Quality and evidence
-
-The implementation must leave runnable evidence for adapter behavior, authentication and provisioning, projections, endpoint permissions/contracts, frontend states, accessibility, responsive layouts, production configuration, container readiness, persistence, and restarts. The final acceptance report maps every criterion to implementation, test, command, and observed evidence.
-
-## Architectural decisions deferred to the portal contract
-
-- authentication transport and credential validation;
-- identity/session lifetime and logout;
-- employee and organization query/sync transport;
-- role ownership and authorization mapping;
-- stale data, deletion, rename, and reassignment behavior;
-- avatar delivery and privacy constraints;
-- iframe/path/subdomain embedding and its cookie/CORS/CSRF implications;
-- trusted proxy chain and forwarded-header sanitization;
-- readiness behavior when the portal is degraded.
-
-These are listed in `portal-integration-questions.md`; none should be answered by inference.
+Stage reports 1-9 are historical evidence and are not rewritten. `stage-10-complete` is created only from a protected-main merge commit whose exact post-merge release gate is green and whose acceptance report contains actual results. `v1.0.0` requires separate formal customer acceptance. No Stage 11 is implied by this architecture.

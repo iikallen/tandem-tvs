@@ -10,12 +10,19 @@ def default_reaction_types() -> list[str]:
     return ["LIKE"]
 
 
+def default_media_extensions() -> list[str]:
+    return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".docx", ".xlsx"]
+
+
 class EngagementSettings(models.Model):
     comment_edit_window_minutes = models.PositiveIntegerField(default=60)
     comment_delete_window_minutes = models.PositiveIntegerField(default=60)
     enabled_reaction_types = models.JSONField(default=default_reaction_types)
     max_comment_attachments = models.PositiveSmallIntegerField(default=5)
     max_comment_attachment_bytes = models.PositiveIntegerField(default=25 * 1024 * 1024)
+    allowed_media_extensions = models.JSONField(default=default_media_extensions)
+    message_retention_days = models.PositiveIntegerField(default=0)
+    media_retention_days = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:

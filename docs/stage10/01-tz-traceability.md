@@ -1,0 +1,247 @@
+# Stage 10: трассируемость ТЗ
+
+Источник требований: `references/source/TZ_Portal_News_Messenger_v1_0.docx`, версия 1.0. Проверено полное содержимое: 223 абзаца и 8 таблиц. Приоритет трактовки сохранён из п. 0 ТЗ: цели -> критерии приёмки -> функциональные требования -> остальные разделы.
+
+Дата среза: 2026-08-25. Это живой release-gate документ. `PENDING` в колонке live acceptance означает, что проверка ещё не выполнена; такой результат не считается доказательством. Допустимые итоговые статусы: `PASS`, `ACCEPTED_REQUIREMENT_CHANGE`, `OPS_DEPENDENT`, `NOT_APPLICABLE`, `FAIL`.
+
+## Как читать evidence
+
+- `S2`-`S9` — неизменяемые `STAGE2_REPORT.md` ... `STAGE9_REPORT.md`.
+- Имена `test_*` относятся к `backend/tests/`; frontend regression — к `frontend/src/app/*.test.tsx`; browser acceptance — к `frontend/e2e/`.
+- `Stage 10 live` — будущий фактический результат в `STAGE10_REPORT.md`; он не заменяется планом или наличием скрипта.
+- Согласованное изменение аутентификации зафиксировано в `docs/stage6/01-requirement-amendment.md`: Tandem использует локальные учётные записи, сессии и `AccessGrant`; `PortalAdapter` остаётся необязательным источником справочника.
+
+## 1. Назначение, цели и объём
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P18 | Официальные новости, объявления, приказы и события в одном адресном пространстве с обсуждением | Publications, audiences, feed, discussions, acknowledgements | `test_publication_api.py`, `test_discussions_api.py`, `test_stage5.py` | S2-S5 accepted | S2-S5 | PASS |
+| P19 | Внутренний мессенджер: личные/групповые чаты и файлы внутри контура | Messenger conversations/messages, protected media, PostgreSQL durability | `test_messenger.py`, `test_stage8.py` | S7-S9 accepted | S7-S9 | PASS |
+| P20 | Встраивание в портал, учётные записи/оргструктура портала, без второго пароля | Локальная аутентификация и `AccessGrant`; optional directory import | `test_stage6.py`, `test_authentication.py` | Approved in Stage 6 | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P22 | Единое место корпоративных коммуникаций | News, Messenger, Notifications, Search in one SPA/API | Full backend/frontend regression | S9 accepted | S9 | PASS |
+| P23 | Адресность, уведомления и подтверждение прочтения важных новостей | Audience rules, durable notification fanout, acknowledgements | `test_publication_api.py`, `test_stage5.py`, `test_stage9.py` | S5/S9 accepted | S5, S9 | PASS |
+| P24 | Открытое обсуждение с управляемой модерацией | Threaded comments, reports, restrictions, stop words, moderation queue | `test_discussions_api.py`, `test_stage5.py` | S3/S5 accepted | S3, S5 | PASS |
+| P25 | Рабочая переписка и файлы внутри корпоративного контура | Local PostgreSQL/media; authorized download; no external message storage | `test_stage8.py`, production configuration tests | External origin/tunnel recheck PENDING | S8, S9 | PASS |
+| P26 | Самостоятельное редакционное рабочее место | Editorial SPA, lifecycle, scheduling, taxonomy, media library | `test_stage4.py`, Stage 4 frontend/E2E | S4 accepted | S4 | PASS |
+| P27 | Охват, просмотры, реакции и вовлечённость по подразделениям | Editorial analytics and CSV exports | `test_stage5.py` | S5 accepted | S5 | PASS |
+| T0.1 | До 1 000 пользователей | Deterministic Stage 10 load profile is required | PENDING | 1 000-user seed/load PENDING | Stage 10 live | FAIL |
+| T0.2 | До 300 одновременных сессий | Dedicated k6 profile is required | PENDING | 300 sessions / 30 min PENDING | Stage 10 live | FAIL |
+| T0.3 | 50-150 публикаций в месяц | Seed/load target about 120 publications | PENDING | Production-shaped dataset PENDING | Stage 10 live | FAIL |
+| T0.4 | До 20 000 сообщений в сутки в пике | Seed/load target about 20 000 messages | PENDING | Load and DB profiling PENDING | Stage 10 live | FAIL |
+| T0.5 | Около 100 ГБ вложений в год | Filesystem media plus capacity/backup plan | No binary-volume CI test by design | Customer storage sizing PENDING | `capacity-plan.md` | OPS_DEPENDENT |
+| T0.6 | ПК и мобильные браузеры; отдельное приложение не требуется | Responsive web SPA | Frontend/E2E responsive coverage | Final 360/390/768/1440 QA PENDING | S2-S9 | PASS |
+| T0.7 | Внешний доступ по решению заказчика | Cloudflare Tunnel + Access selected for this deployment | Compose/tunnel checks | Named tunnel recheck PENDING | S9, `deployment.md` | ACCEPTED_REQUIREMENT_CHANGE |
+
+## 2. Интеграция, роли и общие границы
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P62 | Не дублировать master-справочник; блокировка portal account закрывает доступ | Local identity became authority; inactive local user is denied; optional imports cannot change security state | `test_authentication.py`, `test_stage6.py` | Approved Stage 6 change | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P64 | Вход из портала без повторного пароля | Local username/password, Argon2, DB sessions | `test_stage6.py` | Approved Stage 6 change | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P65 | Профиль берётся из портала и не редактируется в модуле | Profile fields may be imported; security fields remain local; no self-service profile mutation API | `test_api.py`, `test_authentication.py` | Approved Stage 6 boundary | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P66 | Оргструктура для адресности и поиска сотрудника | Active local org projection and directory endpoints; optional portal adapter import | `test_api.py`, `test_stage4.py` | S4/S6 accepted | S4, S6 | ACCEPTED_REQUIREMENT_CHANGE |
+| P67 | Встроенный или собственный центр уведомлений | Own notification center, preferences, WebSocket hints | `test_stage9.py` | S9 accepted | S9 | PASS |
+| P68 | Общий визуальный язык портала | Existing Tandem UI Kit tokens/components | Frontend tests and E2E | Final UX sweep PENDING | S2-S9, `docs/design/` | PASS |
+| P70 | Сотрудник может совмещать роли | Multiple constrained `AccessGrant` rows per user | `test_stage6.py::test_access_grant_valid_pairs_are_enforced_by_database` | S6 accepted | S6 | ACCEPTED_REQUIREMENT_CHANGE |
+| P72 | Права проверяются сервером при каждом обращении | DRF permissions plus scoped querysets/services | Permission and IDOR suites across S2-S9 | Final matrix sweep PENDING | `permissions-matrix.md` | PASS |
+| P73 | Чужая адресная новость недоступна даже по URL | `Publication.objects.visible_to()` and detail scoping | `test_addressed_feed_detail_search_unread_and_unique_views` | S2 accepted | S2 | PASS |
+| P74 | Только участники чата; администратор не читает личную переписку | Membership-interval scoping; platform role gives no conversation bypass | `test_group_roles_membership_and_private_idor`, `test_global_search_has_five_sections_morphology_and_no_idor` | S7-S9 accepted | S7-S9 | PASS |
+| P75 | Редакционные/модераторские действия содержат автора, время, previous state | Append-only `AuditEvent` and messenger audit/revisions | `test_editor_update_publish_and_audit_are_transactional_and_append_only`, `test_messenger_audit_is_append_only_for_stage8_mutations` | S4/S8 accepted | S4, S8 | PASS |
+| T3.1 | Employee reads addressed news, discusses/reacts, chats/groups/files | NEWS/MESSENGER member grants and object-scoped APIs | Cross-module member tests | S2-S9 accepted | S2-S9 | PASS |
+| T3.2 | Author creates drafts/submits and edits own unpublished work | NEWS/AUTHOR with own-publication queryset/lifecycle guards | Publication/Stage 4 tests | S4 accepted | S4 | PASS |
+| T3.3 | Editor publishes/edits/unpublishes, manages audience/pins/categories and moderates comments | NEWS/EDITOR handles editorial work; moderation is a separate grant by design | Permission tests | Combined editor+moderator grants supported | S4-S6 | ACCEPTED_REQUIREMENT_CHANGE |
+| T3.4 | Moderator acts on comment and message complaints and restricts comment author | Comment moderation exists; message complaint/moderation domain is missing | Comment moderation tests only | PENDING | Code inspection | FAIL |
+| T3.5 | Module admin configures categories/rights/channels/file limits/retention and sees full audit/statistics | Platform/NEWS/MESSENGER admin grants split duties; categories/channels/stats exist, but audit viewer and admin file/retention configuration are missing | Partial permission/analytics tests | PENDING | Code inspection | FAIL |
+
+Архитектурная таблица Т2 также покрыта без буквального копирования её иллюстративной схемы:
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| T2.1 | News: address-aware feed/detail/discussion/reaction/view counts | `publications` + `discussions` | S2-S5 domain/API suites | S2-S5 accepted | S2-S5 | PASS |
+| T2.2 | Messenger: realtime/history/files/receipts/membership | `messenger` + `realtime` | S7-S9 suites | S7-S9 accepted | S7-S9 | PASS |
+| T2.3 | Editorial: lifecycle/audience/moderation/statistics | Editorial APIs/SPA, audit and analytics | S4-S5 suites | S4-S5 accepted | S4-S5 | PASS |
+| T2.4 | Shared notifications/search/files/authorization/audit | Shared apps with authorization-first services | S2-S9 suites | S9 accepted | S9 | PASS |
+| T2.5 | Portal boundary for sign-in/profile/org | Local auth replaces portal sign-in; optional directory import remains | Stage 6/auth/adapter tests | Approved Stage 6 change | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+
+## 3. Новости, публикации, обсуждения и реакции
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P78 | Адресная лента: новые сверху, pins сверху | Cursor feed and separate bounded pinned slots | `test_pins_feed_exclusion_limits_and_automatic_cleanup`, publication API tests | S2/S4 accepted | S2, S4 | PASS |
+| P80 | Полная карточка ленты | Feed serializer/UI returns cover, category, title, summary, author/date and counters | Publication API/frontend/E2E | S2/S3 accepted | S2, S3 | PASS |
+| P81 | Ограниченное закрепление редакцией | Slot constraint and controlled conflict response | `test_pins_feed_exclusion_limits_and_automatic_cleanup`, `test_concurrent_pin_conflict_is_a_validation_response` | S4 accepted | S4 | PASS |
+| P82 | Фильтры рубрики/автора/периода и непрочитанное | Server filters and unread feed flag | `test_addressed_feed_detail_search_unread_and_unique_views`, filter tests | S2 accepted | S2 | PASS |
+| P83 | Полнотекстовый поиск доступных новостей | PostgreSQL FTS after authorization | Publication and global-search tests | S2/S9 accepted | S2, S9 | PASS |
+| P84 | Подгрузка без полной перезагрузки | Cursor pagination/infinite feed | Cursor API/frontend tests | S2 accepted | S2 | PASS |
+| P85 | Мобильное отображение | Responsive SPA | Playwright viewports | Final viewport sweep PENDING | S2-S9 | PASS |
+| P86 | Желаемые подписки/персональная подборка/manual read | Необязательный scope; unread/read state exists, subscriptions not required | Not required | Not required | TZ marks desirable | NOT_APPLICABLE |
+| P88 | Детальная страница с содержимым, автором, датой, реакциями, обсуждением | News detail SPA/API | Publication/discussion frontend and API tests | S2/S3 accepted | S2, S3 | PASS |
+| P89 | Rich text: headings, lists, links, quotes, tables, images, video | Validated structured rich text and media node-kind checks | `test_rich_text_*` in publication/Stage 4 suites | S4 accepted | S4 | PASS |
+| P90 | Скачиваемые вложения с размером и типом | Protected media metadata/content endpoint | Stage 4/8 media tests | S4/S8 accepted | S4, S8 | PASS |
+| P91 | Полноэкранная галерея изображений | News detail media gallery UI | Frontend/E2E | S4 accepted | S4 | PASS |
+| P92 | Обязательное ознакомление и списки | Acknowledgement endpoint, recipient snapshots, lists/CSV | `test_recipient_acknowledgement_analytics_lists_csv_and_parity` | S5 accepted | S5 | PASS |
+| P93 | Поделиться новостью в мессенджер ссылкой со свёрнутым preview | Backend recognizes an authorized `/news/...` URL and serializes `resource_preview`; no share action or preview renderer was found in the frontend | Backend serializer coverage only | End-to-end share UX PENDING | Code inspection | FAIL |
+| P94 | Уникальный просмотр без накрутки повторами | Unique employee/publication view row/service | `test_publication_view_service_is_idempotent_and_preserves_first_view` | S2 accepted | S2 | PASS |
+| P96 | Комментарий только при доступе и открытом обсуждении | Scoped comment service plus discussion flag | Discussion/Stage 5 tests | S3/S5 accepted | S3, S5 | PASS |
+| P97 | Ветки с ограниченной глубиной | Parent/root model and bounded depth validation | Discussion API tests | S3 accepted | S3 | PASS |
+| P98 | Правка/удаление своего комментария в окне; visible edited state | Ownership/time-window services and tombstones | `test_comment_lifecycle_normalization_ownership_and_deleted_body` | S3/S5 accepted | S3, S5 | PASS |
+| P99 | Упоминание сотрудника с уведомлением | Comment mentions and durable notification fanout | Stage 5/9 tests | S5/S9 accepted | S5, S9 | PASS |
+| P100 | Comment attachment subject to category policy | Comment media upload and category policy | `test_threads_mentions_attachments_notifications_stop_words_and_policy` | S5 accepted | S5 | PASS |
+| P101 | Жалоба попадает в moderation queue | Comment reports and moderation state | Stage 5 moderation tests | S5 accepted | S5 | PASS |
+| P102 | Сортировка time/popularity и pagination веток | Sort modes and cursor pagination | Discussion API/Stage 5 tests | S3/S5 accepted | S3, S5 | PASS |
+| P103 | Модераторское удаление оставляет tombstone и журнал | Soft state plus append-only audit previous/new state | Stage 5 tests | S5 accepted | S5 | PASS |
+| P105 | Like base; admin may enable expanded reactions | Engagement settings and enabled reaction set | `test_reactions_reports_moderation_restrictions_and_windows` | S5 accepted | S5 | PASS |
+| P106 | Reactions on publications and comments | Both reaction domains implemented | Discussion/Stage 5 tests | S3/S5 accepted | S3, S5 | PASS |
+| P107 | Counts, actor list, toggle-off | API returns counts/actors and supports idempotent remove; frontend shows counts/toggle but no actor list | API reaction tests only | Actor-list UX PENDING | Code inspection | FAIL |
+| P108 | Realtime counter updates | Publication WebSocket events as refetch hints | Realtime/frontend tests | S3 accepted | S3 | PASS |
+| P109 | One employee reaction per object | Database uniqueness/idempotent services | Reaction concurrency/idempotence tests | S3 accepted | S3 | PASS |
+
+## 4. Редакция, модерация и аналитика
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P111 | Редакционное место в портале, не framework admin | Dedicated React editorial routes and DRF APIs | Frontend/E2E | S4 accepted | S4 | PASS |
+| P112 | Удобный editor с preview | Structured editor and employee-view preview | Stage 4 frontend/E2E | S4 accepted | S4 | PASS |
+| P113 | Draft/autosave, работа в несколько подходов | Revision-aware autosave/coalescing | `test_revision_conflicts_autosave_coalescing_and_permissions` | S4 accepted | S4 | PASS |
+| P114 | Lifecycle draft-review-scheduled-published-unpublished-archived | Explicit transitions and DB constraints | `test_full_lifecycle_scheduler_and_immutable_versions` | S4 accepted | S4 | PASS |
+| P115 | Schedule/unpublish automatically | Celery reconciliation every 15 seconds, restart-safe | Stage 4 scheduler/verifier | Historical delays 9.410/14.399 s; Stage 10 rerun PENDING | S4, S9 report | PASS |
+| P116 | Audience company/unit/branch/position/list; union rules | ALL, subtree org, position group, exact users; union and active-target checks | `test_subtree_position_group_exact_and_named_audience`, recipient resolver tests | S4/S5 accepted | S4, S5 | PASS |
+| P117 | Admin-managed categories/tags | Editorial taxonomy APIs/UI | Stage 4 tests | S4 accepted | S4 | PASS |
+| P118 | Reusable media library | READY asset library and usage links | Stage 4 media tests | S4 accepted | S4 | PASS |
+| P119 | Publication versions with author/time and diffable state | Immutable version snapshots | Stage 4 version tests | S4 accepted | S4 | PASS |
+| P120 | Duplicate as basis for new draft | Duplicate service/API | `test_duplicate_copies_editorial_material_but_not_state_or_pin` | S4 accepted | S4 | PASS |
+| P122 | Moderation queue for comment and message complaints with leave/hide/delete/restrict actions | Comment reports/actions/restrictions exist; no message-report endpoint/model was found | Comment moderation tests only | Messenger moderation acceptance PENDING | Code inspection | FAIL |
+| P123 | Close discussion per publication | Publication discussion flag | Stage 5 tests | S5 accepted | S5 | PASS |
+| P124 | Stop-word automatic flag | Configurable normalized stop words | Stage 5 tests | S5 accepted | S5 | PASS |
+| P125 | Publication views/reach/reactions/comments/ack ratio | Publication analytics API/UI | Stage 5 analytics tests | S5 accepted | S5 | PASS |
+| P126 | Period summary by category and department with table export | Period/category aggregate and publication CSV exist; department metrics exist only inside per-publication details and are absent from the summary export | Stage 5 parity covers existing output | Full department summary/export PENDING | Code inspection | FAIL |
+
+## 5. Messenger и вложения
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| T4.1 | Direct conversation | Idempotent two-member `DIRECT` | `test_people_and_direct_creation_are_local_filtered_idempotent_and_ordered`, concurrency test | S7 accepted | S7 | PASS |
+| T4.2 | Group with name, admins, membership changes/leave | `GROUP` memberships and admin services | `test_group_roles_membership_and_private_idor`, Stage 8 mutations | S7/S8 accepted | S7, S8 | PASS |
+| T4.3 | Channel writers/readers and optional discussion | `CHANNEL` roles ADMIN/WRITER/MEMBER and discussion mode | Stage 9 channel tests | S9 accepted | S9 | PASS |
+| P129 | Inbox sort, unread, search by conversation title/participants, pin/mute/archive | Sort/unread/pin/mute/archive exist; no conversation-list title/participant search was found | Existing Messenger tests do not cover inbox search | Inbox search PENDING | Code inspection | FAIL |
+| P131 | Realtime delivery without refresh | Channels WebSocket plus PostgreSQL outbox | Messenger/realtime tests | S7 measured below 1 s; Stage 10 load PENDING | S7-S9 | PASS |
+| P132 | Sent/delivered/read and group read count | Sequence, delivery/read pointers and receipts | `test_read_pointer_unread_and_receipts`, group count test | S7 accepted | S7 | PASS |
+| P133 | Typing and presence | Ephemeral WebSocket events/leases | Realtime/Stage 7 tests | S7 accepted | S7 | PASS |
+| P134 | Reply with quoted message | `reply_to` authorization and serializer | Stage 8 tests | S8 accepted | S8 | PASS |
+| P135 | Forward preserving source | Forward metadata and visibility guard | Stage 8 tests | S8 accepted | S8 | PASS |
+| P136 | Edit/delete own message in window, visible state | Revisions, tombstones and service limits | Stage 8 mutation/audit tests | S8 accepted | S8 | PASS |
+| P137 | Message reactions | Unique reaction service/API | Stage 8 tests | S8 accepted | S8 | PASS |
+| P138 | Pin message in conversation header | Scoped pin service/API | Stage 8 tests | S8 accepted | S8 | PASS |
+| P139 | Mentions and bounded `@all` | Explicit mention rows and 10/hour all-mention throttle | Stage 9 mention/rate tests | S9 accepted | S9 | PASS |
+| P140 | Conversation search by text/author/date/attachments | Authorized API supports all filters; frontend exposes only free-text search | Backend filter/IDOR test | Complete search controls PENDING | Code inspection | FAIL |
+| P141 | Upward history pagination and exact context | Cursor history and bounded context API | Message/history/context tests | S7/S9 accepted | S7, S9 | PASS |
+| P142 | Per-chat unsent draft | Frontend local draft state | Frontend/E2E | S8 accepted | S8 | PASS |
+| P143 | Internal material preview | Re-authorized publication preview, no arbitrary fetch | Stage 9 tests | S9 accepted | S9 | PASS |
+| P144 | No E2EE requirement in v1; HTTPS transport | Server-side searchable storage, HTTPS edge | Production settings tests | External TLS recheck PENDING | Stage 6/S9 | PASS |
+| P146 | Files in chats/news/comments | Shared protected media domain | Stage 4/5/8 media tests | S4/S5/S8 accepted | S4-S8 | PASS |
+| P147 | Drag/drop, clipboard paste, progress and cancel | File inputs and indeterminate progress exist; drag/drop, clipboard paste and upload cancellation were not found | No complete regression found | PENDING | Code inspection | FAIL |
+| P148 | Multiple files per message | Multiple attachment relations | Stage 8 tests | S8 accepted | S8 | PASS |
+| P149 | Inline image/video preview; metadata for other files | Messenger currently renders all attachments as download links with name/size; inline image/video preview was not found | Media authorization tests do not cover required preview UX | PENDING | Code inspection | FAIL |
+| P150 | Admin-configurable file size/types and clear rejection | Server validates 25 MB env limit and a hard-coded extension/MIME allowlist with clear errors; no module-admin configuration UI/model was found | Validation tests cover rejection only | Admin configuration PENDING | Code inspection | FAIL |
+| P151 | Malware scan when corporate scanner exists | Fail-closed integration point; no scanner is configured in repository | PENDING | Customer scanner availability PENDING | Customer infrastructure | OPS_DEPENDENT |
+| P152 | File visible only through parent authorization | Media content endpoint reauthorizes publication/comment/message membership interval | Stage 4/8 IDOR tests | S4/S8 accepted | S4, S8 | PASS |
+| P153 | Separate chat tab containing all attachments | Authorized attachment results can be filtered at API level, but no separate attachments tab was found in the Messenger UI | No complete tab regression found | PENDING | Code inspection | FAIL |
+
+## 6. Уведомления и поиск
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P155 | Publication/reply/mention/message/chat-added/ack events | Seven durable `NotificationEventType` values | `test_publication_comment_and_ack_fanout_are_durable`, message fanout tests | S9 accepted | S9 | PASS |
+| P156a | In-app counter/list | PostgreSQL notification inbox and unread count | Stage 9 API/UI tests | S9 accepted | S9 | PASS |
+| P156b | Browser push | Generic wake-up payload, vendor allowlist, disabled by default | Push tests | Customer external-delivery approval PENDING | Stage 9 privacy doc | OPS_DEPENDENT |
+| P156c | Email for important/inactive users | Async internal SMTP delivery, generic private-chat mail | SMTP failure/retry tests | Production SMTP configuration PENDING | S9 | OPS_DEPENDENT |
+| P157 | Global/type/chat notification settings and disable | Preference rows and per-conversation modes/mute | Stage 9 settings/suppression tests | S9 accepted | S9 | PASS |
+| P158 | Grouping and dedupe | Durable dedupe/grouping with concurrency constraint | `test_concurrent_unread_group_insert_keeps_both_occurrences` | S9 accepted | S9 | PASS |
+| P159 | Read state synchronized on all devices | REST source of truth plus two-device WebSocket hints | `test_notification_realtime_reaches_two_devices` | S9 accepted | S9 | PASS |
+| P161 | Unified authorized RU/KZ search across five types with morphology | PostgreSQL RU and vendored KZ configurations; per-domain scoped querysets | `test_global_search_has_five_sections_morphology_and_no_idor` | S9 accepted | S9 | PASS |
+
+## 7. Логическая модель и технологические требования
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P163-P164 | Required logical meaning may be split/combined; high-volume growth/cleanup must be planned | Domain models preserve required semantics; operational cleanup is bounded; business retention is customer-owned | Model/migration/domain suites | DB growth profiling PENDING | S2-S9, `data-retention.md` | PASS |
+| T5.1 | Publication fields, lifecycle, dates, pin, acknowledgement and counters | `Publication` plus related taxonomy/media/pin/recipient/view rows | Publication domain/API/Stage 4 tests | S2-S5 accepted | S2-S5 | PASS |
+| T5.2 | Category/tag classification/settings | `Category`, `Tag`, audited editorial taxonomy APIs | Stage 4 tests | S4 accepted | S4 | PASS |
+| T5.3 | Audience company/unit/branch/position/person and combined rules | `AudienceRule` plus recipient snapshots/active target resolver | Stage 4/5 tests | S4/S5 accepted | S4, S5 | PASS |
+| T5.4 | Publication version with actor/time | Immutable `PublicationVersion` | Stage 4 version/audit tests | S4 accepted | S4 | PASS |
+| T5.5 | Unique view and separate acknowledgement | `PublicationView`, `PublicationRecipient`, `Acknowledgement` | S2/S5 tests | S2/S5 accepted | S2, S5 | PASS |
+| T5.6 | Threaded comment, attachment and visible edit/moderation state | `Comment`, attachments/mentions/revisions/status | S3/S5 tests | S3/S5 accepted | S3, S5 | PASS |
+| T5.7 | Unique typed reactions on news/comment/message | Discussion and Messenger reaction models/constraints | S3/S5/S8 tests | S3-S8 accepted | S3, S5, S8 | PASS |
+| T5.8 | Complaint with reporter/reason/state/moderator decision | Comment report domain exists; Messenger complaint domain is missing | Comment tests only | PENDING | Code inspection | FAIL |
+| T5.9 | Direct/group/channel conversation and settings | `Conversation` type/title/discussion/activity fields | S7-S9 tests | S7-S9 accepted | S7-S9 | PASS |
+| T5.10 | Membership role/interval/read/delivery/settings/pin/archive | `ConversationMembership` | Messenger/Stage 8/9 tests | S7-S9 accepted | S7-S9 | PASS |
+| T5.11 | Message reply/forward/attachments/timestamps/state | `Message` and related mutation/audit models | Stage 7/8/9 tests | S7-S9 accepted | S7-S9 | PASS |
+| T5.12 | Per-user read state and unread basis | Membership read/delivered pointers and receipts | Messenger/Stage 9 tests | S7/S9 accepted | S7, S9 | PASS |
+| T5.13 | File name/size/type/placement/uploader/storage/retention | `MediaAsset` plus usage/attachment relations; retention policy separate | Stage 4/5/8 media tests | S4-S8 accepted | S4-S8 | PASS |
+| T5.14 | Notification type/object/read/delivery channels | Unified notification/fanout/delivery/preferences models | Stage 9 tests | S9 accepted | S9 | PASS |
+| T5.15 | Audit actor/time/target/previous/new state | Append-only business/security/Messenger audit records | Stage 4/5/6/8 tests | S4-S8 accepted | S4-S8 | PASS |
+| P167 | Django backend | Django 5.2/DRF/Channels | Dependency lock and full suite | S9 accepted | `backend/pyproject.toml` | PASS |
+| P168 | React frontend | React + TypeScript + Vite | Vitest/Playwright/build | S9 accepted | `frontend/package.json` | PASS |
+| P169 | PostgreSQL storage | PostgreSQL is business source of truth | PostgreSQL-only suites/migration drift | Clean production restore PENDING | S2-S9 | PASS |
+| P170 | Portal accounts/no own registration | Local auth supersedes portal SSO; public registration remains absent | Auth route and Stage 6 tests | Approved Stage 6 change | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P171 | Russian UI, extensible second language, no component strings | Existing shared i18n, RU/KZ-ready resources and Cyrillic lint rule | Frontend tests/ESLint rule | S4 hardening/S9 accepted | S4, S9 | PASS |
+| P172 | One-command container deployment on customer infra; no external storage | Docker Compose; production overlay under Stage 10; local DB/media | Compose config tests | Clean production Compose PENDING | `compose.prod.yaml`, `deployment.md` | FAIL |
+| P173 | Customer repository, from-zero and update instructions | Repository plus deployment/rollback runbooks | Link/command review PENDING | Unfamiliar-operator walkthrough PENDING | `README.md`, runbooks | FAIL |
+| P176 | Feed and messages <=2 s at stated volume | k6 thresholds specified; no Stage 10 measurement yet | Smoke PENDING | 300-session 30-minute run PENDING | `capacity-plan.md` | FAIL |
+| P177 | Optional service outage affects only corresponding feature | Durable DB outboxes and fail-open external delivery; Redis degradation model | Stage 9 Redis/SMTP/push failure tests | Full fault matrix PENDING | S9, `incident-response.md` | PASS |
+| P178 | Responsive from 360 px | Responsive UI system | Playwright viewports | Final 360/390/768/1440 PENDING | S2-S9 | PASS |
+| P179 | Current common browsers | Chromium release gate; standards-based SPA | Playwright Chromium | Cross-browser customer matrix PENDING | CI | OPS_DEPENDENT |
+| P180 | Keyboard scenarios and accessible labels | Semantic controls, focus, labels, reduced motion | Frontend/a11y E2E | Final a11y sweep PENDING | S2-S9 | PASS |
+| T6.1 | Realtime <1 s and reconnect without loss | WebSocket hints + PostgreSQL outbox/REST recovery | Realtime and Redis failure suites | 300 WSS/15 min PENDING | S7-S9 | FAIL |
+| T6.2 | Protected in-perimeter file storage | Private media endpoint and local volume | Media IDOR tests | Production origin bypass PENDING | S4/S8 | PASS |
+| T6.3 | Search inside same contour | PostgreSQL full-text/trigram search | Stage 9 search tests | S9 accepted | S9 | PASS |
+| T6.4 | Editor without unapproved paid license, mobile output | Project-owned structured editor/renderer | Rich-text/frontend tests | S4 accepted | S4 | PASS |
+| T6.5 | Background jobs survive restart and schedule on time | Celery Beat reconciliation with DB state | Stage 4 scheduler tests/verifier | Stage 10 restart rerun PENDING | S4/S9 | PASS |
+| T6.6 | Frontend consistent with portal | Tandem UI Kit tokens/components | Visual/E2E tests | Final UX sweep PENDING | `docs/design/` | PASS |
+| T6.7 | Feed stale no longer than one minute | DB-authoritative feed plus scheduler <=60 s | Stage 4 verifier | Historic measured PASS; rerun PENDING | S4/S9 report | PASS |
+| T6.8 | Critical address/message/file authorization automated | Dedicated server-side IDOR suites | Publication, Messenger, media, search tests | S2-S9 accepted | S2-S9 | PASS |
+
+## 8. Критерии приёмки и безопасность
+
+| ID | Requirement | Implementation | Automated test | Live acceptance | Evidence | Status |
+| --- | --- | --- | --- | --- | --- | --- |
+| P187 | SSO and blocked portal user | Local auth/inactive local user by approved amendment | Stage 6 auth tests | Approved change | Stage 6 amendment | ACCEPTED_REQUIREMENT_CHANGE |
+| P188 | Exact publication audience and direct-link denial | Scoped feed/detail/media/search | Publication IDOR tests | S2/S9 accepted | S2, S9 | PASS |
+| P189 | Scheduled publish <=60 s including restart | Persistent schedule + 15 s reconciliation | Stage 4 scheduler/restart verifier | Historic 9.410 s; Stage 10 rerun PENDING | S9 report | PASS |
+| P190 | New publication in recipient feed <=60 s | DB-authoritative visibility/fanout | Stage 4/9 tests | Stage 10 load PENDING | S4/S9 | PASS |
+| P191 | Comment/reaction/counters realtime <=2 s | WebSocket hint and REST refetch | Realtime/frontend tests | Stage 10 load PENDING | S3 | PASS |
+| P192 | Message <1 s; reconnect no loss/duplicate | Transactional message + idempotency + durable outbox | Messenger/realtime/failure tests | 300-user/WSS PENDING | S7-S9 | FAIL |
+| P193 | Accurate unread/read across devices | DB read pointers and realtime hints | Messenger/notification multi-device tests | S7/S9 accepted | S7, S9 | PASS |
+| P194 | Foreign file URL denied | Parent-scoped protected content endpoint | Media IDOR suites | S4/S8 accepted | S4, S8 | PASS |
+| P195 | Reconstruct editorial/moderation changes | Append-only audit with previous/new state | Audit tests | S4/S5/S8 accepted | S4, S5, S8 | PASS |
+| P196 | Accurate acknowledged/unacknowledged lists | Snapshot recipients + acknowledgement row + CSV parity | Stage 5 analytics tests | S5 accepted | S5 | PASS |
+| P197 | Feed/messages <=2 s at volume and 300 sessions | Dedicated release load profile required | PENDING | PENDING | Stage 10 live | FAIL |
+| P198 | Mobile feed/comment/chat/file workflows | Responsive SPA | Playwright flows | Final mobile sweep PENDING | S2-S9 | PASS |
+| P199 | Restart without manual action/data loss | Persistent PostgreSQL/media and restart policy | Stage 4-9 restart verifiers | Full fault matrix PENDING | S4-S9 | PASS |
+| P200 | Availability >=99% over observation period | Monitoring/alerts/runbooks establish measurement; short test cannot prove SLO | Alert-rule checks PENDING | Starts after go-live | `monitoring.md` | OPS_DEPENDENT |
+| P202 | HTTPS with valid certificate | Cloudflare edge TLS; HSTS | Production/Nginx config tests | External certificate/header recheck PENDING | S9, `deployment.md` | PASS |
+| P203 | Server checks every data/file access | DRF permissions, scoped querysets, protected media | Cross-module permission/IDOR tests | Final permission sweep PENDING | `permissions-matrix.md` | PASS |
+| P204 | Messages/attachments remain in company perimeter | PostgreSQL/media on customer infrastructure; push generic and disabled pending approval | Production/privacy tests | Customer infrastructure review PENDING | S9 privacy doc | PASS |
+| P205 | Uploads non-executable, correct headers, scan when available | Signature/type validation, attachment response headers; scanner integration conditional | Stage 4/8 media validation tests | Scanner PENDING | S4/S8 | OPS_DEPENDENT |
+| P206 | User HTML/rich text cannot inject code | Structured schema, URL allowlist and renderer; CSP rollout | Rich-text and frontend tests | CSP browser sweep PENDING | S2/S4 | PASS |
+| P207 | Admin/editor/moderator log append-only from UI | Append-only audit models/services; no mutation UI | Audit tests | S4/S5/S8 accepted | S4-S8 | PASS |
+| P208 | Admin cannot ordinarily read private messages; investigation separately governed/audited | No platform/admin bypass to conversation contents | Messenger/search/media IDOR tests | Investigation procedure is customer-owned | `permissions-matrix.md` | PASS |
+| P209 | Customer-defined configurable retention and automatic expiry | Operational rows have bounded cleanup; messages/revisions/audit are deliberately retained pending approved policy | Cleanup tests PENDING | Customer retention values PENDING | `data-retention.md` | OPS_DEPENDENT |
+| P210 | Terminated user loses access; authored content/history retained per policy | `is_active` denial; business rows use durable/protecting relations | Auth/inactive and domain tests | Retention policy PENDING | S6, `data-retention.md` | PASS |
+| P211 | Daily DB+files backup, >=14 days, verified restore | Backup/manifest/isolated restore tooling is being introduced | Script tests PENDING | Corporate scheduler/mount and full restore drill PENDING | `backup-restore.md` | OPS_DEPENDENT |
+
+## 9. После первой версии
+
+Пункты P214-P220 явно исключены из объёма v1: мобильное приложение, голос/звонки, опросы, многоступенчатое согласование, ML-персонализация, боты, календарь/почта как продуктовые интеграции. Они имеют статус `NOT_APPLICABLE`; Stage 10 не создаёт speculative API или зависимости для них. P221 частично покрыт текущей аналитикой, но расширенная аналитика также не является release gate текущего ТЗ.
+
+## Открытые release blockers на этом срезе
+
+1. `FAIL`: чистый production Compose и проверка инструкций с нуля.
+2. `FAIL`: production-shaped seed, 300 concurrent sessions / 30 minutes и p95 HTTP thresholds.
+3. `FAIL`: 300 authenticated WebSockets / 15 minutes и p95 realtime threshold.
+4. `FAIL`: unfamiliar-operator deployment/update walkthrough.
+5. `OPS_DEPENDENT`: ежедневный corporate backup schedule, отдельный mount, 14-day retention и зафиксированный restore drill.
+6. `OPS_DEPENDENT`: 99% availability измеряется только после go-live; Stage 10 поставляет измерение, алерты и восстановление, но не подменяет период наблюдения коротким тестом.
+7. `OPS_DEPENDENT`: Web Push, SMTP, malware scanner и конкретные сроки пользовательских данных требуют решений/инфраструктуры заказчика.
+
+Документ должен быть обновлён только после фактических запусков. Наличие команды, тестового плана или runbook само по себе не меняет `PENDING` на `PASS`.

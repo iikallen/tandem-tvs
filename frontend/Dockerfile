@@ -6,6 +6,11 @@ COPY . .
 RUN npm run build
 
 FROM nginx:1.28.3-alpine
+ARG APP_VERSION=development
+ARG APP_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="Tandem TVS frontend" \
+    org.opencontainers.image.version=$APP_VERSION \
+    org.opencontainers.image.revision=$APP_GIT_SHA
 COPY infra/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 RUN chown -R nginx:nginx /var/cache/nginx /var/run /usr/share/nginx/html /etc/nginx/conf.d

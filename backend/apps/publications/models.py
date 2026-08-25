@@ -575,6 +575,18 @@ class AuditEvent(models.Model):
             "messenger.message.unpinned",
             "Messenger message unpinned",
         )
+        MESSENGER_MESSAGE_REPORTED = (
+            "messenger.message.reported",
+            "Messenger message reported",
+        )
+        MESSENGER_REPORT_RESOLVED = (
+            "messenger.report.resolved",
+            "Messenger report resolved",
+        )
+        MESSENGER_USER_RESTRICTED = (
+            "messenger.user.restricted",
+            "Messenger user restricted",
+        )
 
     publication = models.ForeignKey(
         Publication,

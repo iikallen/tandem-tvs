@@ -1,7 +1,10 @@
 UV ?= uv
 NPM ?= npm
+K6_IMAGE ?= grafana/k6:1.2.3
+LOAD_BASE_URL ?= http://127.0.0.1:8080
+LOAD_WS_BASE_URL ?= ws://127.0.0.1:8080
 
-.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-stage9 test-realtime e2e build prod
+.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-stage9 test-stage10 test-realtime backup-drill load-smoke load-full load-websocket profile-db fault-matrix e2e build prod
 
 format:
 	cd backend && $(UV) run ruff format .
@@ -78,6 +81,33 @@ test-stage9:
 	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage9.py verify
 
+test-stage10:
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage10.py
+
+backup-drill:
+	sh ops/backup/test-backup-restore.sh
+
+load-smoke:
+	load_password=$$(cd backend && $(UV) run python -c 'import secrets; print(secrets.token_urlsafe(24))'); \
+	docker compose exec -T -e TANDEM_LOAD_PASSWORD=$$load_password backend uv run --no-sync python manage.py seed_load_profile --users 10 --publications 10 --messages 100 --notifications 100 --confirm-load-environment; \
+	docker run --rm --network host -e PROFILE=smoke -e BASE_URL=$(LOAD_BASE_URL) -e WS_BASE_URL=$(LOAD_WS_BASE_URL) -e LOAD_USER_COUNT=10 -e TANDEM_LOAD_PASSWORD=$$load_password -v "$(CURDIR)/load/k6:/scripts:ro" $(K6_IMAGE) run /scripts/stage10.js
+
+load-full:
+	load_password=$$(cd backend && $(UV) run python -c 'import secrets; print(secrets.token_urlsafe(24))'); \
+	docker compose exec -T -e TANDEM_LOAD_PASSWORD=$$load_password backend uv run --no-sync python manage.py seed_load_profile --confirm-load-environment; \
+	docker run --rm --network host -e BASE_URL=$(LOAD_BASE_URL) -e WS_BASE_URL=$(LOAD_WS_BASE_URL) -e TANDEM_LOAD_PASSWORD=$$load_password -v "$(CURDIR)/load/k6:/scripts:ro" $(K6_IMAGE) run /scripts/stage10.js
+
+load-websocket:
+	load_password=$$(cd backend && $(UV) run python -c 'import secrets; print(secrets.token_urlsafe(24))'); \
+	docker compose exec -T -e TANDEM_LOAD_PASSWORD=$$load_password backend uv run --no-sync python manage.py seed_load_profile --confirm-load-environment; \
+	docker run --rm --network host -e BASE_URL=$(LOAD_BASE_URL) -e WS_BASE_URL=$(LOAD_WS_BASE_URL) -e TANDEM_LOAD_PASSWORD=$$load_password -v "$(CURDIR)/load/k6:/scripts:ro" $(K6_IMAGE) run /scripts/websocket-capacity.js
+
+profile-db:
+	docker compose exec -T backend uv run --no-sync python manage.py profile_database
+
+fault-matrix:
+	FAULT_TEST_CONFIRMATION=isolated-environment python3 ops/fault/run-matrix.py --compose-file compose.yaml --compose-file compose.prod.yaml --compose-file compose.local.yaml
+
 test-realtime:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
@@ -89,6 +119,6 @@ e2e:
 build:
 	cd frontend && $(NPM) run build
 
-prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-stage9 test-realtime e2e build
+prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-stage9 test-stage10 test-realtime e2e build
 	cd backend && $(UV) run python scripts/check_production.py
 	docker compose config --quiet

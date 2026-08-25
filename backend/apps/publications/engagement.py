@@ -332,3 +332,27 @@ def category_metrics(rows: list[dict[str, object]]) -> list[dict[str, object]]:
         }
         for name, values in sorted(grouped.items())
     ]
+
+
+def department_metrics(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    grouped: dict[str, dict[str, int]] = {}
+    for row in rows:
+        for department in cast(list[dict[str, object]], row["departments"]):
+            name = str(department["name"])
+            current = grouped.setdefault(
+                name,
+                {"publications": 0, "recipients": 0, "views": 0, "acknowledged": 0},
+            )
+            current["publications"] += 1
+            current["recipients"] += cast(int, department["recipients"])
+            current["views"] += cast(int, department["unique_views"])
+            current["acknowledged"] += cast(int, department["acknowledged"])
+    return [
+        {
+            "department": name,
+            **values,
+            "reach_percent": _percent(values["views"], values["recipients"]),
+            "acknowledgement_percent": _percent(values["acknowledged"], values["recipients"]),
+        }
+        for name, values in sorted(grouped.items())
+    ]

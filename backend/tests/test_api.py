@@ -223,7 +223,12 @@ def test_public_health_and_runtime_do_not_create_a_user(client):
 
     ready = client.get("/api/v1/health/ready")
     assert ready.status_code == 200
-    assert ready.data["components"] == {"database": "ok", "cache": "ok", "portal": "ok"}
+    assert ready.data["components"] == {
+        "postgres": "ok",
+        "media": "ok",
+        "redis": "ok",
+        "celery": "degraded",
+    }
 
     runtime = client.get("/api/v1/runtime/meta")
     assert runtime.status_code == 200

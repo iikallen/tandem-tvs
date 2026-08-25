@@ -1,4 +1,4 @@
-name: Stage 9 CI
+name: Stage 10 CI
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -51,6 +51,12 @@ jobs:
 
       - name: Run full production gate
         run: make prod
+
+      - name: Run Stage 10 load smoke
+        run: make load-smoke
+
+      - name: Prove database and protected-media restore
+        run: make backup-drill
 
       - name: Show deployment logs on failure
         if: failure()

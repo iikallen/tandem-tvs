@@ -23,7 +23,7 @@ function MediaLibrary() {
   const queryClient = useQueryClient();
   const media = useQuery({ queryKey: ["editorial-media"], queryFn: api.media });
   const upload = useMutation({
-    mutationFn: api.uploadMedia,
+    mutationFn: (file: File) => api.uploadMedia(file),
     onSuccess: async () => {
       setMessage(t("fileUploaded"));
       await queryClient.invalidateQueries({ queryKey: ["editorial-media"] });

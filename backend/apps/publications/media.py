@@ -77,13 +77,17 @@ def _image_dimensions(data: bytes) -> tuple[int, int]:
 def create_media_asset(
     *, upload: UploadedFile, actor: User, messenger_only: bool = False
 ) -> MediaAsset:
-    max_bytes = int(getattr(settings, "MEDIA_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
+    from apps.discussions.models import EngagementSettings
+
+    policy = EngagementSettings.load()
+    hard_limit = int(getattr(settings, "MEDIA_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
+    max_bytes = min(hard_limit, policy.max_comment_attachment_bytes)
     upload_size = upload.size or 0
     if upload_size <= 0 or upload_size > max_bytes:
         raise ValidationError(f"File must be between 1 and {max_bytes} bytes.")
     original_name = PurePosixPath((upload.name or "").replace("\\", "/")).name
     extension = PurePosixPath(original_name).suffix.casefold()
-    expected = ALLOWED.get(extension)
+    expected = ALLOWED.get(extension) if extension in policy.allowed_media_extensions else None
     if expected is None or extension == ".svg":
         raise ValidationError("File extension is not allowed.")
     data = upload.read(max_bytes + 1)

@@ -3,6 +3,8 @@ from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+APP_VERSION = os.getenv("APP_VERSION", "development")
+APP_GIT_SHA = os.getenv("APP_GIT_SHA", "unknown")
 
 SECRET_KEY: str = "development-only-not-for-production"
 DEBUG: bool = False
@@ -28,12 +30,14 @@ INSTALLED_APPS = [
     "apps.messenger",
     "apps.notifications",
     "apps.search",
+    "apps.ops",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "apps.ops.metrics.MetricsMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "apps.identity.middleware.AuthSessionExpiryMiddleware",
@@ -184,6 +188,15 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
 MEDIA_URL = "/_protected_media/"
 MEDIA_MAX_UPLOAD_BYTES = int(os.getenv("MEDIA_MAX_UPLOAD_BYTES", str(25 * 1024 * 1024)))
+OPS_MONITORING_TOKEN = os.getenv("OPS_MONITORING_TOKEN", "")
+OPS_REALTIME_OUTBOX_RETENTION_DAYS = int(os.getenv("OPS_REALTIME_OUTBOX_RETENTION_DAYS", "7"))
+OPS_NOTIFICATION_OUTBOX_RETENTION_DAYS = int(
+    os.getenv("OPS_NOTIFICATION_OUTBOX_RETENTION_DAYS", "7")
+)
+OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS = int(
+    os.getenv("OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS", "14")
+)
+OPS_DISABLED_PUSH_RETENTION_DAYS = int(os.getenv("OPS_DISABLED_PUSH_RETENTION_DAYS", "30"))
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/2")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
@@ -205,6 +218,10 @@ CELERY_BEAT_SCHEDULE = {
     "dispatch-notification-deliveries": {
         "task": "apps.notifications.tasks.dispatch_notification_deliveries",
         "schedule": 5.0,
+    },
+    "cleanup-operational-data": {
+        "task": "ops.cleanup-operational-data",
+        "schedule": 86_400.0,
     },
 }
 
@@ -289,13 +306,13 @@ CHANNEL_LAYERS = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Tandem Portal API",
-    "VERSION": "1.0.0",
+    "VERSION": APP_VERSION,
     "SWAGGER_UI_DIST": "SIDECAR",
     "SWAGGER_UI_FAVICON_HREF": "SIDECAR",
     "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
 }
-API_DOCS_ENABLED: bool = False
+API_DOCS_ENABLED = os.getenv("API_DOCS_ENABLED", "false").lower() == "true"
 
 PORTAL_ADAPTER: str = "unavailable"
 ALLOW_MOCK_PORTAL_ADAPTER: bool = False

@@ -15,12 +15,13 @@ from rest_framework.response import Response
 from apps.core.views import PrivateResponseMixin
 from apps.discussions.models import Comment, Reaction
 from apps.identity.models import User
-from apps.identity.permissions import HasNewsAccess
+from apps.identity.permissions import HasNewsAccess, IsNewsAdmin
 
 from .engagement import (
     acknowledge,
     category_metrics,
     csv_text,
+    department_metrics,
     publication_metrics,
     publication_metrics_bulk,
     refresh_recipient_snapshot,
@@ -40,6 +41,7 @@ from .models import (
 from .pagination import EditorialPagination, NewsCursorPagination
 from .permissions import IsEditorialRole
 from .serializers import (
+    AuditEventSerializer,
     CategorySerializer,
     EditorialPublicationSerializer,
     MediaAssetSerializer,
@@ -86,6 +88,17 @@ def _taxonomy_state(instance: Category | Tag) -> dict[str, object]:
     if isinstance(instance, Category):
         fields.extend(["sort_order", "comment_attachments_enabled"])
     return {field: getattr(instance, field) for field in fields}
+
+
+class EditorialAuditListView(PrivateResponseMixin, generics.ListAPIView):
+    permission_classes = [IsNewsAdmin]
+    serializer_class = AuditEventSerializer
+    pagination_class = EditorialPagination
+    queryset = (
+        AuditEvent.objects.select_related("actor", "publication")
+        .all()
+        .order_by("-created_at", "-id")
+    )
 
 
 class EditorialPublicationListCreateView(PrivateResponseMixin, generics.ListCreateAPIView):
@@ -539,7 +552,13 @@ class EditorialAnalyticsView(PrivateResponseMixin, generics.GenericAPIView):
 
     def get(self, request):
         rows = _analytics_metrics(request)
-        return Response({"results": rows, "categories": category_metrics(rows)})
+        return Response(
+            {
+                "results": rows,
+                "categories": category_metrics(rows),
+                "departments": department_metrics(rows),
+            }
+        )
 
 
 class EditorialAnalyticsCsvView(PrivateResponseMixin, generics.GenericAPIView):
@@ -578,6 +597,39 @@ class EditorialAnalyticsCsvView(PrivateResponseMixin, generics.GenericAPIView):
         )
         response = HttpResponse(content, content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="analytics.csv"'
+        return response
+
+
+class EditorialDepartmentAnalyticsCsvView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsEditorialRole]
+
+    def get(self, request):
+        rows = department_metrics(_analytics_metrics(request))
+        content = csv_text(
+            [
+                "department",
+                "publications",
+                "recipients",
+                "views",
+                "reach_percent",
+                "acknowledged",
+                "acknowledgement_percent",
+            ],
+            [
+                [
+                    row["department"],
+                    row["publications"],
+                    row["recipients"],
+                    row["views"],
+                    row["reach_percent"],
+                    row["acknowledged"],
+                    row["acknowledgement_percent"],
+                ]
+                for row in rows
+            ],
+        )
+        response = HttpResponse(content, content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="analytics-departments.csv"'
         return response
 
 
