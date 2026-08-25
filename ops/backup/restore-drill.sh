@@ -53,6 +53,17 @@ echo "Restoring isolated PostgreSQL database"
 
 echo "Restoring isolated protected media"
 tar -C "$RESTORE_MEDIA_ROOT" -xf - <"$backup_dir/media.tar"
+if [ -n "${RESTORE_MEDIA_OWNER:-}" ]; then
+    restore_uid="${RESTORE_MEDIA_OWNER%%:*}"
+    restore_gid="${RESTORE_MEDIA_OWNER#*:}"
+    case "$restore_uid" in ''|*[!0-9]*) restore_uid="" ;; esac
+    case "$restore_gid" in ''|*[!0-9]*) restore_gid="" ;; esac
+    if [ -z "$restore_uid" ] || [ -z "$restore_gid" ] || [ "$restore_uid:$restore_gid" != "$RESTORE_MEDIA_OWNER" ]; then
+        echo "RESTORE_MEDIA_OWNER must be a numeric uid:gid" >&2
+        exit 1
+    fi
+    chown -R "$RESTORE_MEDIA_OWNER" "$RESTORE_MEDIA_ROOT"
+fi
 
 DATABASE_URL="$RESTORE_DATABASE_URL" MEDIA_ROOT="$RESTORE_MEDIA_ROOT" \
     "$UV" run --no-sync python manage.py verify_restored_state

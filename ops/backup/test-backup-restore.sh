@@ -115,6 +115,7 @@ if (
         RESTORE_DATABASE_URL="$production_url" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
+        RESTORE_MEDIA_OWNER=10001:10001 \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh
@@ -129,6 +130,7 @@ if (
         RESTORE_DATABASE_URL="$database_url_prefix/$nonempty_db" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
+        RESTORE_MEDIA_OWNER=10001:10001 \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh
@@ -143,6 +145,7 @@ fi
         RESTORE_DATABASE_URL="$database_url_prefix/$restore_db" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
+        RESTORE_MEDIA_OWNER=10001:10001 \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh

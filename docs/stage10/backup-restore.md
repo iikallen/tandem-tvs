@@ -68,13 +68,14 @@ Provision a fresh, non-production PostgreSQL database and an empty media directo
 export BACKUP_DIR='/srv/tandem-backups/<UTC-directory>'
 export RESTORE_DATABASE_URL='postgresql://<isolated-user>:<secret>@<isolated-host>/<fresh-db>'
 export RESTORE_MEDIA_ROOT='/srv/tandem-restore/media'
+export RESTORE_MEDIA_OWNER='10001:10001' # backend image app uid:gid
 export RESTORE_CONFIRMATION='isolated-database'
 
 cd backend
 ../ops/backup/restore-drill.sh
 ```
 
-The command verifies `SHA256SUMS`, restores PostgreSQL with `--exit-on-error`, extracts the safe media archive and runs `manage.py verify_restored_state`. It must finish with `Restore drill: PASS`.
+The command verifies `SHA256SUMS`, restores PostgreSQL with `--exit-on-error`, extracts the safe media archive, assigns it to the non-root backend uid/gid and runs `manage.py verify_restored_state`. Omit `RESTORE_MEDIA_OWNER` only when the restore command already runs as the backend filesystem owner. It must finish with `Restore drill: PASS`.
 
 Start the application against the restored DB/media and use isolated credentials/hostname. Validate:
 
