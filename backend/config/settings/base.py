@@ -305,7 +305,6 @@ CHANNEL_LAYERS = {
                 {
                     "address": REALTIME_REDIS_URL,
                     "socket_connect_timeout": 1,
-                    "socket_timeout": 1,
                 }
             ],
             "capacity": 100,

@@ -2,7 +2,7 @@ import { sleep } from "k6";
 import http from "k6/http";
 import { Rate, Trend } from "k6/metrics";
 
-import { baseUrl } from "./auth.js";
+import { baseUrl, requestParams } from "./auth.js";
 import { realtime } from "./websocket.js";
 
 const activeSockets = new Trend("tandem_active_socket_observed");
@@ -44,10 +44,10 @@ export function monitorSockets() {
     monitorFailures.add(1);
     throw new Error("OPS_MONITORING_TOKEN is required");
   }
-  const response = http.get(`${baseUrl}/internal/metrics`, {
-    headers: { Authorization: `Bearer ${token}` },
-    tags: { kind: "ops_monitor" },
-  });
+  const response = http.get(
+    `${baseUrl}/internal/metrics`,
+    requestParams("ops_monitor", { Authorization: `Bearer ${token}` }),
+  );
   const match = /^tandem_active_realtime_sockets ([0-9]+)$/m.exec(
     response.body || "",
   );

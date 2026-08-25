@@ -1,13 +1,14 @@
 import { check } from "k6";
 import http from "k6/http";
 import { Counter, Rate, Trend } from "k6/metrics";
-import { WebSocket } from "k6/websockets";
+import ws from "k6/ws";
 
 import {
   baseUrl,
   ensureAuthenticated,
   firstConversation,
   jsonParams,
+  websocketParams,
   wsBaseUrl,
 } from "./auth.js";
 
@@ -55,63 +56,68 @@ export function realtime(
     return;
   }
 
-  const socket = new WebSocket(
-    `${wsBaseUrl}/ws/v1/messenger?ticket=${encodeURIComponent(ticket.json("ticket"))}`,
-  );
   let pendingMessageId = "";
   let sentAt = 0;
   let pingAt = 0;
   let openedAt = 0;
-  let closeTimer;
-  let pingTimer;
-
-  socket.addEventListener("open", () => {
-    openedAt = Date.now();
-    realtimeFailures.add(0);
-    pingTimer = setInterval(() => {
-      pingAt = Date.now();
-      socket.send(JSON.stringify({ type: "ping" }));
-    }, 10000);
-    if (emitMessage) {
-      const requestId = clientMessageId();
-      sentAt = Date.now();
-      const response = http.post(
-        `${baseUrl}/api/v1/messenger/conversations/${conversation.id}/messages`,
-        JSON.stringify({
-          client_message_id: requestId,
-          body: `k6 realtime ${requestId}`,
-        }),
-        jsonParams("realtime_message_write"),
-      );
-      check(response, {
-        "realtime source message committed": (item) =>
-          [200, 201].includes(item.status),
+  const response = ws.connect(
+    `${wsBaseUrl}/ws/v1/messenger?ticket=${encodeURIComponent(ticket.json("ticket"))}`,
+    websocketParams(),
+    (socket) => {
+      socket.on("open", () => {
+        openedAt = Date.now();
+        realtimeFailures.add(0);
+        socket.setInterval(() => {
+          pingAt = Date.now();
+          socket.send(JSON.stringify({ type: "ping" }));
+        }, 10000);
+        if (emitMessage) {
+          const requestId = clientMessageId();
+          sentAt = Date.now();
+          const message = http.post(
+            `${baseUrl}/api/v1/messenger/conversations/${conversation.id}/messages`,
+            JSON.stringify({
+              client_message_id: requestId,
+              body: `k6 realtime ${requestId}`,
+            }),
+            jsonParams("realtime_message_write"),
+          );
+          check(message, {
+            "realtime source message committed": (item) =>
+              [200, 201].includes(item.status),
+          });
+          if ([200, 201].includes(message.status))
+            pendingMessageId = message.json("id");
+        }
+        socket.setTimeout(() => socket.close(), holdMs);
       });
-      if ([200, 201].includes(response.status))
-        pendingMessageId = response.json("id");
-    }
-    closeTimer = setTimeout(() => socket.close(), holdMs);
-  });
-  socket.addEventListener("message", (event) => {
-    const payload = JSON.parse(event.data);
-    if (payload.type === "pong" && pingAt)
-      realtimeDelivery.add(Date.now() - pingAt, { kind: "ping" });
-    if (
-      pendingMessageId &&
-      payload.type === "messenger.message.created" &&
-      payload.message_id === pendingMessageId
-    ) {
-      realtimeDelivery.add(Date.now() - sentAt, { kind: "message" });
-      pendingMessageId = "";
-    }
-  });
-  socket.addEventListener("error", () => realtimeFailures.add(1));
-  socket.addEventListener("close", () => {
-    clearInterval(pingTimer);
-    clearTimeout(closeTimer);
-    if (pendingMessageId) realtimeFailures.add(1);
-    recordDuration(openedAt > 0 && Date.now() - openedAt >= holdMs - 5000);
-  });
+      socket.on("message", (data) => {
+        const payload = JSON.parse(data);
+        if (payload.type === "pong" && pingAt)
+          realtimeDelivery.add(Date.now() - pingAt, { kind: "ping" });
+        if (
+          pendingMessageId &&
+          payload.type === "messenger.message.created" &&
+          payload.message_id === pendingMessageId
+        ) {
+          realtimeDelivery.add(Date.now() - sentAt, { kind: "message" });
+          pendingMessageId = "";
+        }
+      });
+      socket.on("error", (error) => {
+        console.error(`WebSocket error: ${error.error()}`);
+        realtimeFailures.add(1);
+      });
+      socket.on("close", () => {
+        if (pendingMessageId) realtimeFailures.add(1);
+        recordDuration(openedAt > 0 && Date.now() - openedAt >= holdMs - 5000);
+      });
+    },
+  );
+  if (!response || response.status !== 101) {
+    realtimeFailures.add(1);
+    recordDuration(false);
+  }
 }
 
 export default realtime;

@@ -65,6 +65,9 @@ def test_production_settings_load_with_complete_operator_configuration(monkeypat
             "connect_timeout": 5,
             "options": "-c statement_timeout=15000",
         }
+        channel_host = production.CHANNEL_LAYERS["default"]["CONFIG"]["hosts"][0]
+        assert channel_host["socket_connect_timeout"] == 1
+        assert "socket_timeout" not in channel_host
         assert production.USE_X_FORWARDED_HOST is False
     finally:
         sys.modules.pop("config.settings.production", None)
@@ -233,6 +236,13 @@ def test_compose_celery_healthchecks_are_targeted_and_heartbeat_based():
     assert "inspect ping --destination celery@$$HOSTNAME --timeout 5" in compose
     assert "tandem:celery:reconcile-heartbeat" in compose
     assert "time.time()-heartbeat < 60" in compose
+
+
+def test_backend_healthcheck_uses_the_configured_allowed_host():
+    compose = (Path(__file__).resolve().parents[2] / "compose.yaml").read_text()
+
+    assert "host=os.environ.get('DJANGO_ALLOWED_HOSTS','localhost')" in compose
+    assert "headers={'Host': host, 'X-Forwarded-Proto': 'https'}" in compose
     assert "interval: 15s" in compose
     assert "start_period: 45s" in compose
 
