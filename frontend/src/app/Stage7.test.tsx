@@ -124,7 +124,17 @@ function baseFetch(options: {
     if (url.includes("/api/v1/messenger/people"))
       return response(options.people ?? []);
     if (url.endsWith("/api/v1/messenger/conversations"))
-      return response(options.conversations ?? [conversation]);
+      return response({
+        results: options.conversations ?? [conversation],
+        next: null,
+      });
+    if (
+      url.includes("/api/v1/messenger/conversations/") &&
+      url.includes("/members?")
+    )
+      return response({ results: conversation.members ?? [], next: null });
+    if (url.endsWith(`/api/v1/messenger/conversations/${conversation.id}`))
+      return response(conversation);
     if (
       url.includes("/api/v1/messenger/conversations/") &&
       url.endsWith("/read")
@@ -168,7 +178,7 @@ test("shows inbox, opens a direct thread, marks it read, and sends with a client
     ...savedMessage,
     id: "10000000-0000-4000-8000-000000000002",
     sequence: 2,
-    author: conversation.members[0].user,
+    author: conversation.members![0].user,
     body: "Релиз готов",
     receipt: { read: false, read_count: 0, recipient_count: 1 },
   };
@@ -258,8 +268,8 @@ test("creates direct and group conversations from the local Messenger directory"
             ...conversation,
             id: "direct-created",
             members: [
-              conversation.members[0],
-              { ...conversation.members[1], user: charlie },
+              conversation.members![0],
+              { ...conversation.members![1], user: charlie },
             ],
           },
           201,
@@ -316,4 +326,56 @@ test("keeps keyboard focus in the new-conversation dialog and restores it on Esc
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(openButton).toHaveFocus();
+});
+
+test("deduplicates outbox events and coalesces receipt bursts", async () => {
+  const fetchMock = baseFetch({});
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Дмитрий Орлов/ }),
+  );
+  await waitFor(() =>
+    expect(FakeWebSocket.instances[0]?.onmessage).not.toBeNull(),
+  );
+  const socket = FakeWebSocket.instances[0];
+  const messageGets = () =>
+    fetchMock.mock.calls.filter(([input, init]) => {
+      const url = String(input);
+      return (
+        url.endsWith(`/conversations/${conversation.id}/messages`) &&
+        (init?.method ?? "GET") === "GET"
+      );
+    }).length;
+  const initial = messageGets();
+  const duplicate = JSON.stringify({
+    version: 2,
+    event_id: "40000000-0000-4000-8000-000000000001",
+    type: "messenger.message.created",
+    conversation_id: conversation.id,
+    message_id: savedMessage.id,
+    sequence: 1,
+  });
+  socket.onmessage?.({ data: duplicate });
+  await waitFor(() => expect(messageGets()).toBe(initial + 1));
+  socket.onmessage?.({ data: duplicate });
+  await new Promise((resolve) => window.setTimeout(resolve, 50));
+  expect(messageGets()).toBe(initial + 1);
+
+  const beforeReceipts = messageGets();
+  for (let index = 0; index < 3; index += 1) {
+    socket.onmessage?.({
+      data: JSON.stringify({
+        version: 2,
+        event_id: `50000000-0000-4000-8000-00000000000${index}`,
+        type: "messenger.delivered.changed",
+        conversation_id: conversation.id,
+        user_id: bob.id,
+        sequence: 1,
+      }),
+    });
+  }
+  await waitFor(() => expect(messageGets()).toBe(beforeReceipts + 1), {
+    timeout: 1_000,
+  });
 });

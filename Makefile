@@ -1,7 +1,7 @@
 UV ?= uv
 NPM ?= npm
 
-.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-realtime e2e build prod
+.PHONY: format check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-realtime e2e build prod
 
 format:
 	cd backend && $(UV) run ruff format .
@@ -60,6 +60,14 @@ test-stage7:
 	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
 	docker compose exec -T backend uv run --no-sync python scripts/verify_stage7.py verify
 
+test-stage8:
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage8.py prepare
+	docker compose stop redis
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage8.py outage; stage8_status=$$?; docker compose start redis; exit $$stage8_status
+	docker compose restart backend celery-worker celery-beat
+	docker compose -f compose.yaml -f compose.local.yaml up -d --wait backend celery-worker celery-beat frontend
+	docker compose exec -T backend uv run --no-sync python scripts/verify_stage8.py verify
+
 test-realtime:
 	cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 POSTGRES_DB=tandem POSTGRES_USER=tandem POSTGRES_PASSWORD=tandem-development-only $(UV) run pytest tests/test_realtime.py --no-cov
 
@@ -71,6 +79,6 @@ e2e:
 build:
 	cd frontend && $(NPM) run build
 
-prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-realtime e2e build
+prod: check test test-postgres test-stage4 test-stage5 test-stage6 test-stage7 test-stage8 test-realtime e2e build
 	cd backend && $(UV) run python scripts/check_production.py
 	docker compose config --quiet

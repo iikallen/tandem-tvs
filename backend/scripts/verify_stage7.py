@@ -29,6 +29,7 @@ from apps.messenger.models import (  # noqa: E402
     ConversationMembership,
     DirectConversationPair,
     Message,
+    PinnedMessage,
 )
 from apps.organization.models import OrgUnit  # noqa: E402
 
@@ -114,6 +115,16 @@ def websocket_url(value: str) -> str:
     return f"ws://127.0.0.1:8000/ws/v1/messenger?ticket={value}"
 
 
+async def receive_type(socket, event_type: str, timeout: float = 2.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while True:
+        event = json.loads(
+            await asyncio.wait_for(socket.recv(), timeout=max(0.01, deadline - time.monotonic()))
+        )
+        if event.get("type") == event_type:
+            return event
+
+
 async def assert_realtime_message(token: str, client: APIClient, conversation_id: str) -> float:
     message_id = str(uuid.uuid4())
     async with ws_connect(
@@ -128,7 +139,7 @@ async def assert_realtime_message(token: str, client: APIClient, conversation_id
             {"client_message_id": message_id, "body": "Stage 7 realtime under one second"},
         )
         assert response.status_code == 201, response.data
-        event = json.loads(await asyncio.wait_for(socket.recv(), timeout=1.0))
+        event = await receive_type(socket, "messenger.message.created", timeout=1.0)
         latency = time.perf_counter() - started
         assert event["type"] == "messenger.message.created", event
         assert event["conversation_id"] == conversation_id, event
@@ -144,8 +155,8 @@ async def assert_forced_close(token: str, action) -> None:
         response = await asyncio.to_thread(action)
         assert response.status_code in {200, 204}, getattr(response, "data", None)
         try:
-            await asyncio.wait_for(socket.recv(), timeout=2.0)
-            raise AssertionError("Revoked Messenger socket remained open")
+            while True:
+                await asyncio.wait_for(socket.recv(), timeout=2.0)
         except ConnectionClosed as exc:
             assert exc.code == 4403, exc.code
 
@@ -155,7 +166,7 @@ async def assert_reconnect(token: str) -> None:
         websocket_url(token), origin="http://localhost", open_timeout=5, close_timeout=2
     ) as socket:
         await socket.send(json.dumps({"type": "ping"}))
-        assert json.loads(await asyncio.wait_for(socket.recv(), timeout=2.0)) == {"type": "pong"}
+        assert await receive_type(socket, "pong") == {"type": "pong"}
 
 
 def setup_users() -> dict[str, User]:
@@ -175,9 +186,13 @@ def setup_users() -> dict[str, User]:
         user.save()
         result[key] = user
 
-    cast(Any, Conversation).objects.filter(
-        memberships__user__in=result.values()
-    ).distinct().delete()
+    previous = (
+        cast(Any, Conversation).objects.filter(memberships__user__in=result.values()).distinct()
+    )
+    PinnedMessage.objects.filter(conversation__in=previous).delete()
+    for message in Message.objects.filter(conversation__in=previous).order_by("-sequence"):
+        message.delete()
+    previous.delete()
     cast(Any, AccessGrant).objects.filter(user__in=result.values()).delete()
     actor = User.objects.get(portal_id="admin-1")
     cast(Any, AccessGrant).objects.bulk_create(
@@ -262,8 +277,13 @@ def prepare() -> None:
     )
     assert group.status_code == 201, group.data
     group_id = group.data["id"]
+    group_members = retrieve(
+        clients["alice"], f"/api/v1/messenger/conversations/{group_id}/members"
+    )
     assert (
-        next(row for row in group.data["members"] if row["user"]["id"] == users["alice"].pk)["role"]
+        next(
+            row for row in group_members.data["results"] if row["user"]["id"] == users["alice"].pk
+        )["role"]
         == "ADMIN"
     )
 
@@ -296,9 +316,16 @@ def prepare() -> None:
         clients["alice"],
         "post",
         f"/api/v1/messenger/conversations/{direct_id}/messages",
-        {"client_message_id": ids[-1], "body": "must not replace persisted body"},
+        {"client_message_id": ids[-1], "body": "Ordered message 4"},
     )
     assert retry.status_code == 200 and retry.data["id"] == saved[-1]["id"], retry.data
+    conflict = mutate(
+        clients["alice"],
+        "post",
+        f"/api/v1/messenger/conversations/{direct_id}/messages",
+        {"client_message_id": ids[-1], "body": "must not replace persisted body"},
+    )
+    assert conflict.status_code == 422, conflict.data
     assert [row["sequence"] for row in saved] == sorted(row["sequence"] for row in saved)
     assert (
         cast(Any, Message)
@@ -314,7 +341,7 @@ def prepare() -> None:
     assert page.status_code == 200 and len(page.data["messages"]) == 2, page.data
     assert page.data["has_more"] and page.data["next_before_sequence"]
     inbox = retrieve(clients["bob"], "/api/v1/messenger/conversations")
-    direct_inbox = next(row for row in inbox.data if row["id"] == direct_id)
+    direct_inbox = next(row for row in inbox.data["results"] if row["id"] == direct_id)
     assert direct_inbox["unread_count"] >= 4, direct_inbox
     read = mutate(
         clients["bob"],
@@ -353,7 +380,7 @@ def prepare() -> None:
         clients["alice"], f"/api/v1/messenger/conversations/{group_id}/messages"
     )
     receipt = group_history.data["messages"][-1]["receipt"]
-    assert receipt == {"read_count": 2, "recipient_count": 2}, receipt
+    assert receipt["read_count"] == 2 and receipt["recipient_count"] == 2, receipt
 
     realtime_latency = asyncio.run(
         assert_realtime_message(ticket(clients["bob"]), clients["alice"], direct_id)

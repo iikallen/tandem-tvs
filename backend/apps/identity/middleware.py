@@ -19,7 +19,13 @@ class AuthSessionExpiryMiddleware:
                 or now - started > settings.AUTH_SESSION_MAX_AGE_SECONDS
                 or now - last_seen > settings.AUTH_SESSION_IDLE_SECONDS
             ):
+                session_key = request.session.session_key
                 logout(request)
+                if session_key:
+                    from apps.realtime.events import invalidate_session
+                    from apps.realtime.session_security import session_fingerprint
+
+                    invalidate_session(session_fingerprint(session_key))
             else:
                 if "auth_started_at" not in request.session:
                     request.session["auth_started_at"] = started

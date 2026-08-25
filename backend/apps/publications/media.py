@@ -7,7 +7,7 @@ from pathlib import PurePosixPath
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
-from django.db import transaction
+from django.db import models, transaction
 from PIL import Image, UnidentifiedImageError
 
 from apps.identity.models import User
@@ -74,7 +74,9 @@ def _image_dimensions(data: bytes) -> tuple[int, int]:
         raise ValidationError("Image content is invalid.") from exc
 
 
-def create_media_asset(*, upload: UploadedFile, actor: User) -> MediaAsset:
+def create_media_asset(
+    *, upload: UploadedFile, actor: User, messenger_only: bool = False
+) -> MediaAsset:
     max_bytes = int(getattr(settings, "MEDIA_MAX_UPLOAD_BYTES", DEFAULT_MAX_UPLOAD_BYTES))
     upload_size = upload.size or 0
     if upload_size <= 0 or upload_size > max_bytes:
@@ -108,6 +110,7 @@ def create_media_asset(*, upload: UploadedFile, actor: User) -> MediaAsset:
         uploader=actor,
         width=width,
         height=height,
+        is_messenger_only=messenger_only,
     )
     asset.file.save(storage_key, upload, save=False)
     try:
@@ -128,9 +131,30 @@ def create_media_asset(*, upload: UploadedFile, actor: User) -> MediaAsset:
 
 
 def can_read_media(user: User, asset: MediaAsset) -> bool:
-    if is_editor(user):
+    from apps.messenger.models import ConversationMembership, MessageAttachment
+
+    active_conversations = ConversationMembership.objects.filter(
+        user=user, left_at__isnull=True
+    ).values("conversation_id")
+    messenger_attachments = MessageAttachment.objects.filter(asset=asset)
+    if messenger_attachments.filter(
+        models.Q(message__conversation__memberships__left_sequence__isnull=True)
+        | models.Q(
+            message__sequence__lte=models.F("message__conversation__memberships__left_sequence")
+        ),
+        message__deleted_at__isnull=True,
+        message__conversation_id__in=active_conversations,
+        message__conversation__memberships__user=user,
+        message__sequence__gt=models.F("message__conversation__memberships__joined_sequence"),
+    ).exists():
         return True
     publication_ids = MediaUsage.objects.filter(asset=asset).values("publication_id")
+    if (
+        is_editor(user)
+        and not asset.is_messenger_only
+        and (publication_ids.exists() or not messenger_attachments.exists())
+    ):
+        return True
     if Publication.objects.visible_to(user).filter(pk__in=publication_ids).exists():
         return True
     from apps.discussions.models import CommentAttachment
@@ -138,7 +162,9 @@ def can_read_media(user: User, asset: MediaAsset) -> bool:
     comment_publications = CommentAttachment.objects.filter(
         asset=asset, comment__status="ACTIVE"
     ).values("comment__publication_id")
-    return Publication.objects.visible_to(user).filter(pk__in=comment_publications).exists()
+    if Publication.objects.visible_to(user).filter(pk__in=comment_publications).exists():
+        return True
+    return False
 
 
 @transaction.atomic
@@ -147,10 +173,12 @@ def delete_media_asset(asset: MediaAsset, *, actor: User) -> None:
         raise ValidationError("An editor role is required.")
     asset = MediaAsset.objects.select_for_update().get(pk=asset.pk)
     from apps.discussions.models import CommentAttachment
+    from apps.messenger.models import MessageAttachment
 
     if (
         MediaUsage.objects.filter(asset=asset).exists()
         or CommentAttachment.objects.filter(asset=asset).exists()
+        or MessageAttachment.objects.filter(asset=asset).exists()
     ):
         raise ValidationError("Media used by a publication cannot be deleted.")
     previous = _media_state(asset)
@@ -176,6 +204,7 @@ def _media_state(asset: MediaAsset) -> dict[str, object]:
         "sha256": asset.sha256,
         "kind": asset.kind,
         "status": asset.status,
+        "is_messenger_only": asset.is_messenger_only,
     }
 
 

@@ -595,12 +595,15 @@ class RealtimeTicketView(PrivateResponseMixin, generics.GenericAPIView):
     def post(self, request):
         payload = self.get_serializer(data=request.data)
         payload.is_valid(raise_exception=True)
+        if not request.session.session_key:
+            request.session.save()
         if payload.validated_data["scope"] == RealtimeScope.MESSENGER:
             if not has_module_access(request.user, AccessGrant.Module.MESSENGER):
                 raise PermissionDenied("Messenger access is required.")
             token, expires_in = create_realtime_ticket(
                 user_id=request.user.pk,
                 security_epoch=request.user.security_epoch,
+                session_key=request.session.session_key,
                 scope=RealtimeScope.MESSENGER,
             )
             return Response({"ticket": token, "expires_in": expires_in})
@@ -609,5 +612,9 @@ class RealtimeTicketView(PrivateResponseMixin, generics.GenericAPIView):
         publication = visible_publication_or_404(
             request.user, payload.validated_data["publication_id"]
         )
-        token, expires_in = create_ticket(user_id=request.user.pk, publication_id=publication.pk)
+        token, expires_in = create_ticket(
+            user_id=request.user.pk,
+            publication_id=publication.pk,
+            session_key=request.session.session_key,
+        )
         return Response({"ticket": token, "expires_in": expires_in})

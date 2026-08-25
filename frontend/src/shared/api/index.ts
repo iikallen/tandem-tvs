@@ -40,12 +40,25 @@ export interface MessengerPerson {
 }
 
 export interface MessengerMembership {
+  id?: number;
   user: MessengerPerson;
   role: "MEMBER" | "ADMIN";
   joined_at: string;
+  joined_sequence?: number;
+  left_at?: string | null;
+  left_sequence?: number | null;
+  is_active?: boolean;
+  last_delivered_sequence?: number;
+  delivered_at?: string | null;
   last_read_sequence: number;
   read_at: string | null;
 }
+
+export type MessengerReaction = {
+  reaction_type: "LIKE" | "LOVE" | "LAUGH" | "WOW" | "SAD";
+  count: number;
+  mine: boolean;
+};
 
 export interface MessengerMessage {
   id: string;
@@ -53,8 +66,25 @@ export interface MessengerMessage {
   client_message_id: string;
   author: MessengerPerson;
   body: string;
+  reply_to?: {
+    id: string;
+    author: MessengerPerson;
+    body_preview: string;
+    deleted_at: string | null;
+  } | null;
+  forwarded_snapshot?: {
+    author_name: string;
+    body: string;
+    created_at: string;
+  } | null;
+  attachments?: MediaAsset[];
+  reactions?: MessengerReaction[];
+  edited_at?: string | null;
+  deleted_at?: string | null;
   created_at: string;
   receipt: {
+    delivered?: boolean;
+    delivered_count?: number;
     read?: boolean;
     read_count: number;
     recipient_count: number;
@@ -65,13 +95,43 @@ export interface MessengerConversation {
   id: string;
   type: "DIRECT" | "GROUP";
   title: string;
-  created_by_id: number;
-  last_sequence: number;
+  peer?: MessengerPerson | null;
+  member_count?: number;
   last_message_at: string | null;
-  created_at: string;
-  members: MessengerMembership[];
-  last_message: MessengerMessage | null;
+  activity_at?: string;
+  last_message:
+    | MessengerMessage
+    | {
+        id: string;
+        sequence: number;
+        author_id: number;
+        author_name: string;
+        body_preview: string;
+        created_at: string;
+        deleted_at: string | null;
+      }
+    | null;
   unread_count: number;
+  state?: {
+    is_archived: boolean;
+    pinned_at: string | null;
+    muted_until: string | null;
+    draft_body: string;
+    draft_updated_at: string | null;
+  };
+  created_by_id?: number;
+  last_sequence?: number;
+  created_at?: string;
+  members?: MessengerMembership[];
+  pinned_messages?: Array<{
+    id: string;
+    sequence: number;
+    author_id: number;
+    author_name: string;
+    body_preview: string;
+    created_at: string;
+    deleted_at: string | null;
+  }>;
 }
 
 export interface MessengerMessagePage {
@@ -477,8 +537,16 @@ export const api = {
     request<MessengerPerson[]>(
       `/api/v1/messenger/people${search ? `?search=${encodeURIComponent(search)}` : ""}`,
     ),
-  messengerConversations: () =>
-    request<MessengerConversation[]>("/api/v1/messenger/conversations"),
+  messengerConversations: async (cursor?: string) => {
+    const data = await request<
+      CursorPage<MessengerConversation> | MessengerConversation[]
+    >(
+      `/api/v1/messenger/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+    );
+    return Array.isArray(data)
+      ? { next: null, previous: null, results: data }
+      : data;
+  },
   messengerConversation: (id: string) =>
     request<MessengerConversation>(
       `/api/v1/messenger/conversations/${encodeURIComponent(id)}`,
@@ -503,17 +571,112 @@ export const api = {
     conversationId: string,
     clientMessageId: string,
     body: string,
+    options: {
+      reply_to_id?: string | null;
+      attachment_ids?: string[];
+      forward_message_id?: string | null;
+    } = {},
   ) =>
     request<MessengerMessage>(
       `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/messages`,
       "POST",
-      { client_message_id: clientMessageId, body },
+      { client_message_id: clientMessageId, body, ...options },
+    ),
+  editMessengerMessage: (messageId: string, body: string) =>
+    request<MessengerMessage>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}`,
+      "PATCH",
+      { body },
+    ),
+  deleteMessengerMessage: (messageId: string) =>
+    request<MessengerMessage>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}`,
+      "DELETE",
+    ),
+  putMessengerReaction: (messageId: string, reactionType: string) =>
+    request<MessengerMessage>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/reaction`,
+      "PUT",
+      { reaction_type: reactionType },
+    ),
+  deleteMessengerReaction: (messageId: string) =>
+    request<void>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/reaction`,
+      "DELETE",
+    ),
+  pinMessengerMessage: (messageId: string) =>
+    request<void>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/pin`,
+      "PUT",
+    ),
+  unpinMessengerMessage: (messageId: string) =>
+    request<void>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/pin`,
+      "DELETE",
     ),
   markMessengerRead: (conversationId: string, sequence: number) =>
     request<{ last_read_sequence: number; read_at: string | null }>(
       `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/read`,
       "POST",
       { sequence },
+    ),
+  markMessengerDelivered: (conversationId: string, sequence: number) =>
+    request<{ last_delivered_sequence: number; delivered_at: string | null }>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/delivered`,
+      "POST",
+      { sequence },
+    ),
+  messengerMembers: (conversationId: string, page = 1) =>
+    request<CursorPage<MessengerMembership>>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/members?page=${page}`,
+    ),
+  addMessengerMember: (conversationId: string, userId: number) =>
+    request<MessengerMembership>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/members`,
+      "POST",
+      { user_id: userId },
+    ),
+  changeMessengerMemberRole: (
+    conversationId: string,
+    userId: number,
+    role: "MEMBER" | "ADMIN",
+  ) =>
+    request<MessengerMembership>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/members/${userId}`,
+      "PATCH",
+      { role },
+    ),
+  removeMessengerMember: (conversationId: string, userId: number) =>
+    request<void>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/members/${userId}`,
+      "DELETE",
+    ),
+  leaveMessengerConversation: (conversationId: string) =>
+    request<void>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/leave`,
+      "POST",
+    ),
+  updateMessengerState: (
+    conversationId: string,
+    state: Record<string, unknown>,
+  ) =>
+    request<MessengerMembership>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/state`,
+      "PATCH",
+      state,
+    ),
+  uploadMessengerAttachment: (conversationId: string, file: File) => {
+    const data = new FormData();
+    data.append("file", file);
+    return request<MediaAsset>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/attachments`,
+      "POST",
+      data,
+    );
+  },
+  searchMessengerMessages: (conversationId: string, query: string) =>
+    request<{ results: MessengerMessage[] }>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/search?q=${encodeURIComponent(query)}`,
     ),
   messengerRealtimeTicket: () =>
     request<{ ticket: string; expires_in: number }>(

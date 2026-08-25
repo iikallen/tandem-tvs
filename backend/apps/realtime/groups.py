@@ -2,6 +2,10 @@ def user_control_group(user_id: object) -> str:
     return f"user.{user_id}.control"
 
 
+def session_control_group(fingerprint: str) -> str:
+    return f"session.{fingerprint[:48]}.control"
+
+
 def publication_group(publication_id: object) -> str:
     return f"publication.{str(publication_id).replace('-', '')}"
 

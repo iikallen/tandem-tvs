@@ -506,6 +506,8 @@ class AuditEvent(models.Model):
         USER = "user", "User"
         SETTINGS = "settings", "Settings"
         ACKNOWLEDGEMENT = "acknowledgement", "Acknowledgement"
+        CONVERSATION = "conversation", "Conversation"
+        MESSAGE = "message", "Message"
 
     class Type(models.TextChoices):
         CREATED = "publication.created", "Publication created"
@@ -542,6 +544,28 @@ class AuditEvent(models.Model):
         STOP_WORD_CREATED = "stop_word.created", "Stop word created"
         STOP_WORD_DISABLED = "stop_word.disabled", "Stop word disabled"
         ACKNOWLEDGED = "publication.acknowledged", "Publication acknowledged"
+        MESSENGER_MEMBER_ADDED = "messenger.member.added", "Messenger member added"
+        MESSENGER_MEMBER_REMOVED = "messenger.member.removed", "Messenger member removed"
+        MESSENGER_MEMBER_ROLE_CHANGED = (
+            "messenger.member.role_changed",
+            "Messenger member role changed",
+        )
+        MESSENGER_MESSAGE_EDITED = "messenger.message.edited", "Messenger message edited"
+        MESSENGER_MESSAGE_SENT = "messenger.message.sent", "Messenger message sent"
+        MESSENGER_MESSAGE_DELETED = "messenger.message.deleted", "Messenger message deleted"
+        MESSENGER_MESSAGE_FORWARDED = (
+            "messenger.message.forwarded",
+            "Messenger message forwarded",
+        )
+        MESSENGER_REACTION_CHANGED = (
+            "messenger.reaction.changed",
+            "Messenger reaction changed",
+        )
+        MESSENGER_MESSAGE_PINNED = "messenger.message.pinned", "Messenger message pinned"
+        MESSENGER_MESSAGE_UNPINNED = (
+            "messenger.message.unpinned",
+            "Messenger message unpinned",
+        )
 
     publication = models.ForeignKey(
         Publication,
@@ -674,6 +698,7 @@ class MediaAsset(models.Model):
         DOCUMENT = "DOCUMENT", "Document"
 
     class Status(models.TextChoices):
+        PENDING_SCAN = "PENDING_SCAN", "Pending scan"
         READY = "READY", "Ready"
         REJECTED = "REJECTED", "Rejected"
 
@@ -693,6 +718,7 @@ class MediaAsset(models.Model):
     width = models.PositiveIntegerField(null=True, blank=True)
     height = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=16, choices=Status, default=Status.READY)
+    is_messenger_only = models.BooleanField(default=False, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

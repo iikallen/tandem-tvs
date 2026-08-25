@@ -21,5 +21,5 @@ def deliver_password_reset_task(email: str) -> None:
     SMTPAuthDelivery().deliver(
         recipient=user.email,
         purpose="password reset",
-        url=f"{settings.AUTH_PUBLIC_BASE_URL.rstrip('/')}/reset-password?token={token}",
+        url=f"{settings.AUTH_PUBLIC_BASE_URL.rstrip('/')}/reset-password#token={token}",
     )

@@ -118,9 +118,16 @@ class SessionView(PrivateResponseMixin, APIView):
 
 class LogoutView(PrivateAPIView):
     def post(self, request):
+        from apps.realtime.events import invalidate_session
+        from apps.realtime.session_security import session_fingerprint
+
         user = request.user
+        session_key = request.session.session_key
+        fingerprint = session_fingerprint(session_key) if session_key else None
         record_auth_event(request, "auth.logout", user=user, username=user.username)
         logout(request)
+        if fingerprint:
+            invalidate_session(fingerprint)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -236,7 +243,9 @@ class PlatformUserDetailView(PrivateResponseMixin, generics.GenericAPIView):
     @transaction.atomic
     def patch(self, request, user_id):
         user = self.get_user(user_id)
-        payload = PlatformUserUpdateSerializer(data=request.data, partial=True)
+        payload = PlatformUserUpdateSerializer(
+            data=request.data, partial=True, context={"user_id": user.pk}
+        )
         payload.is_valid(raise_exception=True)
         if user == request.user and payload.validated_data.get("is_active") is False:
             raise serializers.ValidationError({"is_active": "You cannot disable your own account."})
@@ -307,7 +316,7 @@ class PlatformInvitationView(PrivateAPIView):
         )
         _row, token = issue_invitation(user, actor=request.user)
         record_auth_event(request, "auth.invite.created", user=user, username=user.username)
-        return Response({"activation_url": f"/activate?token={token}"})
+        return Response({"activation_url": f"/activate#token={token}"})
 
 
 class PlatformPasswordResetView(PrivateAPIView):
@@ -321,7 +330,7 @@ class PlatformPasswordResetView(PrivateAPIView):
         record_auth_event(
             request, "auth.password.reset_requested", user=user, username=user.username
         )
-        return Response({"reset_url": f"/reset-password?token={token}"})
+        return Response({"reset_url": f"/reset-password#token={token}"})
 
 
 class MessengerAccessView(PrivateAPIView):

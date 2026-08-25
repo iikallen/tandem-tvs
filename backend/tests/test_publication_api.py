@@ -377,8 +377,8 @@ def test_feed_filters_cursor_bounds_categories_and_blocked_identity(client, cate
         {
             "category": "company",
             "author": "editor-1",
-            "date_from": now.date().isoformat(),
-            "date_to": now.date().isoformat(),
+            "date_from": timezone.localdate(now).isoformat(),
+            "date_to": timezone.localdate(now).isoformat(),
         },
     )
     assert filtered.status_code == 200
