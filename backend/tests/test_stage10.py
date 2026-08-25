@@ -1,18 +1,23 @@
 import hashlib
 import io
+import json
 import uuid
 from datetime import timedelta
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from django.contrib.sessions.models import Session
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.http import HttpResponse
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.identity.models import AccessGrant, User
+from apps.messenger.models import Message
 from apps.messenger.serializers import MessageSerializer
 from apps.messenger.services import create_direct_conversation, send_message
 from apps.notifications.models import (
@@ -21,6 +26,14 @@ from apps.notifications.models import (
     NotificationFanoutEvent,
     PushSubscription,
 )
+from apps.ops import tasks as ops_tasks
+from apps.ops.management.commands.seed_load_profile import (
+    Command as SeedLoadProfileCommand,
+)
+from apps.ops.management.commands.seed_load_profile import (
+    safe_load_environment,
+)
+from apps.ops.metrics import MetricsMiddleware, record_http_request, render_http_metrics
 from apps.ops.tasks import cleanup_operational_data
 from apps.publications.models import AudienceRule, AuditEvent, Category, MediaAsset, Publication
 from apps.realtime.models import RealtimeOutboxEvent
@@ -32,6 +45,35 @@ def dependencies(**overrides: str) -> dict[str, str]:
     result = {"postgres": "ok", "media": "ok", "redis": "ok", "celery": "ok"}
     result.update(overrides)
     return result
+
+
+def test_load_seed_requires_both_purpose_and_isolated_database_name():
+    assert safe_load_environment("stage10-load", "stage10_load_release")
+    assert not safe_load_environment("stage10-load", "tandem")
+    assert not safe_load_environment("production", "stage10_load_release")
+
+
+@pytest.mark.django_db
+def test_load_seed_rerun_never_rewinds_live_conversation_sequence():
+    first = User.objects.create(username="load-seed-first", full_name="First")
+    second = User.objects.create(username="load-seed-second", full_name="Second")
+    conversation, _ = create_direct_conversation(first, second)
+    command = SeedLoadProfileCommand()
+    seeded = command._messages(2, [conversation], [first, second], timezone.now())
+    assert len(seeded) == 2
+    live, created = send_message(
+        conversation,
+        author=first,
+        client_message_id=uuid.uuid4(),
+        body="Committed after the seed",
+    )
+    assert created and live.sequence == 3
+
+    conversation.refresh_from_db()
+    command._messages(2, [conversation], [first, second], timezone.now() - timedelta(days=1))
+    conversation.refresh_from_db()
+    assert conversation.last_sequence == 3
+    assert Message.objects.filter(conversation=conversation, sequence=3, pk=live.pk).exists()
 
 
 @pytest.mark.django_db
@@ -58,7 +100,7 @@ def test_internal_ops_endpoints_require_exact_bearer_token(monkeypatch):
     ("dependency_overrides", "expected_status", "expected_body_status"),
     [
         ({"redis": "down"}, 200, "degraded"),
-        ({"celery": "degraded"}, 200, "ok"),
+        ({"celery": "degraded"}, 200, "degraded"),
         ({"postgres": "down"}, 503, "unavailable"),
         ({"media": "down"}, 503, "unavailable"),
     ],
@@ -72,7 +114,7 @@ def test_public_readiness_distinguishes_required_and_degraded_dependencies(
     response = APIClient().get("/api/v1/health/ready")
 
     assert response.status_code == expected_status
-    assert response.json() == {"status": expected_body_status, "components": state}
+    assert response.json() == {"status": expected_body_status}
 
 
 @pytest.mark.django_db
@@ -80,11 +122,14 @@ def test_operational_metrics_include_backlogs_dependencies_and_http_latency(monk
     from apps.ops import views
 
     monkeypatch.setattr(views, "dependency_status", dependencies)
+    monkeypatch.setattr(views, "media_integrity_result", lambda: (0, 1.5))
     monkeypatch.setattr(views, "celery_heartbeat_age", lambda: 12.5)
     monkeypatch.setattr(views, "total_active_socket_count", lambda: 3)
     APIClient().get("/api/v1/health/live")
 
-    rendered = "\n".join([*views.render_http_metrics(), *views._operational_metrics()])
+    rendered = "\n".join(
+        [*views.render_http_metrics(), *views._dependency_metrics(), *views._operational_metrics()]
+    )
 
     assert 'route="health-live"' in rendered
     assert "tandem_http_request_duration_seconds_bucket" in rendered
@@ -95,6 +140,206 @@ def test_operational_metrics_include_backlogs_dependencies_and_http_latency(monk
     assert "tandem_notification_fanout_pending 0" in rendered
     assert "tandem_notification_delivery_pending 0" in rendered
     assert "tandem_celery_heartbeat_age_seconds 12.500" in rendered
+    assert "tandem_media_integrity_last_check_age_seconds 1.500" in rendered
+
+
+def test_http_method_metric_label_has_a_finite_fallback():
+    record_http_request("BREW", 'method-cardinality-test\\\n"', 418, 0.01)
+
+    rendered = "\n".join(render_http_metrics())
+
+    assert 'method="OTHER",route="method-cardinality-test\\\\\\n\\""' in rendered
+    assert 'method="BREW"' not in rendered
+
+
+def test_nginx_access_log_and_prometheus_rules_preserve_observability_privacy():
+    repository_root = Path(__file__).resolve().parents[2]
+    nginx = (repository_root / "frontend/infra/nginx.conf").read_text()
+    alerts = (repository_root / "ops/prometheus/alerts.yml").read_text()
+
+    log_format = nginx.split("geo $tandem_trusted_tunnel_peer", 1)[0]
+    assert "$request_uri" not in log_format
+    assert "$uri" not in log_format
+    assert "method=$request_method status=$status" in log_format
+    protected_media = nginx.split("location /_protected_media/", 1)[1].split("location /ws/", 1)[0]
+    assert "X-Frame-Options DENY" in protected_media
+    assert "Content-Security-Policy-Report-Only" in protected_media
+    assert "clamp_min" not in alerts
+    assert "absent(tandem_postgres_up)" in alerts
+
+
+def test_mutating_http_requests_coordinate_with_backup_write_lock(monkeypatch):
+    from apps.ops import metrics
+
+    queries = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, query, params):
+            queries.append((query, params))
+
+        def fetchone(self):
+            return (True,)
+
+    fake_connection = SimpleNamespace(vendor="postgresql", cursor=lambda: Cursor())
+    monkeypatch.setattr(metrics, "connection", fake_connection)
+    request = SimpleNamespace(method="POST", resolver_match=None)
+
+    response = MetricsMiddleware(lambda _request: HttpResponse(status=204))(request)
+
+    assert response.status_code == 204
+    assert "pg_try_advisory_lock_shared" in queries[0][0]
+    assert "pg_advisory_unlock_shared" in queries[1][0]
+
+
+def test_mutating_requests_fail_closed_during_backup_or_database_error(monkeypatch):
+    from apps.ops import metrics
+
+    class Cursor:
+        def __init__(self, granted):
+            self.granted = granted
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, _query, _params):
+            return None
+
+        def fetchone(self):
+            return (self.granted,)
+
+    request = SimpleNamespace(method="POST", resolver_match=None)
+    monkeypatch.setattr(
+        metrics,
+        "connection",
+        SimpleNamespace(vendor="postgresql", cursor=lambda: Cursor(False)),
+    )
+    blocked = MetricsMiddleware(lambda _request: HttpResponse(status=204))(request)
+    assert blocked.status_code == 503
+    assert blocked["Retry-After"] == "60"
+
+    def unavailable_cursor():
+        raise metrics.DatabaseError("unavailable")
+
+    monkeypatch.setattr(
+        metrics,
+        "connection",
+        SimpleNamespace(vendor="postgresql", cursor=unavailable_cursor),
+    )
+    unavailable = MetricsMiddleware(lambda _request: HttpResponse(status=204))(request)
+    assert unavailable.status_code == 503
+    assert "temporarily unavailable" in unavailable.content.decode()
+
+
+def test_backup_lock_unlock_failure_discards_database_connection(monkeypatch):
+    from apps.ops import metrics
+
+    calls = 0
+    closed = False
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def execute(self, _query, _params):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise metrics.DatabaseError("unlock failed")
+
+        def fetchone(self):
+            return (True,)
+
+    def close():
+        nonlocal closed
+        closed = True
+
+    monkeypatch.setattr(
+        metrics,
+        "connection",
+        SimpleNamespace(vendor="postgresql", cursor=lambda: Cursor(), close=close),
+    )
+    request = SimpleNamespace(method="PATCH", resolver_match=None)
+    response = MetricsMiddleware(lambda _request: HttpResponse(status=204))(request)
+
+    assert response.status_code == 204
+    assert closed
+
+
+def test_health_probe_error_paths_and_durable_media_state(tmp_path, monkeypatch):
+    from apps.ops import health
+
+    monkeypatch.setattr(
+        health,
+        "connection",
+        SimpleNamespace(cursor=lambda: (_ for _ in ()).throw(RuntimeError())),
+    )
+    assert not health.database_available()
+
+    with override_settings(MEDIA_ROOT=tmp_path / "missing"):
+        assert not health.media_available()
+
+    monkeypatch.setattr(
+        health,
+        "cache",
+        SimpleNamespace(set=lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError())),
+    )
+    assert not health.cache_available()
+    monkeypatch.setattr(
+        health,
+        "cache",
+        SimpleNamespace(get=lambda _key: "not-a-timestamp"),
+    )
+    assert health.celery_heartbeat_age() is None
+
+    with override_settings(MEDIA_ROOT=tmp_path):
+        health.record_media_integrity_result(2)
+        failures, age = health.media_integrity_result()
+        assert failures == 2
+        assert age >= 0
+        (tmp_path / health.MEDIA_INTEGRITY_STATE_FILE).write_text(
+            json.dumps({"failures": -1, "checked_at": 0}), encoding="ascii"
+        )
+        assert health.media_integrity_result() == (-1, -1.0)
+
+
+def test_media_integrity_state_write_is_atomic_on_replace_failure(tmp_path, monkeypatch):
+    from apps.ops import health
+
+    def fail_replace(*_args):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(health.os, "replace", fail_replace)
+    with override_settings(MEDIA_ROOT=tmp_path), pytest.raises(OSError, match="replace failed"):
+        health.record_media_integrity_result(0)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_dependency_status_reports_each_unavailable_component(monkeypatch):
+    from apps.ops import health
+
+    monkeypatch.setattr(health, "database_available", lambda: False)
+    monkeypatch.setattr(health, "media_available", lambda: False)
+    monkeypatch.setattr(health, "cache_available", lambda: False)
+
+    assert health.dependency_status() == {
+        "postgres": "down",
+        "media": "down",
+        "redis": "down",
+        "celery": "degraded",
+    }
 
 
 @pytest.mark.django_db
@@ -103,8 +348,8 @@ def test_operational_metrics_fail_closed_per_dependency_and_as_a_whole(monkeypat
     from apps.ops import views
 
     monkeypatch.setattr(views, "dependency_status", dependencies)
+    monkeypatch.setattr(views, "media_integrity_result", lambda: (2, 3.5))
     monkeypatch.setattr(views, "celery_heartbeat_age", lambda: None)
-    monkeypatch.setattr(views.cache, "get", lambda key: (_ for _ in ()).throw(OSError()))
     monkeypatch.setattr(
         views,
         "total_active_socket_count",
@@ -112,7 +357,6 @@ def test_operational_metrics_fail_closed_per_dependency_and_as_a_whole(monkeypat
     )
     rendered = "\n".join(views._operational_metrics())
     assert "tandem_active_realtime_sockets 0" in rendered
-    assert "tandem_media_integrity_failures 0" in rendered
     assert "tandem_celery_heartbeat_age_seconds -1.000" in rendered
 
     monkeypatch.setattr(
@@ -123,6 +367,10 @@ def test_operational_metrics_fail_closed_per_dependency_and_as_a_whole(monkeypat
         HTTP_AUTHORIZATION=f"Bearer {OPS_TOKEN}",
     )
     assert response.status_code == 200
+    assert b"tandem_postgres_up 1" in response.content
+    assert b"tandem_redis_up 1" in response.content
+    assert b"tandem_media_up 1" in response.content
+    assert b"tandem_media_integrity_failures 2" in response.content
     assert b"tandem_metrics_collection_error 1" in response.content
 
 
@@ -193,6 +441,19 @@ def test_media_integrity_verifies_hash_and_reports_orphans(tmp_path):
         kind=MediaAsset.Kind.DOCUMENT,
         uploader=uploader,
     )
+    pending_path = tmp_path / "publications" / "pending.bin"
+    pending_path.write_bytes(b"pending")
+    MediaAsset.objects.create(
+        original_name="pending.bin",
+        storage_key="publications/pending.bin",
+        file="publications/pending.bin",
+        mime_type="application/octet-stream",
+        size=7,
+        sha256="0" * 64,
+        kind=MediaAsset.Kind.DOCUMENT,
+        status=MediaAsset.Status.PENDING_SCAN,
+        uploader=uploader,
+    )
 
     stdout = io.StringIO()
     with override_settings(MEDIA_ROOT=tmp_path):
@@ -204,6 +465,9 @@ def test_media_integrity_verifies_hash_and_reports_orphans(tmp_path):
 
     assert "Media integrity: PASS" in stdout.getvalue()
     assert "Orphan media file: orphan.bin" in stderr.getvalue()
+    state = json.loads((tmp_path / ".tandem-media-integrity.json").read_text())
+    assert state["failures"] == 1
+    assert state["checked_at"] > 0
 
 
 @pytest.mark.django_db
@@ -213,7 +477,7 @@ def test_media_integrity_verifies_hash_and_reports_orphans(tmp_path):
     OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS=1,
     OPS_DISABLED_PUSH_RETENTION_DAYS=1,
 )
-def test_cleanup_deletes_only_expired_operational_rows():
+def test_cleanup_deletes_only_expired_operational_rows(monkeypatch):
     now = timezone.now()
     old = now - timedelta(days=2)
     user = User.objects.create(username="cleanup", full_name="Cleanup User")
@@ -272,6 +536,16 @@ def test_cleanup_deletes_only_expired_operational_rows():
         updated_at=old
     )
 
+    atomic_calls = 0
+    real_atomic = ops_tasks.transaction.atomic
+
+    def counted_atomic(*args, **kwargs):
+        nonlocal atomic_calls
+        atomic_calls += 1
+        return real_atomic(*args, **kwargs)
+
+    monkeypatch.setattr(ops_tasks, "CLEANUP_BATCH_SIZE", 1)
+    monkeypatch.setattr(ops_tasks.transaction, "atomic", counted_atomic)
     result = cleanup_operational_data()
 
     assert result == {
@@ -281,6 +555,7 @@ def test_cleanup_deletes_only_expired_operational_rows():
         "notification_deliveries": 1,
         "disabled_push_subscriptions": 1,
     }
+    assert atomic_calls >= 5
     assert not Session.objects.filter(pk=expired_session.pk).exists()
     assert Session.objects.filter(pk=live_session.pk).exists()
     assert not RealtimeOutboxEvent.objects.filter(pk=delivered.pk).exists()

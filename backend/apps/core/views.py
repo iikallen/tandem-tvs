@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from apps.ops.health import dependency_status
 
-from .serializers import HealthSerializer, ReadinessSerializer, RuntimeMetaSerializer
+from .serializers import HealthSerializer, RuntimeMetaSerializer
 
 
 class PublicAPIView(APIView):
@@ -37,13 +37,15 @@ class LiveView(PublicAPIView):
 
 
 class ReadyView(PublicAPIView):
-    @extend_schema(responses=ReadinessSerializer)
+    @extend_schema(responses=HealthSerializer)
     def get(self, request):
         components = dependency_status()
         is_ready = components["postgres"] == "ok" and components["media"] == "ok"
-        response_status = "ok" if is_ready and components["redis"] == "ok" else "degraded"
+        response_status = (
+            "ok" if is_ready and all(value == "ok" for value in components.values()) else "degraded"
+        )
         return Response(
-            {"status": response_status if is_ready else "unavailable", "components": components},
+            {"status": response_status if is_ready else "unavailable"},
             status=200 if is_ready else 503,
         )
 

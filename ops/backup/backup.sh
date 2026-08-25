@@ -39,7 +39,13 @@ fi
 
 temporary=""
 database_lock_pid=""
+database_backend_pid=""
 cleanup() {
+    if [ -n "$database_backend_pid" ]; then
+        "$PSQL" -XqAt --set=ON_ERROR_STOP=1 --dbname="$DATABASE_URL" \
+            --command="SELECT pg_terminate_backend($database_backend_pid)" \
+            >/dev/null 2>&1 || true
+    fi
     if [ -n "$database_lock_pid" ]; then
         kill "$database_lock_pid" >/dev/null 2>&1 || true
         wait "$database_lock_pid" >/dev/null 2>&1 || true
@@ -76,8 +82,12 @@ PGAPPNAME="$lock_application" "$PSQL" -XqAt --set=ON_ERROR_STOP=1 \
 database_lock_pid=$!
 lock_attempt=0
 while :; do
-    lock_count="$("$PSQL" -XAt --set=ON_ERROR_STOP=1 --dbname="$DATABASE_URL" --command="SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE a.application_name = '$lock_application' AND l.locktype = 'advisory' AND l.mode = 'ExclusiveLock' AND l.granted")"
-    [ "$lock_count" = "1" ] && break
+    lock_state="$("$PSQL" -XAt --set=ON_ERROR_STOP=1 --dbname="$DATABASE_URL" --command="SELECT concat(a.pid, '|', bool_or(l.locktype = 'advisory' AND l.mode = 'ExclusiveLock' AND l.granted)) FROM pg_stat_activity a LEFT JOIN pg_locks l ON l.pid = a.pid WHERE a.application_name = '$lock_application' GROUP BY a.pid")"
+    database_backend_pid="${lock_state%%|*}"
+    case "$database_backend_pid" in
+        ''|*[!0-9]*) database_backend_pid="" ;;
+        *) [ "${lock_state#*|}" = "t" ] && break ;;
+    esac
     if ! kill -0 "$database_lock_pid" 2>/dev/null || [ "$lock_attempt" -ge 60 ]; then
         echo "Could not acquire the application backup write lock" >&2
         exit 1
@@ -94,6 +104,9 @@ tar -C "$media_root" -cf "$temporary/media.tar" .
 (cd "$temporary" && sha256sum database.dump media.tar source-evidence.txt >SHA256SUMS)
 printf '%s\n' "$timestamp" >"$temporary/created-at.txt"
 mv "$temporary" "$target"
+"$PSQL" -XqAt --set=ON_ERROR_STOP=1 --dbname="$DATABASE_URL" \
+    --command="SELECT pg_terminate_backend($database_backend_pid)" >/dev/null
+database_backend_pid=""
 kill "$database_lock_pid" >/dev/null 2>&1 || true
 wait "$database_lock_pid" >/dev/null 2>&1 || true
 database_lock_pid=""

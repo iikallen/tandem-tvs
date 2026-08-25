@@ -1,5 +1,6 @@
 import hashlib
 import os
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -8,7 +9,8 @@ from django.contrib.auth.hashers import make_password
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import connection, transaction
+from django.db.models import Max
 
 from apps.discussions.models import Comment, Reaction
 from apps.identity.models import AccessGrant, User
@@ -52,6 +54,12 @@ def bounded(options: dict[str, Any], name: str, maximum: int, minimum: int = 1) 
     return value
 
 
+def safe_load_environment(purpose: str, database_name: str) -> bool:
+    return purpose == "stage10-load" and bool(
+        re.fullmatch(r"stage10_load_[a-z0-9_]+", database_name)
+    )
+
+
 class Command(BaseCommand):
     help = "Seed an idempotent, deterministic Stage 10 load-test profile."
 
@@ -66,6 +74,15 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if not options["confirm_load_environment"]:
             raise CommandError("Pass --confirm-load-environment for the isolated load environment.")
+        purpose = os.environ.get("TANDEM_ENVIRONMENT_PURPOSE", "")
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_database()")
+            database_name = str(cursor.fetchone()[0])
+        if not safe_load_environment(purpose, database_name):
+            raise CommandError(
+                "Load seeding requires TANDEM_ENVIRONMENT_PURPOSE=stage10-load and an "
+                "isolated stage10_load_* database."
+            )
         password = os.environ.get("TANDEM_LOAD_PASSWORD", "")
         if len(password) < 12:
             raise CommandError("TANDEM_LOAD_PASSWORD must contain at least 12 characters.")
@@ -474,10 +491,26 @@ class Command(BaseCommand):
                 )
             )
         Message.objects.bulk_create(messages, ignore_conflicts=True, batch_size=1_000)
+        maxima = {
+            row["conversation_id"]: (row["last_sequence"] or 0, row["last_created_at"])
+            for row in Message.objects.filter(conversation__in=conversations)
+            .values("conversation_id")
+            .annotate(last_sequence=Max("sequence"), last_created_at=Max("created_at"))
+        }
         for index, conversation in enumerate(conversations):
-            conversation.last_sequence = last_sequences[index]
-            conversation.last_message_at = now
-            conversation.activity_at = now
+            last_sequence, last_created_at = maxima.get(conversation.pk, (0, None))
+            conversation.last_sequence = max(
+                conversation.last_sequence,
+                last_sequences[index],
+                last_sequence,
+            )
+            if last_created_at is not None:
+                conversation.last_message_at = max(
+                    filter(None, (conversation.last_message_at, last_created_at))
+                )
+                conversation.activity_at = max(
+                    filter(None, (conversation.activity_at, last_created_at))
+                )
         Conversation.objects.bulk_update(
             conversations,
             ["last_sequence", "last_message_at", "activity_at", "updated_at"],

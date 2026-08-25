@@ -1,3 +1,5 @@
+import copy
+import importlib
 import os
 import subprocess
 import sys
@@ -43,6 +45,29 @@ def run_manage(*arguments: str, environment: dict[str, str]):
         text=True,
         check=False,
     )
+
+
+def test_production_settings_load_with_complete_operator_configuration(monkeypatch):
+    from config.settings import base
+
+    environment = production_environment()
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    database = copy.deepcopy(base.DATABASES)
+    database["default"]["PASSWORD"] = "safe-production-password"
+    monkeypatch.setattr(base, "DATABASES", database)
+    sys.modules.pop("config.settings.production", None)
+    try:
+        production = importlib.import_module("config.settings.production")
+        assert production.DEBUG is False
+        assert production.PORTAL_ADAPTER == "unavailable"
+        assert production.DATABASES["default"]["OPTIONS"] == {
+            "connect_timeout": 5,
+            "options": "-c statement_timeout=15000",
+        }
+        assert production.USE_X_FORWARDED_HOST is False
+    finally:
+        sys.modules.pop("config.settings.production", None)
 
 
 def test_production_settings_reject_mock_adapter():

@@ -5,10 +5,6 @@ class HealthSerializer(serializers.Serializer):
     status = serializers.CharField()
 
 
-class ReadinessSerializer(HealthSerializer):
-    components = serializers.DictField(child=serializers.CharField())
-
-
 class RuntimeMetaSerializer(serializers.Serializer):
     application = serializers.CharField()
     version = serializers.CharField()

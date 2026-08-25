@@ -10,7 +10,7 @@ permissions:
 jobs:
   release-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -46,6 +46,32 @@ jobs:
         working-directory: frontend
         run: npx playwright install --with-deps chromium
 
+      - name: Create isolated release environment
+        shell: bash
+        run: |
+          echo "DJANGO_SECRET_KEY=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+          echo "POSTGRES_PASSWORD=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "OPS_MONITORING_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "CLOUDFLARE_TUNNEL_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "DJANGO_ALLOWED_HOSTS=tandem-tvs.chatlink.kz" >> "$GITHUB_ENV"
+          echo "DJANGO_CSRF_TRUSTED_ORIGINS=https://tandem-tvs.chatlink.kz" >> "$GITHUB_ENV"
+          echo "REALTIME_ALLOWED_ORIGINS=https://tandem-tvs.chatlink.kz" >> "$GITHUB_ENV"
+          echo "AUTH_RECOVERY_MODE=ADMIN_ONLY" >> "$GITHUB_ENV"
+          echo "AUTH_PUBLIC_BASE_URL=https://tandem-tvs.chatlink.kz" >> "$GITHUB_ENV"
+          echo "POSTGRES_DB=stage10_load_ci" >> "$GITHUB_ENV"
+          echo "POSTGRES_USER=tandem_ci" >> "$GITHUB_ENV"
+          echo "POSTGRES_HOST=127.0.0.1" >> "$GITHUB_ENV"
+          echo "POSTGRES_PORT=5432" >> "$GITHUB_ENV"
+          echo "REDIS_URL=redis://redis:6379/0" >> "$GITHUB_ENV"
+          echo "REALTIME_REDIS_URL=redis://redis:6379/1" >> "$GITHUB_ENV"
+          echo "CELERY_BROKER_URL=redis://redis:6379/2" >> "$GITHUB_ENV"
+          echo "CELERY_RESULT_BACKEND=redis://redis:6379/2" >> "$GITHUB_ENV"
+          echo "TANDEM_ENVIRONMENT_PURPOSE=stage10-load" >> "$GITHUB_ENV"
+          echo "WEB_PUSH_ENABLED=false" >> "$GITHUB_ENV"
+          echo "NOTIFICATION_EMAIL_ENABLED=false" >> "$GITHUB_ENV"
+          echo "APP_VERSION=1.0.0" >> "$GITHUB_ENV"
+          echo "APP_GIT_SHA=$GITHUB_SHA" >> "$GITHUB_ENV"
+
       - name: Start clean deployment
         run: docker compose -f compose.yaml -f compose.local.yaml up -d --build --wait --wait-timeout 180
 
@@ -58,10 +84,22 @@ jobs:
       - name: Prove database and protected-media restore
         run: make backup-drill
 
+      - name: Start production-shaped deployment
+        shell: bash
+        run: |
+          docker compose -f compose.yaml -f compose.local.yaml down --volumes
+          docker compose -f compose.yaml -f compose.prod.yaml -f compose.local.yaml up \
+            -d --build --wait --wait-timeout 240 --scale cloudflared=0
+          docker compose -f compose.yaml -f compose.prod.yaml -f compose.local.yaml \
+            exec -T backend uv run --no-sync python scripts/verify_stage10.py
+
+      - name: Prove production-shaped backup and restore
+        run: make backup-drill
+
       - name: Show deployment logs on failure
         if: failure()
-        run: docker compose -f compose.yaml -f compose.local.yaml logs --no-color
+        run: docker compose -f compose.yaml -f compose.prod.yaml -f compose.local.yaml logs --no-color
 
       - name: Stop deployment
         if: always()
-        run: docker compose -f compose.yaml -f compose.local.yaml down --volumes
+        run: docker compose -f compose.yaml -f compose.prod.yaml -f compose.local.yaml down --volumes

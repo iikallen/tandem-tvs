@@ -218,17 +218,16 @@ def test_publication_employee_targeting_uses_only_local_user_id(client):
 
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="")
-def test_public_health_and_runtime_do_not_create_a_user(client):
+def test_public_health_and_runtime_do_not_create_a_user(client, monkeypatch):
+    monkeypatch.setattr(
+        "apps.core.views.dependency_status",
+        lambda: {"postgres": "ok", "media": "ok", "redis": "ok", "celery": "degraded"},
+    )
     assert client.get("/api/v1/health/live").data == {"status": "ok"}
 
     ready = client.get("/api/v1/health/ready")
     assert ready.status_code == 200
-    assert ready.data["components"] == {
-        "postgres": "ok",
-        "media": "ok",
-        "redis": "ok",
-        "celery": "degraded",
-    }
+    assert ready.data == {"status": "degraded"}
 
     runtime = client.get("/api/v1/runtime/meta")
     assert runtime.status_code == 200

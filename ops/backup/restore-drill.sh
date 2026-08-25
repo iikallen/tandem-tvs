@@ -16,6 +16,7 @@ fi
 PSQL="${PSQL:-psql}"
 PG_RESTORE="${PG_RESTORE:-pg_restore}"
 UV="${UV:-uv}"
+PYTHON="${PYTHON:-python3}"
 
 database_identity() {
     "$PSQL" -XAt --set=ON_ERROR_STOP=1 --dbname="$1" --command="SELECT concat_ws('|', inet_server_addr()::text, inet_server_port()::text, current_database(), (SELECT oid::text FROM pg_database WHERE datname = current_database()))"
@@ -34,7 +35,11 @@ fi
 
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 backup_dir="$(CDPATH= cd -- "$BACKUP_DIR" && pwd -P)"
-python3 "$script_dir/verify_manifest.py" verify "$backup_dir"
+if command -v cygpath >/dev/null 2>&1; then
+    script_dir="$(cygpath -m "$script_dir")"
+    backup_dir="$(cygpath -m "$backup_dir")"
+fi
+"$PYTHON" "$script_dir/verify_manifest.py" verify "$backup_dir"
 
 if [ -d "$RESTORE_MEDIA_ROOT" ] && [ "$(find "$RESTORE_MEDIA_ROOT" -mindepth 1 -print -quit)" ]; then
     echo "RESTORE_MEDIA_ROOT must be empty" >&2
@@ -47,7 +52,7 @@ echo "Restoring isolated PostgreSQL database"
     --dbname="$RESTORE_DATABASE_URL" <"$backup_dir/database.dump"
 
 echo "Restoring isolated protected media"
-tar -C "$RESTORE_MEDIA_ROOT" -xf "$backup_dir/media.tar"
+tar -C "$RESTORE_MEDIA_ROOT" -xf - <"$backup_dir/media.tar"
 
 DATABASE_URL="$RESTORE_DATABASE_URL" MEDIA_ROOT="$RESTORE_MEDIA_ROOT" \
     "$UV" run --no-sync python manage.py verify_restored_state
