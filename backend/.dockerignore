@@ -5,3 +5,17 @@ __pycache__
 .coverage
 db.sqlite3
 tests
+.env*
+!.env*.example
+**/.env*
+!**/.env*.example
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+*secret*
+!*secret*.example
