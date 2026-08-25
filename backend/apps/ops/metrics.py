@@ -2,7 +2,12 @@ import time
 from collections import Counter, defaultdict
 from threading import Lock
 
+from django.db import DatabaseError, connection
+from django.http import JsonResponse
+
 HTTP_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
+HTTP_METHODS = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"})
+BACKUP_WRITE_LOCK_ID = 82_425_010
 
 _lock = Lock()
 _requests: Counter[tuple[str, str, str]] = Counter()
@@ -16,6 +21,9 @@ def _escape(value: str) -> str:
 
 
 def record_http_request(method: str, route: str, status: int, duration: float) -> None:
+    method = method.upper()
+    if method not in HTTP_METHODS:
+        method = "OTHER"
     labels = (method, route)
     with _lock:
         _requests[method, route, str(status)] += 1
@@ -77,11 +85,43 @@ class MetricsMiddleware:
     def __call__(self, request):
         started = time.perf_counter()
         status = 500
+        backup_lock = False
         try:
+            if (
+                request.method not in {"GET", "HEAD", "OPTIONS"}
+                and connection.vendor == "postgresql"
+            ):
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_try_advisory_lock_shared(%s)", [BACKUP_WRITE_LOCK_ID]
+                        )
+                        backup_lock = bool(cursor.fetchone()[0])
+                except DatabaseError:
+                    response = JsonResponse(
+                        {"detail": "Writes are temporarily unavailable."}, status=503
+                    )
+                    status = response.status_code
+                    return response
+                if not backup_lock:
+                    response = JsonResponse(
+                        {"detail": "Backup in progress; retry the write shortly."}, status=503
+                    )
+                    response["Retry-After"] = "60"
+                    status = response.status_code
+                    return response
             response = self.get_response(request)
             status = response.status_code
             return response
         finally:
+            if backup_lock:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_advisory_unlock_shared(%s)", [BACKUP_WRITE_LOCK_ID]
+                        )
+                except DatabaseError:
+                    connection.close()
             match = getattr(request, "resolver_match", None)
             route = match.view_name if match and match.view_name else "unmatched"
             record_http_request(request.method, route, status, time.perf_counter() - started)

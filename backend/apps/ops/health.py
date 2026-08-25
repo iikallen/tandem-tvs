@@ -1,3 +1,5 @@
+import json
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -7,6 +9,8 @@ from django.core.cache import cache
 from django.db import connection
 
 from apps.publications.tasks import RECONCILIATION_HEARTBEAT_KEY
+
+MEDIA_INTEGRITY_STATE_FILE = ".tandem-media-integrity.json"
 
 
 def database_available() -> bool:
@@ -45,6 +49,39 @@ def celery_heartbeat_age() -> float | None:
         return max(0.0, time.time() - float(heartbeat)) if heartbeat else None
     except (TypeError, ValueError, OSError):
         return None
+
+
+def record_media_integrity_result(failures: int) -> None:
+    root = Path(settings.MEDIA_ROOT)
+    temporary = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="ascii",
+        dir=root,
+        prefix=f"{MEDIA_INTEGRITY_STATE_FILE}.",
+        delete=False,
+    )
+    try:
+        with temporary:
+            json.dump({"checked_at": time.time(), "failures": failures}, temporary)
+            temporary.write("\n")
+        os.replace(temporary.name, root / MEDIA_INTEGRITY_STATE_FILE)
+    except Exception:
+        Path(temporary.name).unlink(missing_ok=True)
+        raise
+
+
+def media_integrity_result() -> tuple[int, float]:
+    try:
+        state = json.loads(
+            (Path(settings.MEDIA_ROOT) / MEDIA_INTEGRITY_STATE_FILE).read_text(encoding="ascii")
+        )
+        failures = int(state["failures"])
+        age = max(0.0, time.time() - float(state["checked_at"]))
+        if failures < 0:
+            raise ValueError
+        return failures, age
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+        return -1, -1.0
 
 
 def dependency_status() -> dict[str, str]:

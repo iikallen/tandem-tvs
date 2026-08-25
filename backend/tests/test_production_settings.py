@@ -8,18 +8,18 @@ def production_environment(**overrides: str) -> dict[str, str]:
     environment = {
         **os.environ,
         "DJANGO_SETTINGS_MODULE": "config.settings.production",
-        "DJANGO_SECRET_KEY": "production-check-secret-with-enough-entropy",
-        "DJANGO_ALLOWED_HOSTS": "portal.example.com",
-        "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.com",
+        "DJANGO_SECRET_KEY": "9r!V2x#Q7m@L4p$W8s%Y3n^K6d&F1h*J5c+B0t-Z_e=U?i:Aq7#N",
+        "DJANGO_ALLOWED_HOSTS": "portal.company.kz",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.company.kz",
         "DATABASE_URL": "postgresql://check:safe-production-password@postgres:5432/check",
         "POSTGRES_PASSWORD": "safe-production-password",
         "REDIS_URL": "redis://redis:6379/0",
         "REALTIME_REDIS_URL": "redis://redis:6379/1",
-        "REALTIME_ALLOWED_ORIGINS": "https://portal.example.com",
+        "REALTIME_ALLOWED_ORIGINS": "https://portal.company.kz",
         "CELERY_BROKER_URL": "redis://redis:6379/2",
         "CELERY_RESULT_BACKEND": "redis://redis:6379/2",
         "AUTH_RECOVERY_MODE": "ADMIN_ONLY",
-        "AUTH_PUBLIC_BASE_URL": "https://portal.example.com",
+        "AUTH_PUBLIC_BASE_URL": "https://portal.company.kz",
         "PORTAL_ADAPTER": "unavailable",
         "ALLOW_BOOTSTRAP_LOCAL_ADMIN": "false",
         "STAGE6_DEMO_PASSWORD": "",
@@ -27,7 +27,8 @@ def production_environment(**overrides: str) -> dict[str, str]:
         "NOTIFICATION_EMAIL_ENABLED": "false",
         "APP_VERSION": "1.0.0",
         "APP_GIT_SHA": "a" * 40,
-        "OPS_MONITORING_TOKEN": "stage10-monitoring-token-32-chars",
+        "OPS_MONITORING_TOKEN": "N7q!2Vx#9Lm@4Rp$8Tz%6Wc&3Ky*5Hd+",
+        "CLOUDFLARE_TUNNEL_TOKEN": "eyJhbGciOiJIUzI1NiJ9.production.signature-token",
     }
     environment.update(overrides)
     return environment
@@ -99,15 +100,90 @@ def test_production_requires_an_isolated_celery_redis_database():
 def test_production_smtp_recovery_requires_absolute_https_public_url():
     environment = production_environment(
         AUTH_RECOVERY_MODE="SMTP",
-        AUTH_PUBLIC_BASE_URL="http://portal.example.com",
+        AUTH_PUBLIC_BASE_URL="http://portal.company.kz",
     )
     result = run_manage("check", environment=environment)
     assert result.returncode != 0
     assert "AUTH_PUBLIC_BASE_URL must be an absolute HTTPS URL" in result.stderr
 
-    environment["AUTH_PUBLIC_BASE_URL"] = "https://portal.example.com"
+    environment.update(
+        AUTH_PUBLIC_BASE_URL="https://portal.company.kz",
+        DEFAULT_FROM_EMAIL="tandem@company.kz",
+        EMAIL_HOST="smtp.internal.company.kz",
+    )
     result = run_manage("check", environment=environment)
     assert result.returncode == 0
+
+
+def test_production_rejects_unknown_recovery_mode():
+    result = run_manage(
+        "check",
+        environment=production_environment(AUTH_RECOVERY_MODE="DISABLED"),
+    )
+
+    assert result.returncode != 0
+    assert "AUTH_RECOVERY_MODE must be ADMIN_ONLY or SMTP" in result.stderr
+
+
+def test_production_requires_smtp_for_notification_email():
+    result = run_manage(
+        "check",
+        environment=production_environment(NOTIFICATION_EMAIL_ENABLED="true"),
+    )
+    assert result.returncode != 0
+    assert "DEFAULT_FROM_EMAIL is required in production" in result.stderr
+
+    result = run_manage(
+        "check",
+        environment=production_environment(
+            NOTIFICATION_EMAIL_ENABLED="true",
+            DEFAULT_FROM_EMAIL="tandem@company.kz",
+            EMAIL_HOST="smtp.internal.company.kz",
+        ),
+    )
+    assert result.returncode == 0
+
+
+def test_production_rejects_invalid_boolean_values():
+    for name in (
+        "ALLOW_BOOTSTRAP_LOCAL_ADMIN",
+        "API_DOCS_ENABLED",
+        "EMAIL_USE_TLS",
+        "NOTIFICATION_EMAIL_ENABLED",
+        "WEB_PUSH_ENABLED",
+    ):
+        result = run_manage("check", environment=production_environment(**{name: "tru"}))
+        assert result.returncode != 0
+        assert f"{name} must be true or false" in result.stderr
+
+
+def test_production_rejects_weak_or_placeholder_secrets():
+    for name, value in (
+        ("DJANGO_SECRET_KEY", "change-me"),
+        ("POSTGRES_PASSWORD", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        ("OPS_MONITORING_TOKEN", "placeholder-monitoring-token-123456789"),
+    ):
+        environment = production_environment(**{name: value})
+        if name == "POSTGRES_PASSWORD":
+            environment["DATABASE_URL"] = f"postgresql://check:{value}@postgres:5432/check"
+        result = run_manage("check", environment=environment)
+        assert result.returncode != 0
+        assert "weak or contains a placeholder value" in result.stderr
+
+
+def test_production_disables_forwarded_host_and_bounds_database_waits():
+    result = run_manage(
+        "shell",
+        "-c",
+        "from django.conf import settings; "
+        "print(settings.USE_X_FORWARDED_HOST, settings.DATABASES['default']['OPTIONS'])",
+        environment=production_environment(),
+    )
+
+    assert result.returncode == 0
+    assert "False" in result.stdout
+    assert "'connect_timeout': 5" in result.stdout
+    assert "statement_timeout=15000" in result.stdout
 
 
 def test_production_push_requires_complete_vapid_configuration():
@@ -121,7 +197,7 @@ def test_production_push_requires_complete_vapid_configuration():
     assert result.returncode != 0
     assert "VAPID_PRIVATE_KEY is required in production" in result.stderr
 
-    environment["VAPID_PRIVATE_KEY"] = "private"
+    environment["VAPID_PRIVATE_KEY"] = "M7v!2Pq#9Lx@4Rc$8Tz%6Wk&3Hy*5Nd+"
     result = run_manage("check", environment=environment)
     assert result.returncode == 0
 
@@ -142,6 +218,74 @@ def test_cloudflare_client_ip_is_trusted_only_on_dedicated_tunnel_network():
     nginx = (root / "frontend" / "infra" / "nginx.conf").read_text()
 
     assert "172.31.250.0/29" in compose
+    assert "172.31.251.0/29" in compose
     assert "172.31.250.0/29 1;" in nginx
     assert "172.16.0.0/12 1;" not in nginx
     assert "~^1:(.+)$ $1;" in nginx
+
+
+def test_proxy_headers_are_overwritten_and_uvicorn_trust_is_network_scoped():
+    root = Path(__file__).resolve().parents[2]
+    nginx = (root / "frontend" / "infra" / "nginx.conf").read_text()
+    dockerfile = (root / "backend" / "Dockerfile").read_text()
+
+    assert "$proxy_add_x_forwarded_for" not in nginx
+    assert "default $http_x_forwarded_proto" not in nginx
+    assert 'proxy_set_header X-Forwarded-Host "";' in nginx
+    assert 'proxy_set_header Forwarded "";' in nginx
+    assert "--forwarded-allow-ips=*" not in dockerfile
+    assert "--forwarded-allow-ips=127.0.0.1,172.31.251.0/29" in dockerfile
+
+
+def test_production_compose_activates_tunnel_and_bounds_logs():
+    root = Path(__file__).resolve().parents[2]
+    production = (root / "compose.prod.yaml").read_text()
+
+    assert "profiles: !reset []" in production
+    assert "tandem-tvs-postgres:${APP_GIT_SHA" in production
+    assert production.count("logging: *production-logging") == 8
+
+
+def test_acceptance_scripts_reject_optimized_python():
+    backend = Path(__file__).resolve().parents[1]
+    for script in ("check_production.py", "verify_stage10.py"):
+        result = subprocess.run(
+            [sys.executable, "-O", str(backend / "scripts" / script)],
+            cwd=backend,
+            env=production_environment(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0
+        assert "without Python optimization (-O)" in result.stderr
+
+
+def test_acceptance_scripts_use_explicit_production_checks():
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    preflight = (scripts / "check_production.py").read_text()
+    verifier = (scripts / "verify_stage10.py").read_text()
+
+    assert "assert " not in preflight
+    assert "assert " not in verifier
+    assert 'PRODUCTION_SETTINGS = "config.settings.production"' in verifier
+    assert "http.client.HTTPConnection" in verifier
+    assert '"--tag", "security", "--fail-level", "WARNING"' in preflight
+
+
+def test_production_preflight_uses_current_operator_secrets():
+    backend = Path(__file__).resolve().parents[1]
+    environment = production_environment()
+    environment.pop("DJANGO_SECRET_KEY")
+
+    result = subprocess.run(
+        [sys.executable, str(backend / "scripts" / "check_production.py")],
+        cwd=backend,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "DJANGO_SECRET_KEY is required in production" in result.stderr

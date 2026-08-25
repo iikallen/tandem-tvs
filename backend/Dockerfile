@@ -28,4 +28,4 @@ RUN mkdir -p /app/media \
 EXPOSE 8000
 USER app
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--ws-max-size", "512", "--no-access-log"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=127.0.0.1,172.31.251.0/29", "--ws-max-size", "512", "--no-access-log"]

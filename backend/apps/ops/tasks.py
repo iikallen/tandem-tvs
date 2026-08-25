@@ -13,6 +13,19 @@ from apps.notifications.models import (
 )
 from apps.realtime.models import RealtimeOutboxEvent
 
+CLEANUP_BATCH_SIZE = 500
+
+
+def _delete_in_batches(queryset) -> int:
+    deleted = 0
+    while primary_keys := list(
+        queryset.order_by("pk").values_list("pk", flat=True)[:CLEANUP_BATCH_SIZE]
+    ):
+        with transaction.atomic():
+            batch_size, _ = queryset.filter(pk__in=primary_keys).delete()
+        deleted += min(batch_size, len(primary_keys))
+    return deleted
+
 
 @shared_task(name="ops.cleanup-operational-data")
 def cleanup_operational_data() -> dict[str, int]:
@@ -41,8 +54,4 @@ def cleanup_operational_data() -> dict[str, int]:
             updated_at__lt=push_cutoff,
         ),
     }
-    with transaction.atomic():
-        result = {name: queryset.count() for name, queryset in querysets.items()}
-        for queryset in querysets.values():
-            queryset.delete()
-    return result
+    return {name: _delete_in_batches(queryset) for name, queryset in querysets.items()}

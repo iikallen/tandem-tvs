@@ -74,14 +74,20 @@ make prod      # полный Stage 2-10 release gate
 Development `compose.yaml` сам по себе не является production interface. Production всегда использует оба файла и явный env:
 
 ```sh
+prod_env=/run/secrets/tandem-production.env
+set -a
+. "$prod_env"
+set +a
+
+(cd backend && uv run python scripts/check_production.py)
 docker compose \
-  --env-file /run/secrets/tandem-production.env \
+  --env-file "$prod_env" \
   -f compose.yaml \
   -f compose.prod.yaml \
   config --quiet
 
 docker compose \
-  --env-file /run/secrets/tandem-production.env \
+  --env-file "$prod_env" \
   -f compose.yaml \
   -f compose.prod.yaml \
   up -d --build --wait

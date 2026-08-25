@@ -3,6 +3,7 @@ set -eu
 umask 077
 
 : "${RESTORE_DATABASE_URL:?RESTORE_DATABASE_URL is required}"
+: "${DATABASE_URL:?DATABASE_URL of the protected production database is required}"
 : "${BACKUP_DIR:?BACKUP_DIR is required}"
 : "${RESTORE_MEDIA_ROOT:?RESTORE_MEDIA_ROOT is required}"
 : "${RESTORE_CONFIRMATION:?Set RESTORE_CONFIRMATION=isolated-database}"
@@ -11,8 +12,23 @@ if [ "$RESTORE_CONFIRMATION" != "isolated-database" ]; then
     echo "Restore drill confirmation rejected" >&2
     exit 1
 fi
-if [ "${DATABASE_URL:-}" = "$RESTORE_DATABASE_URL" ]; then
-    echo "Refusing to restore into DATABASE_URL" >&2
+
+PSQL="${PSQL:-psql}"
+PG_RESTORE="${PG_RESTORE:-pg_restore}"
+UV="${UV:-uv}"
+
+database_identity() {
+    "$PSQL" -XAt --set=ON_ERROR_STOP=1 --dbname="$1" --command="SELECT concat_ws('|', inet_server_addr()::text, inet_server_port()::text, current_database(), (SELECT oid::text FROM pg_database WHERE datname = current_database()))"
+}
+
+if [ "$(database_identity "$DATABASE_URL")" = "$(database_identity "$RESTORE_DATABASE_URL")" ]; then
+    echo "Refusing to restore into the canonical production database identity" >&2
+    exit 1
+fi
+
+target_objects="$("$PSQL" -XAt --set=ON_ERROR_STOP=1 --dbname="$RESTORE_DATABASE_URL" --command="SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%'")"
+if [ "$target_objects" != "0" ]; then
+    echo "RESTORE_DATABASE_URL must identify a fresh empty database" >&2
     exit 1
 fi
 
@@ -27,12 +43,12 @@ fi
 mkdir -p -m 700 "$RESTORE_MEDIA_ROOT"
 
 echo "Restoring isolated PostgreSQL database"
-pg_restore --clean --if-exists --exit-on-error --no-owner --no-acl \
-    --dbname="$RESTORE_DATABASE_URL" "$backup_dir/database.dump"
+"$PG_RESTORE" --exit-on-error --no-owner --no-acl \
+    --dbname="$RESTORE_DATABASE_URL" <"$backup_dir/database.dump"
 
 echo "Restoring isolated protected media"
 tar -C "$RESTORE_MEDIA_ROOT" -xf "$backup_dir/media.tar"
 
 DATABASE_URL="$RESTORE_DATABASE_URL" MEDIA_ROOT="$RESTORE_MEDIA_ROOT" \
-    uv run --no-sync python manage.py verify_restored_state
+    "$UV" run --no-sync python manage.py verify_restored_state
 echo "Restore drill: PASS"

@@ -30,7 +30,8 @@ git tag --points-at HEAD
 
 `git status --short` must be empty. The SHA must equal the approved protected-main commit. Do not deploy a branch tip, dirty tree or mutable `latest` image.
 
-Create an operator-owned env file outside the repository, mode `0600`. It must define at least:
+Create an operator-owned, POSIX-shell-compatible `KEY=value` env file outside the repository,
+mode `0600`. Quote values that contain shell metacharacters. It must define at least:
 
 - `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`;
 - `DATABASE_URL`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`;
@@ -41,13 +42,21 @@ Create an operator-owned env file outside the repository, mode `0600`. It must d
 - `WEB_PUSH_ENABLED` and `NOTIFICATION_EMAIL_ENABLED` explicitly `true` or `false`;
 - `CLOUDFLARE_TUNNEL_TOKEN` for the named tunnel.
 
+If `AUTH_RECOVERY_MODE=SMTP` or `NOTIFICATION_EMAIL_ENABLED=true`, also set a real
+`DEFAULT_FROM_EMAIL`, `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USE_TLS=true|false` and either both or
+neither of `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD`. Placeholder, development and weak secret values
+are rejected before Compose starts.
+
 Production Compose fixes `AUTH_MODE=LOCAL_ONLY`, `PORTAL_ADAPTER=unavailable`, `ALLOW_BOOTSTRAP_LOCAL_ADMIN=false` and an empty demo password. Do not override those values.
 
 ## 2. Preflight without disclosing configuration
 
 ```sh
 prod_env=/run/secrets/tandem-production.env
-test "$(git rev-parse HEAD)" = "$(sed -n 's/^APP_GIT_SHA=//p' "$prod_env")"
+set -a
+. "$prod_env"
+set +a
+test "$(git rev-parse HEAD)" = "$APP_GIT_SHA"
 
 docker compose \
   --env-file "$prod_env" \
@@ -58,7 +67,11 @@ docker compose \
 make prod
 ```
 
-Do not run `docker compose config` without `--quiet` in a shared log because rendered environment may contain secrets. `make prod` must be green on the exact release candidate before deployment; the protected CI run remains the authoritative shared evidence.
+The exported operator values are intentional: `backend/scripts/check_production.py` validates the
+current deployment environment and does not substitute check-only secrets. Do not run
+`docker compose config` without `--quiet` in a shared log because rendered environment may contain
+secrets. `make prod` must be green on the exact release candidate before deployment; the protected
+CI run remains the authoritative shared evidence.
 
 Confirm free capacity before changing the service:
 
@@ -86,9 +99,12 @@ docker image inspect "tandem-tvs-backend:$(git rev-parse HEAD)" \
   --format '{{json .Config.Labels}}'
 docker image inspect "tandem-tvs-frontend:$(git rev-parse HEAD)" \
   --format '{{json .Config.Labels}}'
+docker image inspect "tandem-tvs-postgres:$(git rev-parse HEAD)" \
+  --format '{{json .RepoTags}}'
 ```
 
-Verify OCI version/revision labels and preserve both current and previous SHA-tagged images until the observation window ends.
+Verify backend/frontend OCI version/revision labels and the exact PostgreSQL SHA tag. Preserve all
+three current and previous SHA-tagged images until the observation window ends.
 
 ## 5. Start and migrate once
 
@@ -152,7 +168,12 @@ Use a non-admin employee plus least-privilege editorial and Messenger accounts:
 5. Open notifications and mark one read on a second device.
 6. Search RU and KZ terms across authorized sections; verify a private target is absent.
 7. Establish Messenger and notification WebSockets and reconnect once.
-8. Run `verify_media_integrity` and `backend/scripts/verify_stage10.py` inside the backend container.
+8. Run the production verifier inside the deployed backend container:
+
+   ```sh
+   docker compose --env-file "$prod_env" -f compose.yaml -f compose.prod.yaml \
+     exec -T backend uv run --no-sync python scripts/verify_stage10.py
+   ```
 
 Record actual IDs only in the private change record; do not put message bodies or tokens in shared evidence.
 
@@ -165,6 +186,12 @@ Record actual IDs only in the private change record; do not put message bodies o
 - A direct-origin attempt cannot bypass Access.
 
 Additional connectors on this same host do not prove host-level HA.
+
+The production overlay bounds PostgreSQL connection and statement waits, rotates every service's
+Docker JSON logs, and gives the backend container health probe a five-second timeout. The media
+writability check uses filesystem syscalls that Python cannot safely interrupt; Docker's external
+health timeout is the hard bound. Treat an unhealthy backend as a storage incident rather than
+waiting indefinitely on an in-process probe.
 
 ## 9. Accept or rollback
 

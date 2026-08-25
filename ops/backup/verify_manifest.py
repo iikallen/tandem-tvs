@@ -4,7 +4,7 @@ import hashlib
 import tarfile
 from pathlib import Path, PurePosixPath
 
-BACKUP_FILES = ("database.dump", "media.tar")
+BACKUP_FILES = ("database.dump", "media.tar", "source-evidence.txt")
 
 
 def digest(path: Path) -> str:
@@ -33,6 +33,32 @@ def verify(directory: Path) -> None:
     for name, expected in entries.items():
         if digest(directory / name) != expected:
             raise SystemExit(f"Checksum mismatch: {name}")
+
+    try:
+        evidence = dict(
+            line.split("=", 1)
+            for line in (directory / "source-evidence.txt")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        )
+    except ValueError as exc:
+        raise SystemExit("Backup source evidence is invalid") from exc
+    required = {
+        "database_identity",
+        "postgres_data_root",
+        "postgres_data_device",
+        "media_root",
+        "media_device",
+        "backup_root",
+        "backup_device",
+    }
+    if set(evidence) != required or not all(evidence.values()):
+        raise SystemExit("Backup source evidence is incomplete")
+    if evidence["backup_device"] in {
+        evidence["postgres_data_device"],
+        evidence["media_device"],
+    }:
+        raise SystemExit("Backup source evidence has a shared failure domain")
 
 
 def verify_archive(directory: Path) -> None:

@@ -16,7 +16,7 @@ Celery Beat runs `ops.cleanup-operational-data` daily. Current defaults:
 
 Settings: `OPS_REALTIME_OUTBOX_RETENTION_DAYS`, `OPS_NOTIFICATION_OUTBOX_RETENTION_DAYS`, `OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS`, `OPS_DISABLED_PUSH_RETENTION_DAYS`. A production change to them requires a reviewed PR and change record.
 
-Cleanup counts rows before deletion and deletes all selected sets in one database transaction. Alerts on oldest pending rows remain independent; cleanup never hides a pending backlog by deleting it.
+Cleanup walks each eligible queryset in ordered primary-key batches of 500. Every batch commits separately, bounding row locks and transaction/WAL growth; alerts on oldest pending rows remain independent and cleanup never hides a pending backlog by deleting it.
 
 ## Never automatically removed without customer policy
 

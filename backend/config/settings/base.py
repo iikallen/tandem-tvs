@@ -2,9 +2,19 @@ import os
 from pathlib import Path
 from urllib.parse import parse_qsl, unquote, urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parents[2]
 APP_VERSION = os.getenv("APP_VERSION", "development")
 APP_GIT_SHA = os.getenv("APP_GIT_SHA", "unknown")
+
+
+def environment_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name, str(default)).strip().casefold()
+    if raw_value not in {"true", "false"}:
+        raise ImproperlyConfigured(f"{name} must be true or false")
+    return raw_value == "true"
+
 
 SECRET_KEY: str = "development-only-not-for-production"
 DEBUG: bool = False
@@ -183,7 +193,7 @@ AUTH_RESET_ACCOUNT_LIMIT = int(os.getenv("AUTH_RESET_ACCOUNT_LIMIT", "3"))
 AUTH_RESET_IP_LIMIT = int(os.getenv("AUTH_RESET_IP_LIMIT", "10"))
 AUTH_RESET_WINDOW_SECONDS = int(os.getenv("AUTH_RESET_WINDOW_SECONDS", "900"))
 STAGE6_DEMO_PASSWORD = os.getenv("STAGE6_DEMO_PASSWORD", "")
-ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "true").lower() == "true"
+ALLOW_BOOTSTRAP_LOCAL_ADMIN = environment_bool("ALLOW_BOOTSTRAP_LOCAL_ADMIN", True)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 128 * 1024
 MEDIA_ROOT = Path(os.getenv("MEDIA_ROOT", BASE_DIR / "media"))
 MEDIA_URL = "/_protected_media/"
@@ -254,7 +264,7 @@ REALTIME_MAX_CLIENT_FRAMES_PER_SECOND = int(
     os.getenv("REALTIME_MAX_CLIENT_FRAMES_PER_SECOND", "30")
 )
 
-WEB_PUSH_ENABLED = os.getenv("WEB_PUSH_ENABLED", "false").lower() == "true"
+WEB_PUSH_ENABLED = environment_bool("WEB_PUSH_ENABLED", False)
 WEB_PUSH_ALLOWED_HOST_SUFFIXES = tuple(
     value.strip().casefold()
     for value in os.getenv(
@@ -267,7 +277,7 @@ WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER = int(os.getenv("WEB_PUSH_MAX_SUBSCRIPTIONS_
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:security@example.invalid")
-NOTIFICATION_EMAIL_ENABLED = os.getenv("NOTIFICATION_EMAIL_ENABLED", "false").lower() == "true"
+NOTIFICATION_EMAIL_ENABLED = environment_bool("NOTIFICATION_EMAIL_ENABLED", False)
 NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS = int(
     os.getenv("NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS", "24")
 )
@@ -277,7 +287,7 @@ EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "25"))
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
-EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "false").lower() == "true"
+EMAIL_USE_TLS = environment_bool("EMAIL_USE_TLS", False)
 EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 REALTIME_SOCKET_LEASE_SECONDS = REALTIME_SOCKET_LIFETIME_SECONDS + 30
 REALTIME_ALLOWED_ORIGINS = [
@@ -312,7 +322,7 @@ SPECTACULAR_SETTINGS = {
     "SERVE_AUTHENTICATION": ["rest_framework.authentication.SessionAuthentication"],
     "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
 }
-API_DOCS_ENABLED = os.getenv("API_DOCS_ENABLED", "false").lower() == "true"
+API_DOCS_ENABLED = environment_bool("API_DOCS_ENABLED", False)
 
 PORTAL_ADAPTER: str = "unavailable"
 ALLOW_MOCK_PORTAL_ADAPTER: bool = False

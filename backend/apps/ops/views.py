@@ -1,4 +1,3 @@
-from django.core.cache import cache
 from django.db.models import Min
 from django.http import HttpResponse
 from django.utils import timezone
@@ -10,7 +9,7 @@ from apps.notifications.models import NotificationDelivery, NotificationFanoutEv
 from apps.realtime.models import RealtimeOutboxEvent
 from apps.realtime.socket_leases import total_active_socket_count
 
-from .health import celery_heartbeat_age, dependency_status
+from .health import celery_heartbeat_age, dependency_status, media_integrity_result
 from .metrics import render_http_metrics
 from .permissions import HasOpsToken
 
@@ -35,8 +34,24 @@ def _pending_stats(queryset) -> tuple[int, float]:
     return queryset.count(), age
 
 
-def _operational_metrics() -> list[str]:
+def _dependency_metrics() -> list[str]:
     dependencies = dependency_status()
+    integrity_failures, integrity_age = media_integrity_result()
+    return [
+        "# TYPE tandem_postgres_up gauge",
+        f"tandem_postgres_up {int(dependencies['postgres'] == 'ok')}",
+        "# TYPE tandem_redis_up gauge",
+        f"tandem_redis_up {int(dependencies['redis'] == 'ok')}",
+        "# TYPE tandem_media_up gauge",
+        f"tandem_media_up {int(dependencies['media'] == 'ok')}",
+        "# TYPE tandem_media_integrity_failures gauge",
+        f"tandem_media_integrity_failures {integrity_failures}",
+        "# TYPE tandem_media_integrity_last_check_age_seconds gauge",
+        f"tandem_media_integrity_last_check_age_seconds {integrity_age:.3f}",
+    ]
+
+
+def _operational_metrics() -> list[str]:
     realtime_count, realtime_age = _pending_stats(
         RealtimeOutboxEvent.objects.filter(delivered_at__isnull=True)
     )
@@ -49,20 +64,10 @@ def _operational_metrics() -> list[str]:
     heartbeat_age = celery_heartbeat_age()
     heartbeat_metric = heartbeat_age if heartbeat_age is not None else -1
     try:
-        integrity_failures = int(cache.get("tandem:ops:media-integrity-failures") or 0)
-    except (TypeError, ValueError, OSError):
-        integrity_failures = 0
-    try:
         sockets = total_active_socket_count()
     except Exception:
         sockets = 0
     return [
-        "# TYPE tandem_postgres_up gauge",
-        f"tandem_postgres_up {int(dependencies['postgres'] == 'ok')}",
-        "# TYPE tandem_redis_up gauge",
-        f"tandem_redis_up {int(dependencies['redis'] == 'ok')}",
-        "# TYPE tandem_media_up gauge",
-        f"tandem_media_up {int(dependencies['media'] == 'ok')}",
         "# TYPE tandem_active_realtime_sockets gauge",
         f"tandem_active_realtime_sockets {sockets}",
         "# TYPE tandem_realtime_outbox_pending gauge",
@@ -77,16 +82,22 @@ def _operational_metrics() -> list[str]:
         f"tandem_notification_delivery_pending {delivery_count}",
         "# TYPE tandem_celery_heartbeat_age_seconds gauge",
         f"tandem_celery_heartbeat_age_seconds {heartbeat_metric:.3f}",
-        "# TYPE tandem_media_integrity_failures gauge",
-        f"tandem_media_integrity_failures {integrity_failures}",
     ]
 
 
 class MetricsView(InternalOpsView):
     @extend_schema(exclude=True)
     def get(self, request):
+        lines = [*render_http_metrics(), *_dependency_metrics()]
         try:
-            lines = [*render_http_metrics(), *_operational_metrics()]
+            lines.extend(_operational_metrics())
+            collection_error = 0
         except Exception:
-            lines = [*render_http_metrics(), "tandem_metrics_collection_error 1"]
+            collection_error = 1
+        lines.extend(
+            [
+                "# TYPE tandem_metrics_collection_error gauge",
+                f"tandem_metrics_collection_error {collection_error}",
+            ]
+        )
         return HttpResponse("\n".join(lines) + "\n", content_type="text/plain; version=0.0.4")

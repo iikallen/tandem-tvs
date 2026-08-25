@@ -61,6 +61,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
+      TANDEM_ENVIRONMENT_PURPOSE: ${TANDEM_ENVIRONMENT_PURPOSE:-}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
@@ -111,6 +112,9 @@ services:
       - /tmp:uid=10001,gid=10001,mode=0700
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
+    networks:
+      - default
+      - backend-proxy
     restart: unless-stopped
 
   celery-worker:
@@ -249,7 +253,7 @@ services:
     cap_add: ["NET_BIND_SERVICE"]
     security_opt: ["no-new-privileges:true"]
     networks:
-      - default
+      - backend-proxy
       - tunnel-edge
     restart: unless-stopped
 
@@ -272,6 +276,10 @@ volumes:
   media-data:
 
 networks:
+  backend-proxy:
+    ipam:
+      config:
+        - subnet: 172.31.251.0/29
   tunnel-edge:
     ipam:
       config:

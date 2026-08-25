@@ -9,9 +9,10 @@ Current acceptance state: backup tool `PENDING`, full isolated restore drill `PE
 - `BACKUP_ROOT` is a dedicated corporate backup mount, not the PostgreSQL or media volume and not nested inside either path.
 - Backup directory permissions are `0700`; created files inherit `umask 077`.
 - The PostgreSQL URL comes from the secret store and is never printed.
-- A complete backup contains `database.dump`, `media.tar`, `SHA256SUMS` and `created-at.txt`.
+- A complete backup contains `database.dump`, `media.tar`, `source-evidence.txt`, `SHA256SUMS` and `created-at.txt`.
 - A backup is not accepted until checksum verification and an isolated restore succeed.
-- `restore-drill.sh` refuses the live `DATABASE_URL`, requires `RESTORE_CONFIRMATION=isolated-database` and an empty media target.
+- `backup.sh` serializes runs and holds the application's PostgreSQL advisory write lock across both archives. Normal HTTP writes return `503` while the lock is held; do not run media-mutating management commands during the backup window.
+- `restore-drill.sh` compares the actual source/target server and database identity, requires `RESTORE_CONFIRMATION=isolated-database`, a fresh database with no user objects and an empty media target. It never runs `pg_restore --clean`.
 - Orphan media is reported, never automatically deleted.
 
 ## Daily backup
@@ -27,6 +28,7 @@ The `SOURCE` values must differ. A different directory on the same application d
 
 ```sh
 export DATABASE_URL='<from-secret-store>'
+export POSTGRES_DATA_ROOT='/var/lib/postgresql/data' # mounted read-only is sufficient
 export MEDIA_ROOT='/srv/tandem-media'
 export BACKUP_ROOT='/srv/tandem-backups'
 
@@ -43,7 +45,7 @@ pg_restore --list /srv/tandem-backups/<UTC-directory>/database.dump >/dev/null
 tar -tf /srv/tandem-backups/<UTC-directory>/media.tar >/dev/null
 ```
 
-The manifest verifier also rejects unsafe tar members. Treat any checksum/archive error as a failed backup and alert; do not delete the previous good copy.
+The manifest verifier also rejects unsafe tar members and missing/inconsistent source evidence. `source-evidence.txt` records the canonical database identity plus resolved PostgreSQL, media and backup mount/device markers; the script fails unless the backup target is outside both source failure domains. Treat any checksum/archive error as a failed backup and alert; do not delete the previous good copy.
 
 ## Scheduling and retention
 
@@ -60,7 +62,7 @@ Delete an expired backup set only after a newer set has passed the isolated rest
 
 ## Isolated restore drill
 
-Provision a fresh, non-production PostgreSQL database and an empty media directory. The restore identity may create/clean objects in that database only.
+Provision a fresh, non-production PostgreSQL database and an empty media directory. Keep the production `DATABASE_URL` available for the canonical identity guard. The restore identity may create objects in that isolated database only; the drill refuses any existing user object rather than cleaning it.
 
 ```sh
 export BACKUP_DIR='/srv/tandem-backups/<UTC-directory>'

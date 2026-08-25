@@ -8,7 +8,7 @@ Required outcome: a restrictive daily backup of PostgreSQL and protected media o
 | --- | --- |
 | Backup UTC directory and sizes | `PENDING` |
 | Corporate mount separate from data volumes | `PENDING` |
-| Manifest/archive verification | `PENDING` |
+| Manifest/archive/source-failure-domain verification | `PENDING` |
 | Fresh isolated restore target | `PENDING` |
 | Restore duration and verifier output | `PENDING` |
 | Product smoke after restore | `PENDING` |

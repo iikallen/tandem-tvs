@@ -27,6 +27,8 @@ Keep the ops token in the secret store and Prometheus authorization configuratio
 | `tandem_notification_delivery_pending` | Pending external-delivery attempts. |
 | `tandem_celery_heartbeat_age_seconds` | Reconciliation heartbeat age; `-1` means absent. |
 | `tandem_media_integrity_failures` | Last media verifier failure count. |
+| `tandem_media_integrity_last_check_age_seconds` | Age of the durable verifier result; `-1` means absent/invalid. |
+| `tandem_metrics_collection_error` | `1` when non-dependency operational queries failed during the scrape. |
 
 Forbidden labels/payloads: user, message, conversation, publication, notification or file IDs; username/email/IP; message/comment text; filenames; passwords; cookies/CSRF/session tokens; VAPID keys/subscription endpoints; database/Redis URLs. Application logs, authentication security events and business audit are separate sources and must not be merged into a mutable audit substitute.
 
@@ -43,7 +45,10 @@ Authoritative rules: `ops/prometheus/alerts.yml`.
 | `TandemCeleryHeartbeatMissing` | absent/>60 s for 2 min | Check beat, worker, broker and reconciliation logs. |
 | `TandemPostgresUnavailable` | down for 1 min | Treat as critical; stop unsafe deploys/writes and recover DB. |
 | `TandemRedisUnavailable` | down for 2 min | Degraded realtime/background state; DB REST may continue. |
-| `TandemMediaIntegrityFailure` | storage down or failures >0 for 1 min | Freeze media mutations if needed; inspect filesystem and latest backup. |
+| `TandemMediaIntegrityFailure` | storage down or durable result nonzero/absent for 1 min | Freeze media mutations if needed; inspect filesystem and latest backup. |
+| `TandemMediaIntegrityCheckStale` | absent/>25 h for 5 min | Run the verifier and inspect its scheduler/storage access. |
+| `TandemMetricsMissing` | dependency/error gauge absent for 2 min | Check the Prometheus target, token, route and application. |
+| `TandemMetricsCollectionFailure` | collection error for 2 min | Inspect PostgreSQL backlog queries and application logs. |
 
 Route, on-call receiver, notification channel and maintenance silences are customer configuration. Test every rule against a non-production Prometheus before release; current firing/routing evidence is `PENDING`.
 
@@ -62,7 +67,7 @@ The application intentionally does not implement host/PostgreSQL exporters. Reus
 
 ## Routine operator checks
 
-Daily: alert state, backup job, PostgreSQL/media capacity, oldest backlogs, heartbeat and media verifier. Weekly: trend p95/error rate/storage growth and review disabled/failed delivery causes. Monthly: isolated restore drill according to customer policy, fault exercise, access review for platform/admin/monitoring credentials and SLO report.
+Daily: alert state, backup job, PostgreSQL/media capacity, oldest backlogs, heartbeat and `verify_media_integrity` (schedule it at least once per 24 hours). Its result and timestamp are atomically persisted under `MEDIA_ROOT`, not Redis. Weekly: trend p95/error rate/storage growth and review disabled/failed delivery causes. Monthly: isolated restore drill according to customer policy, fault exercise, access review for platform/admin/monitoring credentials and SLO report.
 
 ## 99% availability SLO
 
