@@ -283,6 +283,7 @@ def test_production_compose_activates_tunnel_and_bounds_logs():
 
     assert "profiles: !reset []" in production
     assert "tandem-tvs-postgres:${APP_GIT_SHA" in production
+    assert "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}" in production
     assert production.count("logging: *production-logging") == 8
 
 
