@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 
 def production_environment(**overrides: str) -> dict[str, str]:
@@ -66,7 +67,7 @@ def test_production_settings_load_with_complete_operator_configuration(monkeypat
             "options": "-c statement_timeout=15000",
         }
         assert production.DATABASES["default"]["CONN_MAX_AGE"] == 0
-        channel_host = production.CHANNEL_LAYERS["default"]["CONFIG"]["hosts"][0]
+        channel_host = cast(Any, production.CHANNEL_LAYERS)["default"]["CONFIG"]["hosts"][0]
         assert channel_host["socket_connect_timeout"] == 1
         assert "socket_timeout" not in channel_host
         assert production.REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"] == [
