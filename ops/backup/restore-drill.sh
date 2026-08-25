@@ -62,7 +62,11 @@ if [ -n "${RESTORE_MEDIA_OWNER:-}" ]; then
         echo "RESTORE_MEDIA_OWNER must be a numeric uid:gid" >&2
         exit 1
     fi
-    chown -R "$RESTORE_MEDIA_OWNER" "$RESTORE_MEDIA_ROOT"
+    if [ "${RESTORE_MEDIA_CHOWN_WITH_SUDO:-0}" = "1" ]; then
+        sudo -n chown -R "$RESTORE_MEDIA_OWNER" "$RESTORE_MEDIA_ROOT"
+    else
+        chown -R "$RESTORE_MEDIA_OWNER" "$RESTORE_MEDIA_ROOT"
+    fi
 fi
 
 DATABASE_URL="$RESTORE_DATABASE_URL" MEDIA_ROOT="$RESTORE_MEDIA_ROOT" \

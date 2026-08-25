@@ -14,6 +14,12 @@ nonempty_db="stage10_nonempty_$$"
 compose_file="$root_dir/compose.yaml"
 postgres_user=""
 PYTHON="${PYTHON:-python3}"
+restore_media_owner=""
+restore_media_chown_with_sudo=0
+if command -v sudo >/dev/null 2>&1; then
+    restore_media_owner=10001:10001
+    restore_media_chown_with_sudo=1
+fi
 
 cleanup() {
     if [ -n "$postgres_user" ]; then
@@ -115,7 +121,8 @@ if (
         RESTORE_DATABASE_URL="$production_url" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
-        RESTORE_MEDIA_OWNER=10001:10001 \
+        RESTORE_MEDIA_OWNER="$restore_media_owner" \
+        RESTORE_MEDIA_CHOWN_WITH_SUDO="$restore_media_chown_with_sudo" \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh
@@ -130,7 +137,8 @@ if (
         RESTORE_DATABASE_URL="$database_url_prefix/$nonempty_db" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
-        RESTORE_MEDIA_OWNER=10001:10001 \
+        RESTORE_MEDIA_OWNER="$restore_media_owner" \
+        RESTORE_MEDIA_CHOWN_WITH_SUDO="$restore_media_chown_with_sudo" \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh
@@ -145,7 +153,8 @@ fi
         RESTORE_DATABASE_URL="$database_url_prefix/$restore_db" \
         BACKUP_DIR="$backup_dir" \
         RESTORE_MEDIA_ROOT="$restore_media" \
-        RESTORE_MEDIA_OWNER=10001:10001 \
+        RESTORE_MEDIA_OWNER="$restore_media_owner" \
+        RESTORE_MEDIA_CHOWN_WITH_SUDO="$restore_media_chown_with_sudo" \
         RESTORE_CONFIRMATION=isolated-database \
         PSQL="$wrapper_dir/psql" PG_RESTORE="$wrapper_dir/pg_restore" UV="$wrapper_dir/uv" \
         ../ops/backup/restore-drill.sh
