@@ -8,6 +8,10 @@ import {
   requestParams,
 } from "./auth.js";
 
+const thinkSeconds = Number(
+  __ENV.THINK_SECONDS || (__ENV.PROFILE === "smoke" ? "1" : "10"),
+);
+
 export function messenger() {
   ensureAuthenticated();
   const conversation = firstConversation();
@@ -27,7 +31,7 @@ export function messenger() {
   check(notifications, {
     "notifications loaded": (response) => response.status === 200,
   });
-  sleep(1);
+  sleep(thinkSeconds);
 }
 
 export default messenger;

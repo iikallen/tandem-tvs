@@ -15,5 +15,8 @@ BASE_URL=https://tandem.example TANDEM_LOAD_PASSWORD='<secret>' k6 run load/k6/w
 authenticated sockets, each held for 900 seconds; its 895-second p95 threshold allows five seconds
 of scheduler/close-observation tolerance while still proving the required 15-minute hold.
 
+The full HTTP profile uses a 10-second think time between complete user journeys; smoke uses one
+second. Override `THINK_SECONDS` only for an explicitly documented diagnostic run.
+
 Set `WS_BASE_URL` only when the WebSocket origin differs from `BASE_URL`. `LOAD_USER_COUNT` and
 `LOAD_USER_OFFSET` select disjoint `load-NNNN` account ranges for distributed runners.
