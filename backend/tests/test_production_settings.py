@@ -175,6 +175,48 @@ def test_production_smtp_recovery_requires_absolute_https_public_url():
     assert result.returncode == 0
 
 
+def test_production_push_requires_complete_vapid_configuration():
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.production",
+        "DJANGO_SECRET_KEY": "test-only-production-check",
+        "DJANGO_ALLOWED_HOSTS": "portal.example.invalid",
+        "DJANGO_CSRF_TRUSTED_ORIGINS": "https://portal.example.invalid",
+        "DATABASE_URL": "postgresql://check:check@postgres:5432/check",
+        "REDIS_URL": "redis://redis:6379/0",
+        "REALTIME_REDIS_URL": "redis://redis:6379/1",
+        "REALTIME_ALLOWED_ORIGINS": "https://portal.example.invalid",
+        "CELERY_BROKER_URL": "redis://redis:6379/2",
+        "CELERY_RESULT_BACKEND": "redis://redis:6379/2",
+        "PORTAL_ADAPTER": "unavailable",
+        "WEB_PUSH_ENABLED": "true",
+        "VAPID_PUBLIC_KEY": "public",
+        "VAPID_PRIVATE_KEY": "",
+        "VAPID_SUBJECT": "mailto:security@example.invalid",
+    }
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "VAPID_PRIVATE_KEY is required in production" in result.stderr
+
+    environment["VAPID_PRIVATE_KEY"] = "private"
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+
+
 def test_compose_celery_healthchecks_are_targeted_and_heartbeat_based():
     compose = (Path(__file__).resolve().parents[2] / "compose.yaml").read_text()
 

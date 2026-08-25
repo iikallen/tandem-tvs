@@ -13,10 +13,12 @@ class Conversation(models.Model):
     class Type(models.TextChoices):
         DIRECT = "DIRECT", "Direct"
         GROUP = "GROUP", "Group"
+        CHANNEL = "CHANNEL", "Channel"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     type = models.CharField(max_length=8, choices=Type)
     title = models.CharField(max_length=255, blank=True)
+    discussion_enabled = models.BooleanField(default=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -71,7 +73,13 @@ class DirectConversationPair(models.Model):
 class ConversationMembership(models.Model):
     class Role(models.TextChoices):
         MEMBER = "MEMBER", "Member"
+        WRITER = "WRITER", "Writer"
         ADMIN = "ADMIN", "Admin"
+
+    class NotificationMode(models.TextChoices):
+        ALL = "ALL", "All"
+        MENTIONS = "MENTIONS", "Mentions"
+        NONE = "NONE", "None"
 
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="memberships"
@@ -93,6 +101,9 @@ class ConversationMembership(models.Model):
     is_archived = models.BooleanField(default=False)
     pinned_at = models.DateTimeField(null=True, blank=True)
     muted_until = models.DateTimeField(null=True, blank=True)
+    notification_mode = models.CharField(
+        max_length=8, choices=NotificationMode, default=NotificationMode.ALL
+    )
     draft_body = models.TextField(blank=True)
     draft_updated_at = models.DateTimeField(null=True, blank=True)
 
@@ -127,6 +138,11 @@ class ConversationMembership(models.Model):
 
 
 class Message(models.Model):
+    class Kind(models.TextChoices):
+        CHAT = "CHAT", "Chat message"
+        CHANNEL_POST = "CHANNEL_POST", "Channel post"
+        DISCUSSION = "DISCUSSION", "Discussion"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="messages"
@@ -139,6 +155,8 @@ class Message(models.Model):
         related_name="messenger_messages",
     )
     body = models.TextField()
+    kind = models.CharField(max_length=16, choices=Kind, default=Kind.CHAT)
+    mention_all = models.BooleanField(default=False)
     request_fingerprint = models.CharField(max_length=64)
     reply_to = models.ForeignKey(
         "self",
@@ -155,7 +173,8 @@ class Message(models.Model):
     class Meta:
         ordering = ["sequence"]
         indexes = [
-            GinIndex(SearchVector("body", config="simple"), name="messenger_message_fts_idx")
+            GinIndex(SearchVector("body", config="russian"), name="msg_search_ru_idx"),
+            GinIndex(SearchVector("body", config="tandem_kazakh"), name="msg_search_kk_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -169,6 +188,26 @@ class Message(models.Model):
 
     def __str__(self) -> str:
         return f"{self.conversation.pk}#{self.sequence}"
+
+
+class MessageMention(models.Model):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="mentions")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="message_mentions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["message", "user"], name="messenger_message_mention_unique"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.message.pk}:{self.user.pk}"
 
 
 class MessageRevisionQuerySet(models.QuerySet):

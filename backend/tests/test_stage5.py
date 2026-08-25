@@ -14,7 +14,6 @@ from apps.discussions.models import (
     CommentRestriction,
     EngagementSettings,
     ModerationFlag,
-    Notification,
     Reaction,
     StopWord,
 )
@@ -28,6 +27,8 @@ from apps.discussions.services import (
     update_comment,
 )
 from apps.identity.models import User
+from apps.notifications.models import Notification
+from apps.notifications.services import dispatch_pending_fanout
 from apps.organization.models import OrgUnit
 from apps.publications.engagement import (
     acknowledge,
@@ -171,7 +172,8 @@ def test_threads_mentions_attachments_notifications_stop_words_and_policy(stage5
     assert CommentMention.objects.filter(comment_id=root_id).count() == 1
     assert CommentAttachment.objects.filter(comment_id=root_id).count() == 1
     assert ModerationFlag.objects.filter(comment_id=root_id).count() == 1
-    notification = Notification.objects.get(recipient__portal_id="admin-1", comment_id=root_id)
+    dispatch_pending_fanout()
+    notification = Notification.objects.get(recipient__portal_id="admin-1", source_id=root_id)
     assert str(notification).endswith("COMMENT_MENTION")
 
     reply = call(
@@ -192,11 +194,12 @@ def test_threads_mentions_attachments_notifications_stop_words_and_policy(stage5
         {"body": "Ответ на ответ", "reply_to": reply.data["id"], "mentions": ["editor-1"]},
     )
     assert nested.status_code == 201
+    dispatch_pending_fanout()
     assert nested.data["thread_root"] == root_id
     assert nested.data["reply_to"] == reply.data["id"]
     assert (
         Notification.objects.filter(
-            comment_id=nested.data["id"], recipient__portal_id="editor-1"
+            source_id=nested.data["id"], recipient__portal_id="editor-1"
         ).count()
         == 1
     )

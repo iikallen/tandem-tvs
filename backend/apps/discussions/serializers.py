@@ -14,7 +14,6 @@ from .models import (
     Comment,
     CommentReport,
     EngagementSettings,
-    Notification,
     Reaction,
     StopWord,
 )
@@ -168,9 +167,16 @@ class RealtimeTicketSerializer(serializers.Serializer):
             )
         if attrs["scope"] == RealtimeScope.NEWS_PUBLICATION and "publication_id" not in attrs:
             raise serializers.ValidationError({"publication_id": "This field is required."})
-        if attrs["scope"] == RealtimeScope.MESSENGER and "publication_id" in attrs:
+        if (
+            attrs["scope"]
+            in {
+                RealtimeScope.MESSENGER,
+                RealtimeScope.NOTIFICATIONS,
+            }
+            and "publication_id" in attrs
+        ):
             raise serializers.ValidationError(
-                {"publication_id": "Messenger tickets are not resource-scoped."}
+                {"publication_id": "This realtime scope is not resource-scoped."}
             )
         return attrs
 
@@ -227,19 +233,3 @@ class EngagementSettingsSerializer(serializers.ModelSerializer):
 
     def get_stop_words(self, _obj):
         return StopWordSerializer(StopWord.objects.all(), many=True).data
-
-
-class NotificationSerializer(serializers.ModelSerializer):
-    actor = UserSummarySerializer(read_only=True)
-
-    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
-        model = Notification
-        fields = [
-            "id",
-            "notification_type",
-            "actor",
-            "publication_id",
-            "comment_id",
-            "created_at",
-            "read_at",
-        ]

@@ -1,9 +1,14 @@
+import re
+import uuid
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Q
 from rest_framework import serializers
 
 from apps.identity.models import User
+from apps.publications.models import Publication
 from apps.publications.serializers import MediaAssetSerializer
 
 from .models import (
@@ -44,6 +49,7 @@ class MembershipSerializer(serializers.ModelSerializer):
             "delivered_at",
             "last_read_sequence",
             "read_at",
+            "notification_mode",
         ]
 
     def get_is_active(self, membership: ConversationMembership) -> bool:
@@ -73,6 +79,11 @@ class MessageWriteSerializer(serializers.Serializer):
         child=serializers.UUIDField(), required=False, max_length=10
     )
     forward_message_id = serializers.UUIDField(required=False, allow_null=True)
+    kind = serializers.ChoiceField(choices=Message.Kind.choices, default=Message.Kind.CHAT)
+    mentioned_user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, max_length=200
+    )
+    mention_all = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         allowed = {
@@ -81,6 +92,9 @@ class MessageWriteSerializer(serializers.Serializer):
             "reply_to_id",
             "attachment_ids",
             "forward_message_id",
+            "kind",
+            "mentioned_user_ids",
+            "mention_all",
         }
         unexpected = set(self.initial_data) - allowed
         if unexpected:
@@ -101,6 +115,15 @@ class MessageWriteSerializer(serializers.Serializer):
         attachment_ids = attrs.get("attachment_ids", [])
         if len(attachment_ids) != len(set(attachment_ids)):
             raise serializers.ValidationError({"attachment_ids": "Attachments must be unique."})
+        mentioned_user_ids = attrs.get("mentioned_user_ids", [])
+        if len(mentioned_user_ids) != len(set(mentioned_user_ids)):
+            raise serializers.ValidationError(
+                {"mentioned_user_ids": "Mentioned users must be unique."}
+            )
+        if attrs.get("mention_all") and mentioned_user_ids:
+            raise serializers.ValidationError(
+                {"mentioned_user_ids": "Use either mention_all or explicit mentions."}
+            )
         return attrs
 
 
@@ -122,6 +145,7 @@ class MessageSerializer(serializers.ModelSerializer):
     attachments = serializers.SerializerMethodField()
     reactions = serializers.SerializerMethodField()
     receipt = serializers.SerializerMethodField()
+    resource_preview = serializers.SerializerMethodField()
 
     class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
         model = Message
@@ -131,6 +155,8 @@ class MessageSerializer(serializers.ModelSerializer):
             "client_message_id",
             "author",
             "body",
+            "kind",
+            "mention_all",
             "reply_to",
             "forwarded_snapshot",
             "attachments",
@@ -139,6 +165,7 @@ class MessageSerializer(serializers.ModelSerializer):
             "deleted_at",
             "created_at",
             "receipt",
+            "resource_preview",
         ]
 
     def get_attachments(self, message: Message):
@@ -201,6 +228,36 @@ class MessageSerializer(serializers.ModelSerializer):
             payload["read"] = read_count == 1
         return payload
 
+    def get_resource_preview(self, message: Message):
+        if message.deleted_at or not message.body:
+            return None
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if request is None or user is None:
+            return None
+        for candidate in re.findall(r"(?:https?://[^\s]+|/news/[^\s]+)", message.body):
+            parsed = urlsplit(candidate)
+            if parsed.netloc and parsed.netloc != request.get_host():
+                continue
+            match = re.fullmatch(r"/news/([^/?#]+)", parsed.path)
+            if not match:
+                continue
+            key = match.group(1)
+            lookup = Q(slug=key)
+            try:
+                lookup |= Q(pk=uuid.UUID(key))
+            except ValueError:
+                pass
+            publication = Publication.objects.visible_to(user).filter(lookup).first()
+            if publication is not None:
+                return {
+                    "type": "publication",
+                    "id": str(publication.pk),
+                    "title": publication.title,
+                    "url": f"/news/{publication.pk}",
+                }
+        return None
+
 
 class MessagePreviewSerializer(serializers.ModelSerializer):
     author_id = serializers.IntegerField(read_only=True)
@@ -236,6 +293,7 @@ class ConversationSummarySerializer(serializers.ModelSerializer):
             "id",
             "type",
             "title",
+            "discussion_enabled",
             "peer",
             "member_count",
             "last_message",
@@ -281,6 +339,7 @@ class ConversationSummarySerializer(serializers.ModelSerializer):
             "is_archived": current.is_archived,
             "pinned_at": current.pinned_at,
             "muted_until": current.muted_until,
+            "notification_mode": current.notification_mode,
             "draft_body": current.draft_body,
             "draft_updated_at": current.draft_updated_at,
         }
@@ -296,6 +355,7 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
             "id",
             "type",
             "title",
+            "discussion_enabled",
             "created_by_id",
             "last_sequence",
             "last_message_at",
@@ -324,9 +384,6 @@ class ConversationDetailSerializer(serializers.ModelSerializer):
         return MessagePreviewSerializer(visible, many=True).data
 
 
-ConversationSerializer = ConversationDetailSerializer
-
-
 class DirectConversationSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(min_value=1)
 
@@ -341,6 +398,27 @@ class GroupConversationSerializer(serializers.Serializer):
         if len(values) != len(set(values)):
             raise serializers.ValidationError("Members must be unique.")
         return values
+
+
+class ChannelConversationSerializer(GroupConversationSerializer):
+    writer_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1), required=False, max_length=200
+    )
+    discussion_enabled = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, attrs):
+        writer_ids = attrs.get("writer_ids", [])
+        if len(writer_ids) != len(set(writer_ids)):
+            raise serializers.ValidationError({"writer_ids": "Writers must be unique."})
+        if not set(writer_ids).issubset(set(attrs["member_ids"])):
+            raise serializers.ValidationError(
+                {"writer_ids": "Every writer must also be a channel member."}
+            )
+        return attrs
+
+
+class ChannelSettingsSerializer(serializers.Serializer):
+    discussion_enabled = serializers.BooleanField()
 
 
 class ReadSerializer(serializers.Serializer):
@@ -372,8 +450,24 @@ class MessageRevisionSerializer(serializers.ModelSerializer):
 
 
 class MessageSearchSerializer(serializers.Serializer):
-    q = serializers.CharField(min_length=1, max_length=200, trim_whitespace=True)
-    page_size = serializers.IntegerField(required=False, min_value=1, max_value=50)
+    q = serializers.CharField(required=False, min_length=1, max_length=200, trim_whitespace=True)
+    author_id = serializers.IntegerField(required=False, min_value=1)
+    date_from = serializers.DateTimeField(required=False)
+    date_to = serializers.DateTimeField(required=False)
+    has_attachments = serializers.BooleanField(required=False)
+    page_size = serializers.IntegerField(required=False, min_value=1, max_value=50, default=30)
+
+    def validate(self, attrs):
+        if not {"q", "author_id", "date_from", "date_to", "has_attachments"}.intersection(
+            self.initial_data
+        ):
+            raise serializers.ValidationError("At least one search filter is required.")
+        if "has_attachments" not in self.initial_data:
+            attrs.pop("has_attachments", None)
+        if attrs.get("date_from") and attrs.get("date_to"):
+            if attrs["date_from"] > attrs["date_to"]:
+                raise serializers.ValidationError({"date_to": "Must be after date_from."})
+        return attrs
 
 
 class ConversationStateSerializer(serializers.Serializer):
@@ -382,6 +476,9 @@ class ConversationStateSerializer(serializers.Serializer):
     muted_until = serializers.DateTimeField(required=False, allow_null=True)
     draft_body = serializers.CharField(
         required=False, allow_blank=True, max_length=10_000, trim_whitespace=False
+    )
+    notification_mode = serializers.ChoiceField(
+        choices=ConversationMembership.NotificationMode.choices, required=False
     )
 
     def validate(self, attrs):

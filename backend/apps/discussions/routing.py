@@ -1,6 +1,7 @@
 from django.urls import re_path
 
 from apps.messenger.consumers import MessengerConsumer
+from apps.notifications.consumers import NotificationConsumer
 
 from .consumers import PublicationConsumer
 
@@ -10,4 +11,5 @@ websocket_urlpatterns = [
         PublicationConsumer.as_asgi(),  # type: ignore[arg-type]
     ),
     re_path(r"^ws/v1/messenger$", MessengerConsumer.as_asgi()),  # type: ignore[arg-type]
+    re_path(r"^ws/v1/notifications$", NotificationConsumer.as_asgi()),  # type: ignore[arg-type]
 ]

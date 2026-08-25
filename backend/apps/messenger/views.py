@@ -8,11 +8,11 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, serializers, status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
-from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.throttling import BaseThrottle, UserRateThrottle
 
 from apps.core.views import PrivateResponseMixin
 from apps.identity.models import AccessGrant, User
-from apps.identity.permissions import HasMessengerAccess
+from apps.identity.permissions import HasMessengerAccess, IsMessengerAdmin
 from apps.publications.media import create_media_asset
 from apps.publications.serializers import MediaAssetSerializer
 
@@ -26,6 +26,8 @@ from .models import (
 )
 from .pagination import ConversationCursorPagination, MembershipPagination
 from .serializers import (
+    ChannelConversationSerializer,
+    ChannelSettingsSerializer,
     ConversationDetailSerializer,
     ConversationStateSerializer,
     ConversationSummarySerializer,
@@ -45,6 +47,7 @@ from .serializers import (
 from .services import (
     add_group_member,
     change_group_role,
+    create_channel,
     create_direct_conversation,
     create_group_conversation,
     delete_message,
@@ -61,6 +64,7 @@ from .services import (
     remove_group_member,
     send_message,
     unpin_message,
+    update_channel_settings,
     update_conversation_state,
     visible_message,
 )
@@ -181,9 +185,14 @@ class MessengerAPIView(PrivateResponseMixin, generics.GenericAPIView):
     permission_classes = [HasMessengerAccess]
 
 
-class MessengerMessageThrottle(ScopedRateThrottle):
+class MessengerMessageThrottle(UserRateThrottle):
     scope = "messenger_message"
-    cache = caches["sessions"]
+    cache = caches["throttles"]
+
+
+class MessengerMentionAllThrottle(UserRateThrottle):
+    scope = "messenger_mention_all"
+    cache = caches["throttles"]
 
 
 class PeopleView(MessengerAPIView):
@@ -259,10 +268,62 @@ class GroupConversationView(MessengerAPIView):
         )
 
 
+class ChannelConversationView(MessengerAPIView):
+    serializer_class = ChannelConversationSerializer
+    permission_classes = [HasMessengerAccess, IsMessengerAdmin]
+    throttle_scope = "messenger_group"
+
+    def post(self, request):
+        payload = self.get_serializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        member_ids = set(payload.validated_data["member_ids"]) - {request.user.pk}
+        members = list(eligible_people(member_ids))
+        if len(members) != len(member_ids):
+            raise serializers.ValidationError(
+                {"member_ids": "Every member must be active and have Messenger access."}
+            )
+        writer_ids = set(payload.validated_data.get("writer_ids", [])) - {request.user.pk}
+        conversation = create_channel(
+            request.user,
+            title=payload.validated_data["title"],
+            members=members,
+            writer_ids=writer_ids,
+            discussion_enabled=payload.validated_data["discussion_enabled"],
+        )
+        conversation = conversation_summary_queryset(request.user).get(pk=conversation.pk)
+        return Response(
+            ConversationSummarySerializer(conversation, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class ConversationDetailView(MessengerAPIView):
     serializer_class = ConversationDetailSerializer
 
     def get(self, request, conversation_id):
+        conversation = get_object_or_404(
+            conversation_detail_queryset(request.user), pk=conversation_id
+        )
+        return Response(
+            self.get_serializer(
+                conversation,
+                context={
+                    "request": request,
+                    "visible_intervals": _visible_intervals(request.user, conversation),
+                },
+            ).data
+        )
+
+    def patch(self, request, conversation_id):
+        conversation = member_conversation(request.user, conversation_id)
+        payload = ChannelSettingsSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        _validation_call(
+            update_channel_settings,
+            conversation,
+            actor=request.user,
+            discussion_enabled=payload.validated_data["discussion_enabled"],
+        )
         conversation = get_object_or_404(
             conversation_detail_queryset(request.user), pk=conversation_id
         )
@@ -338,8 +399,19 @@ class MessageListCreateView(MessengerAPIView):
     serializer_class = MessageWriteSerializer
     throttle_classes = [MessengerMessageThrottle]
 
-    def get_throttles(self):
-        return super().get_throttles() if self.request.method == "POST" else []
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.request.method != "POST":
+            return []
+        throttles: list[BaseThrottle] = [MessengerMessageThrottle()]
+        try:
+            mention_all = serializers.BooleanField().to_internal_value(
+                self.request.data.get("mention_all", False)
+            )
+        except serializers.ValidationError:
+            mention_all = False
+        if mention_all:
+            throttles.append(MessengerMentionAllThrottle())
+        return throttles
 
     def get(self, request, conversation_id):
         conversation = member_conversation(request.user, conversation_id)
@@ -521,24 +593,75 @@ class ConversationSearchView(MessengerAPIView):
         conversation = member_conversation(request.user, conversation_id)
         payload = self.get_serializer(data=request.query_params)
         payload.is_valid(raise_exception=True)
-        query = SearchQuery(payload.validated_data["q"], config="simple", search_type="websearch")
-        vector = SearchVector("body", config="simple")
-        messages = list(
+        data = payload.validated_data
+        messages = (
             _message_queryset()
             .filter(
                 membership_message_filter(request.user, conversation), conversation=conversation
             )
             .filter(deleted_at__isnull=True)
-            .annotate(rank=SearchRank(vector, query))
-            .filter(rank__gt=0)
-            .order_by("-rank", "-sequence")[: payload.validated_data.get("page_size", 30)]
         )
+        if author_id := data.get("author_id"):
+            messages = messages.filter(author_id=author_id)
+        if date_from := data.get("date_from"):
+            messages = messages.filter(created_at__gte=date_from)
+        if date_to := data.get("date_to"):
+            messages = messages.filter(created_at__lte=date_to)
+        if data.get("has_attachments") is True:
+            messages = messages.filter(attachments__isnull=False).distinct()
+        elif data.get("has_attachments") is False:
+            messages = messages.filter(attachments__isnull=True)
+        if query_text := data.get("q"):
+            query_ru = SearchQuery(query_text, config="russian", search_type="websearch")
+            query_kk = SearchQuery(query_text, config="tandem_kazakh", search_type="websearch")
+            messages = (
+                messages.annotate(
+                    rank=SearchRank(SearchVector("body", config="russian"), query_ru)
+                    + SearchRank(SearchVector("body", config="tandem_kazakh"), query_kk)
+                )
+                .filter(rank__gt=0)
+                .order_by("-rank", "-sequence")
+            )
+        else:
+            messages = messages.order_by("-sequence")
+        rows = list(messages[: data["page_size"]])
         return Response(
             {
                 "results": MessageSerializer(
-                    messages,
+                    rows,
                     many=True,
                     context=_message_context(request, conversation),
                 ).data
+            }
+        )
+
+
+class MessageContextView(MessengerAPIView):
+    def get(self, request, conversation_id, message_id):
+        conversation = member_conversation(request.user, conversation_id)
+        visible = membership_message_filter(request.user, conversation)
+        target = get_object_or_404(
+            _message_queryset().filter(visible, conversation=conversation), pk=message_id
+        )
+        before = list(
+            reversed(
+                list(
+                    _message_queryset()
+                    .filter(visible, conversation=conversation, sequence__lt=target.sequence)
+                    .order_by("-sequence")[:10]
+                )
+            )
+        )
+        after = list(
+            _message_queryset()
+            .filter(visible, conversation=conversation, sequence__gt=target.sequence)
+            .order_by("sequence")[:10]
+        )
+        context = _message_context(request, conversation)
+        return Response(
+            {
+                "before": MessageSerializer(before, many=True, context=context).data,
+                "target": MessageSerializer(target, context=context).data,
+                "after": MessageSerializer(after, many=True, context=context).data,
             }
         )

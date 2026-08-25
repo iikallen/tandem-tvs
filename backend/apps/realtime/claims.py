@@ -5,6 +5,7 @@ from enum import StrEnum
 class RealtimeScope(StrEnum):
     NEWS_PUBLICATION = "NEWS_PUBLICATION"
     MESSENGER = "MESSENGER"
+    NOTIFICATIONS = "NOTIFICATIONS"
 
 
 @dataclass(frozen=True)

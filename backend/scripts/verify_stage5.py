@@ -20,7 +20,6 @@ from apps.discussions.models import (  # noqa: E402
     CommentReport,
     CommentRestriction,
     EngagementSettings,
-    Notification,
     Reaction,
 )
 from apps.discussions.services import (  # noqa: E402
@@ -30,6 +29,8 @@ from apps.discussions.services import (  # noqa: E402
     report_comment,
 )
 from apps.identity.models import User  # noqa: E402
+from apps.notifications.models import Notification  # noqa: E402
+from apps.notifications.services import dispatch_pending_fanout  # noqa: E402
 from apps.publications.engagement import (  # noqa: E402
     acknowledge,
     csv_text,
@@ -129,6 +130,7 @@ def prepare() -> None:
 
 
 def verify() -> None:
+    dispatch_pending_fanout()
     publication = (
         Publication.objects.filter(title__startswith=PREFIX)
         .select_related("category")
@@ -139,7 +141,8 @@ def verify() -> None:
     reply = Comment.objects.get(publication=publication, thread_root=root)
     assert reply.reply_to == root and reply.status == Comment.Status.ACTIVE
     assert (
-        Notification.objects.filter(comment=reply, recipient__portal_id="employee-1").count() == 1
+        Notification.objects.filter(source_id=reply.pk, recipient__portal_id="employee-1").count()
+        == 1
     )
     assert Reaction.objects.filter(publication=publication).count() == 1
     assert Reaction.objects.filter(comment=root).count() == 1

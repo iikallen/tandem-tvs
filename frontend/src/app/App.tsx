@@ -24,6 +24,8 @@ import { HomePage } from "../pages/home/HomePage";
 import { NewsDetailPage } from "../pages/news/NewsDetailPage";
 import { NewsPage } from "../pages/news/NewsPage";
 import { NotificationsPage } from "../pages/notifications/NotificationsPage";
+import { NotificationSettingsPage } from "../pages/notifications/NotificationSettingsPage";
+import { GlobalSearchPage } from "../pages/search/GlobalSearchPage";
 import { ProfilePage } from "../pages/profile/ProfilePage";
 import {
   ActivatePage,
@@ -82,6 +84,11 @@ function AuthBoundary() {
         <Route path="profile" element={<ProfilePage />} />
         <Route path="profile/password" element={<PasswordChangePage />} />
         <Route path="notifications" element={<NotificationsPage />} />
+        <Route
+          path="settings/notifications"
+          element={<NotificationSettingsPage />}
+        />
+        <Route path="search" element={<GlobalSearchPage />} />
         <Route
           element={
             <EditorialGuard>

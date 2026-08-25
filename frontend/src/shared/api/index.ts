@@ -42,7 +42,7 @@ export interface MessengerPerson {
 export interface MessengerMembership {
   id?: number;
   user: MessengerPerson;
-  role: "MEMBER" | "ADMIN";
+  role: "MEMBER" | "WRITER" | "ADMIN";
   joined_at: string;
   joined_sequence?: number;
   left_at?: string | null;
@@ -52,6 +52,7 @@ export interface MessengerMembership {
   delivered_at?: string | null;
   last_read_sequence: number;
   read_at: string | null;
+  notification_mode?: "ALL" | "MENTIONS" | "NONE";
 }
 
 export type MessengerReaction = {
@@ -66,6 +67,8 @@ export interface MessengerMessage {
   client_message_id: string;
   author: MessengerPerson;
   body: string;
+  kind?: "CHAT" | "CHANNEL_POST" | "DISCUSSION";
+  mention_all?: boolean;
   reply_to?: {
     id: string;
     author: MessengerPerson;
@@ -93,7 +96,8 @@ export interface MessengerMessage {
 
 export interface MessengerConversation {
   id: string;
-  type: "DIRECT" | "GROUP";
+  type: "DIRECT" | "GROUP" | "CHANNEL";
+  discussion_enabled?: boolean;
   title: string;
   peer?: MessengerPerson | null;
   member_count?: number;
@@ -271,15 +275,57 @@ export interface ReactionSummary {
 export type ReactionType =
   "LIKE" | "CELEBRATE" | "SUPPORT" | "INSIGHTFUL" | "THANKS";
 
+export type NotificationType =
+  | "NEW_PUBLICATION"
+  | "ACK_REQUIRED"
+  | "COMMENT_REPLY"
+  | "COMMENT_MENTION"
+  | "NEW_MESSAGE"
+  | "MESSAGE_MENTION"
+  | "CHAT_ADDED";
+
 export interface Notification {
   id: string;
-  notification_type: "COMMENT_REPLY" | "COMMENT_MENTION";
-  actor: UserSummary;
-  publication_id: string;
-  comment_id: string;
+  notification_type: NotificationType;
+  actor: Pick<UserSummary, "id" | "full_name"> | null;
+  source_type: string;
+  source_id: string;
+  publication_id: string | null;
+  conversation_id: string | null;
+  occurrence_count: number;
+  event_version: number;
   created_at: string;
+  last_event_at: string;
   read_at: string | null;
+  target_url: string;
 }
+
+export interface NotificationPreference {
+  notification_type: NotificationType;
+  in_app_enabled: boolean;
+  push_enabled: boolean;
+  email_enabled: boolean;
+}
+
+export interface NotificationSettings {
+  enabled: boolean;
+  preferences: NotificationPreference[];
+}
+
+export interface SearchResult {
+  id: string | number;
+  title: string;
+  snippet: string;
+  url: string;
+  author?: string;
+  avatar_url?: string;
+  org_unit?: string | null;
+}
+
+export type GlobalSearchResults = Record<
+  "publications" | "comments" | "messages" | "files" | "employees",
+  SearchResult[]
+>;
 
 export interface EngagementSettings {
   comment_edit_window_minutes: number;
@@ -551,6 +597,12 @@ export const api = {
     request<MessengerConversation>(
       `/api/v1/messenger/conversations/${encodeURIComponent(id)}`,
     ),
+  updateMessengerChannelSettings: (id: string, discussionEnabled: boolean) =>
+    request<MessengerConversation>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(id)}`,
+      "PATCH",
+      { discussion_enabled: discussionEnabled },
+    ),
   createDirectConversation: (userId: number) =>
     request<MessengerConversation>(
       "/api/v1/messenger/conversations/direct",
@@ -563,10 +615,43 @@ export const api = {
       "POST",
       { title, member_ids: memberIds },
     ),
+  createChannelConversation: (
+    title: string,
+    memberIds: number[],
+    writerIds: number[],
+    discussionEnabled: boolean,
+  ) =>
+    request<MessengerConversation>(
+      "/api/v1/messenger/conversations/channel",
+      "POST",
+      {
+        title,
+        member_ids: memberIds,
+        writer_ids: writerIds,
+        discussion_enabled: discussionEnabled,
+      },
+    ),
   messengerMessages: (id: string, beforeSequence?: number) =>
     request<MessengerMessagePage>(
       `/api/v1/messenger/conversations/${encodeURIComponent(id)}/messages${beforeSequence ? `?before_sequence=${beforeSequence}&page_size=50` : ""}`,
     ),
+  messengerMessageContext: async (
+    conversationId: string,
+    messageId: string,
+  ) => {
+    const data = await request<{
+      before: MessengerMessage[];
+      target: MessengerMessage;
+      after: MessengerMessage[];
+    }>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/context`,
+    );
+    return {
+      messages: [...data.before, data.target, ...data.after],
+      has_more: false,
+      next_before_sequence: null,
+    } satisfies MessengerMessagePage;
+  },
   sendMessengerMessage: (
     conversationId: string,
     clientMessageId: string,
@@ -575,6 +660,9 @@ export const api = {
       reply_to_id?: string | null;
       attachment_ids?: string[];
       forward_message_id?: string | null;
+      kind?: "CHAT" | "CHANNEL_POST" | "DISCUSSION";
+      mentioned_user_ids?: number[];
+      mention_all?: boolean;
     } = {},
   ) =>
     request<MessengerMessage>(
@@ -639,7 +727,7 @@ export const api = {
   changeMessengerMemberRole: (
     conversationId: string,
     userId: number,
-    role: "MEMBER" | "ADMIN",
+    role: "MEMBER" | "WRITER" | "ADMIN",
   ) =>
     request<MessengerMembership>(
       `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/members/${userId}`,
@@ -781,9 +869,43 @@ export const api = {
       `/api/v1/news/${id}/acknowledgement`,
       "POST",
     ),
-  notifications: () => request<Notification[]>("/api/v1/notifications"),
+  notifications: (unread = false, cursor?: string) =>
+    request<CursorPage<Notification>>(
+      `/api/v1/notifications?unread=${unread}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    ),
+  unreadNotificationCount: () =>
+    request<{ unread_count: number }>("/api/v1/notifications/unread-count"),
   readNotification: (id: string) =>
     request<void>(`/api/v1/notifications/${id}/read`, "POST"),
+  readAllNotifications: () =>
+    request<{ updated: number }>("/api/v1/notifications/read-all", "POST"),
+  notificationSettings: () =>
+    request<NotificationSettings>("/api/v1/notification-settings"),
+  updateNotificationSettings: (data: Partial<NotificationSettings>) =>
+    request<NotificationSettings>(
+      "/api/v1/notification-settings",
+      "PATCH",
+      data,
+    ),
+  notificationRealtimeTicket: () =>
+    request<{ ticket: string; expires_in: number }>(
+      "/api/v1/realtime/tickets",
+      "POST",
+      { scope: "NOTIFICATIONS" },
+    ),
+  pushConfig: () =>
+    request<{ enabled: boolean; vapid_public_key: string }>(
+      "/api/v1/push/config",
+    ),
+  savePushSubscription: (data: {
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }) => request<void>("/api/v1/push/subscriptions", "POST", data),
+  globalSearch: (query: string) =>
+    request<GlobalSearchResults>(
+      `/api/v1/search?q=${encodeURIComponent(query)}`,
+    ),
   realtimeTicket: (publicationId: string) =>
     request<{ ticket: string; expires_in: number }>(
       "/api/v1/realtime/tickets",

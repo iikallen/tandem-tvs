@@ -4,8 +4,8 @@
 
 ```text
 Browser -> HTTPS/Cloudflare -> Nginx -> Django SessionAuthentication
-                                      -> PostgreSQL cached_db session
-                                      -> Redis session cache / rate limits
+                                      -> PostgreSQL database session
+                                      -> Redis application cache / auth rate limits
 ```
 
 The browser receives `__Host-tandem_session` in production. JavaScript never reads the cookie and
@@ -32,4 +32,3 @@ uses the same one-use hashed-token pattern. Accounts are disabled rather than de
 
 The existing Stage 3/5 one-time Redis ticket and WebSocket protocol remain unchanged. Only the
 ticket-issuing HTTP request changes from portal evidence to the authenticated Django session.
-

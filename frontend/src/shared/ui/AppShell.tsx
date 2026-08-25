@@ -1,4 +1,10 @@
-import { useState, type ComponentType, type SVGProps } from "react";
+import {
+  useEffect,
+  useState,
+  type ComponentType,
+  type FormEvent,
+  type SVGProps,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -7,9 +13,11 @@ import { t } from "../i18n";
 import { Avatar } from "./Avatar";
 import {
   EditIcon,
+  BellIcon,
   HomeIcon,
   MessageIcon,
   NewsIcon,
+  SearchIcon,
   UserIcon,
   UsersIcon,
 } from "./icons";
@@ -116,7 +124,54 @@ export function AppShell() {
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [search, setSearch] = useState("");
+  const unread = useQuery({
+    queryKey: ["notification-count"],
+    queryFn: api.unreadNotificationCount,
+    refetchInterval: 30_000,
+  });
   const toggleLabel = theme === "light" ? t("themeDark") : t("themeLight");
+
+  useEffect(() => {
+    let stopped = false;
+    let socket: WebSocket | undefined;
+    let timer = 0;
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      void queryClient.invalidateQueries({ queryKey: ["notification-count"] });
+    };
+    const connect = async () => {
+      try {
+        const { ticket } = await api.notificationRealtimeTicket();
+        if (stopped) return;
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        socket = new WebSocket(
+          `${protocol}//${window.location.host}/ws/v1/notifications?ticket=${encodeURIComponent(ticket)}`,
+        );
+        socket.onopen = refresh;
+        socket.onmessage = refresh;
+        socket.onclose = (event) => {
+          if (!stopped && event.code !== 4403)
+            timer = window.setTimeout(connect, 3_000);
+        };
+        socket.onerror = () => socket?.close();
+      } catch {
+        if (!stopped) timer = window.setTimeout(connect, 5_000);
+      }
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      socket?.close(1000, "page left");
+    };
+  }, [queryClient]);
+
+  const submitSearch = (event: FormEvent) => {
+    event.preventDefault();
+    const query = search.trim();
+    if (query) navigate(`/search?q=${encodeURIComponent(query)}`);
+  };
   return (
     <div className="app-shell" data-theme={theme}>
       <aside className="sidebar">
@@ -166,6 +221,33 @@ export function AppShell() {
         </div>
       </aside>
       <main className="main">
+        <div className="portal-toolbar">
+          <form className="portal-search" role="search" onSubmit={submitSearch}>
+            <SearchIcon aria-hidden="true" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={t("globalSearchPlaceholder")}
+              aria-label={t("globalSearch")}
+            />
+          </form>
+          <NavLink
+            className="notification-bell"
+            to="/notifications"
+            aria-label={t("notifications")}
+          >
+            <BellIcon aria-hidden="true" />
+            {!!unread.data?.unread_count && (
+              <span
+                aria-label={t("unreadNotificationCount", {
+                  count: unread.data.unread_count,
+                })}
+              >
+                {Math.min(unread.data.unread_count, 99)}
+              </span>
+            )}
+          </NavLink>
+        </div>
         <div className="page">
           <Outlet />
         </div>

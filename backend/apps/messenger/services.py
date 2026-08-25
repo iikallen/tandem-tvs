@@ -29,6 +29,7 @@ from .models import (
     DirectConversationPair,
     Message,
     MessageAttachment,
+    MessageMention,
     MessageReaction,
     MessageRevision,
     PinnedMessage,
@@ -61,12 +62,18 @@ def message_request_fingerprint(
     reply_to_id: object | None = None,
     attachment_ids: Iterable[object] = (),
     forward_message_id: object | None = None,
+    kind: str = Message.Kind.CHAT,
+    mentioned_user_ids: Iterable[int] = (),
+    mention_all: bool = False,
 ) -> str:
     canonical = json.dumps(
         {
             "attachment_ids": [str(value) for value in attachment_ids],
             "body": body,
             "forward_message_id": str(forward_message_id) if forward_message_id else None,
+            "kind": kind,
+            "mention_all": mention_all,
+            "mentioned_user_ids": sorted(set(mentioned_user_ids)),
             "reply_to_id": str(reply_to_id) if reply_to_id else None,
         },
         ensure_ascii=False,
@@ -210,7 +217,146 @@ def create_group_conversation(creator: User, *, title: str, members: list[User])
         ]
     )
     conversation_created_after_commit(conversation.pk, [creator.pk, *member_ids])
+    if member_ids:
+        from apps.notifications.models import Notification
+        from apps.notifications.services import enqueue_fanout
+
+        enqueue_fanout(
+            event_key=f"conversation:{conversation.pk}:created",
+            event_type=Notification.Type.CHAT_ADDED,
+            source_id=conversation.pk,
+            payload={
+                "actor_id": creator.pk,
+                "conversation_id": str(conversation.pk),
+                "recipient_ids": member_ids,
+                "source_type": "CONVERSATION",
+            },
+        )
     return conversation
+
+
+@transaction.atomic
+def create_channel(
+    creator: User,
+    *,
+    title: str,
+    members: list[User],
+    writer_ids: set[int],
+    discussion_enabled: bool,
+) -> Conversation:
+    conversation = Conversation.objects.create(
+        type=Conversation.Type.CHANNEL,
+        title=title,
+        created_by=creator,
+        discussion_enabled=discussion_enabled,
+        activity_at=timezone.now(),
+    )
+    member_ids = sorted({member.pk for member in members} - {creator.pk})
+    ConversationMembership.objects.bulk_create(
+        [
+            ConversationMembership(
+                conversation=conversation,
+                user=creator,
+                role=ConversationMembership.Role.ADMIN,
+            ),
+            *[
+                ConversationMembership(
+                    conversation=conversation,
+                    user_id=user_id,
+                    role=(
+                        ConversationMembership.Role.WRITER
+                        if user_id in writer_ids
+                        else ConversationMembership.Role.MEMBER
+                    ),
+                )
+                for user_id in member_ids
+            ],
+        ]
+    )
+    conversation_created_after_commit(conversation.pk, [creator.pk, *member_ids])
+    if member_ids:
+        from apps.notifications.models import Notification
+        from apps.notifications.services import enqueue_fanout
+
+        enqueue_fanout(
+            event_key=f"conversation:{conversation.pk}:created",
+            event_type=Notification.Type.CHAT_ADDED,
+            source_id=conversation.pk,
+            payload={
+                "actor_id": creator.pk,
+                "conversation_id": str(conversation.pk),
+                "recipient_ids": member_ids,
+                "source_type": "CONVERSATION",
+            },
+        )
+    return conversation
+
+
+def require_message_permission(
+    *,
+    conversation: Conversation,
+    membership: ConversationMembership,
+    kind: str,
+) -> None:
+    if conversation.type in {Conversation.Type.DIRECT, Conversation.Type.GROUP}:
+        if kind != Message.Kind.CHAT:
+            raise ValidationError("Direct and group chats accept CHAT messages only.")
+        return
+    if conversation.type != Conversation.Type.CHANNEL:
+        raise ValidationError("Unknown conversation type.")
+    if kind == Message.Kind.CHANNEL_POST:
+        if membership.role not in {
+            ConversationMembership.Role.WRITER,
+            ConversationMembership.Role.ADMIN,
+        }:
+            raise PermissionDenied("Only channel writers may publish posts.")
+        return
+    if kind == Message.Kind.DISCUSSION:
+        if not conversation.discussion_enabled:
+            raise PermissionDenied("Channel discussion is disabled.")
+        return
+    raise ValidationError("Channels do not accept regular chat messages.")
+
+
+@transaction.atomic
+def update_channel_settings(
+    conversation: Conversation,
+    *,
+    actor: User,
+    discussion_enabled: bool,
+) -> Conversation:
+    locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
+    membership = active_membership(locked, actor, for_update=True)
+    if locked.type != Conversation.Type.CHANNEL:
+        raise ValidationError("Only channels have discussion settings.")
+    if membership.role != ConversationMembership.Role.ADMIN:
+        raise PermissionDenied("A channel administrator is required.")
+    if locked.discussion_enabled != discussion_enabled:
+        locked.discussion_enabled = discussion_enabled
+        locked.save(update_fields=["discussion_enabled", "updated_at"])
+        conversation_changed_after_commit("messenger.conversation.updated", locked.pk)
+    return locked
+
+
+def resolve_message_mentions(
+    *,
+    conversation: Conversation,
+    mentioned_user_ids: set[int],
+    mention_all: bool,
+) -> list[User]:
+    if mention_all and conversation.type == Conversation.Type.DIRECT:
+        raise ValidationError("@all is not allowed in direct conversations.")
+    eligible = User.objects.filter(
+        conversation_memberships__conversation=conversation,
+        conversation_memberships__left_at__isnull=True,
+        is_active=True,
+    ).distinct()
+    if mention_all:
+        return list(eligible)
+    resolved = list(eligible.filter(pk__in=mentioned_user_ids))
+    if len(resolved) != len(mentioned_user_ids):
+        raise ValidationError("Every mentioned user must be an active conversation member.")
+    return resolved
 
 
 def send_message(
@@ -222,8 +368,12 @@ def send_message(
     reply_to_id: object | None = None,
     attachment_ids: Iterable[object] = (),
     forward_message_id: object | None = None,
+    kind: str = Message.Kind.CHAT,
+    mentioned_user_ids: Iterable[int] = (),
+    mention_all: bool = False,
 ) -> tuple[Message, bool]:
     attachment_ids = tuple(attachment_ids)
+    mentioned_user_ids = tuple(mentioned_user_ids)
     if len(attachment_ids) != len(set(attachment_ids)):
         raise ValidationError("Attachments must be unique.")
     if body:
@@ -235,6 +385,9 @@ def send_message(
         reply_to_id=reply_to_id,
         attachment_ids=attachment_ids,
         forward_message_id=forward_message_id,
+        kind=kind,
+        mentioned_user_ids=mentioned_user_ids,
+        mention_all=mention_all,
     )
     existing = Message.objects.filter(
         conversation=conversation,
@@ -246,7 +399,12 @@ def send_message(
         return existing, False
     with transaction.atomic():
         locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
-        active_membership(locked, author, for_update=True)
+        membership = active_membership(locked, author, for_update=True)
+        require_message_permission(
+            conversation=locked,
+            membership=membership,
+            kind=kind,
+        )
         existing = Message.objects.filter(
             conversation=locked,
             author=author,
@@ -286,6 +444,11 @@ def send_message(
         if len(assets_by_id) != len(attachment_ids):
             raise PermissionDenied("Every attachment must be a ready upload owned by the sender.")
         assets = [assets_by_id[asset_id] for asset_id in attachment_ids]
+        mentioned_users = resolve_message_mentions(
+            conversation=locked,
+            mentioned_user_ids=set(mentioned_user_ids),
+            mention_all=mention_all,
+        )
         now = timezone.now()
         locked.last_sequence += 1
         message = Message.objects.create(
@@ -294,6 +457,8 @@ def send_message(
             client_message_id=client_message_id,
             author=author,
             body=body,
+            kind=kind,
+            mention_all=mention_all,
             request_fingerprint=fingerprint,
             reply_to=reply_to,
             forwarded_snapshot=forwarded_snapshot,
@@ -302,6 +467,13 @@ def send_message(
             [
                 MessageAttachment(message=message, asset=asset, sort_order=index)
                 for index, asset in enumerate(assets)
+            ]
+        )
+        MessageMention.objects.bulk_create(
+            [
+                MessageMention(message=message, user=user)
+                for user in mentioned_users
+                if user.pk != author.pk
             ]
         )
         locked.last_message_at = now
@@ -331,6 +503,22 @@ def send_message(
                 "sequence": message.sequence,
                 "reply_to_id": str(reply_to_id) if reply_to_id else None,
                 "attachment_count": len(assets),
+                "kind": kind,
+                "mention_count": len(mentioned_users),
+                "mention_all": mention_all,
+            },
+        )
+        from apps.notifications.models import Notification
+        from apps.notifications.services import enqueue_fanout
+
+        enqueue_fanout(
+            event_key=f"message:{message.pk}:created",
+            event_type=Notification.Type.NEW_MESSAGE,
+            source_id=message.pk,
+            payload={
+                "conversation_id": str(locked.pk),
+                "author_id": author.pk,
+                "sequence": message.sequence,
             },
         )
         return message, True
@@ -387,7 +575,7 @@ def add_group_member(
 ) -> ConversationMembership:
     locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
     _require_group_admin(locked, actor)
-    if locked.type != Conversation.Type.GROUP:
+    if locked.type == Conversation.Type.DIRECT:
         raise ValidationError("Direct conversation membership is immutable.")
     if ConversationMembership.objects.filter(
         conversation=locked, user=user, left_at__isnull=True
@@ -408,6 +596,20 @@ def add_group_member(
         target_id=locked.pk,
         new_state={"user_id": user.pk, "joined_sequence": locked.last_sequence},
     )
+    from apps.notifications.models import Notification
+    from apps.notifications.services import enqueue_fanout
+
+    enqueue_fanout(
+        event_key=f"conversation:{locked.pk}:member:{user.pk}:{membership.pk}",
+        event_type=Notification.Type.CHAT_ADDED,
+        source_id=locked.pk,
+        payload={
+            "actor_id": actor.pk,
+            "conversation_id": str(locked.pk),
+            "recipient_ids": [user.pk],
+            "source_type": "CONVERSATION",
+        },
+    )
     return membership
 
 
@@ -417,7 +619,7 @@ def remove_group_member(
 ) -> ConversationMembership:
     locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
     _require_group_admin(locked, actor)
-    if locked.type != Conversation.Type.GROUP:
+    if locked.type == Conversation.Type.DIRECT:
         raise ValidationError("Direct conversation membership is immutable.")
     membership = active_membership(locked, user, for_update=True)
     if (
@@ -449,7 +651,7 @@ def remove_group_member(
 def _require_group_admin(conversation: Conversation, actor: User) -> ConversationMembership:
     membership = active_membership(conversation, actor, for_update=True)
     if membership.role != ConversationMembership.Role.ADMIN:
-        raise PermissionDenied("A group administrator is required.")
+        raise PermissionDenied("A conversation administrator is required.")
     return membership
 
 
@@ -463,7 +665,7 @@ def change_group_role(
 ) -> ConversationMembership:
     locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
     _require_group_admin(locked, actor)
-    if locked.type != Conversation.Type.GROUP:
+    if locked.type == Conversation.Type.DIRECT:
         raise ValidationError("Direct conversation membership is immutable.")
     membership = active_membership(locked, user, for_update=True)
     previous = membership.role
@@ -497,7 +699,7 @@ def change_group_role(
 @transaction.atomic
 def leave_group(conversation: Conversation, *, user: User) -> ConversationMembership:
     locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
-    if locked.type != Conversation.Type.GROUP:
+    if locked.type == Conversation.Type.DIRECT:
         raise ValidationError("Direct conversation membership is immutable.")
     membership = active_membership(locked, user, for_update=True)
     if (
@@ -629,7 +831,7 @@ def delete_message_reaction(message: Message, *, user: User) -> bool:
 def _require_pin_permission(conversation: Conversation, actor: User) -> None:
     membership = active_membership(conversation, actor, for_update=True)
     if (
-        conversation.type == Conversation.Type.GROUP
+        conversation.type in {Conversation.Type.GROUP, Conversation.Type.CHANNEL}
         and membership.role != ConversationMembership.Role.ADMIN
     ):
         raise PermissionDenied("A group administrator is required.")
@@ -688,6 +890,7 @@ def update_conversation_state(
     pinned: bool | None = None,
     muted_until=_UNSET,
     draft_body: str | None = None,
+    notification_mode: str | None = None,
 ) -> ConversationMembership:
     locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
     membership = active_membership(locked, user, for_update=True)
@@ -705,6 +908,9 @@ def update_conversation_state(
         membership.draft_body = draft_body[:10_000]
         membership.draft_updated_at = timezone.now()
         fields.extend(["draft_body", "draft_updated_at"])
+    if notification_mode is not None:
+        membership.notification_mode = notification_mode
+        fields.append("notification_mode")
     if fields:
         membership.save(update_fields=fields)
         user_conversation_changed_after_commit("messenger.conversation.updated", locked.pk, user.pk)

@@ -29,7 +29,6 @@ from .models import (
     CommentReport,
     CommentRestriction,
     EngagementSettings,
-    Notification,
     Reaction,
     StopWord,
 )
@@ -39,7 +38,6 @@ from .serializers import (
     CommentSerializer,
     CommentWriteSerializer,
     EngagementSettingsSerializer,
-    NotificationSerializer,
     ReactionSerializer,
     ReactionSummarySerializer,
     RealtimeTicketSerializer,
@@ -378,30 +376,6 @@ class CommentReportView(PrivateResponseMixin, generics.GenericAPIView):
         )
 
 
-class NotificationListView(PrivateResponseMixin, generics.ListAPIView):
-    permission_classes = [HasNewsAccess]
-    serializer_class = NotificationSerializer
-    pagination_class = None
-
-    def get_queryset(self):
-        return Notification.objects.filter(recipient=self.request.user).select_related("actor")[
-            :100
-        ]
-
-
-class NotificationReadView(PrivateResponseMixin, generics.GenericAPIView):
-    permission_classes = [HasNewsAccess]
-
-    def post(self, request, notification_id):
-        notification = generics.get_object_or_404(
-            Notification, pk=notification_id, recipient=request.user
-        )
-        if notification.read_at is None:
-            notification.read_at = timezone.now()
-            notification.save(update_fields=["read_at"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
 class EngagementSettingsView(PrivateResponseMixin, generics.GenericAPIView):
     permission_classes = [IsEditorRole]
     serializer_class = EngagementSettingsSerializer
@@ -605,6 +579,14 @@ class RealtimeTicketView(PrivateResponseMixin, generics.GenericAPIView):
                 security_epoch=request.user.security_epoch,
                 session_key=request.session.session_key,
                 scope=RealtimeScope.MESSENGER,
+            )
+            return Response({"ticket": token, "expires_in": expires_in})
+        if payload.validated_data["scope"] == RealtimeScope.NOTIFICATIONS:
+            token, expires_in = create_realtime_ticket(
+                user_id=request.user.pk,
+                security_epoch=request.user.security_epoch,
+                session_key=request.session.session_key,
+                scope=RealtimeScope.NOTIFICATIONS,
             )
             return Response({"ticket": token, "expires_in": expires_in})
         if not has_module_access(request.user, AccessGrant.Module.NEWS):

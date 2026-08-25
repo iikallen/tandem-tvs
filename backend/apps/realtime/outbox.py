@@ -1,14 +1,32 @@
 import logging
 from datetime import timedelta
 
+import redis
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from .models import RealtimeOutboxEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _deliver_inline_if_available(event_id: object) -> None:
+    layer = get_channel_layer()
+    if layer is None:
+        return
+    if layer.__class__.__module__.startswith("channels_redis"):
+        try:
+            redis.Redis.from_url(
+                settings.REALTIME_REDIS_URL,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            ).ping()
+        except redis.RedisError:
+            return
+    deliver_outbox_event(event_id)
 
 
 def enqueue_realtime_event(
@@ -23,7 +41,7 @@ def enqueue_realtime_event(
     )
     row.payload["event_id"] = str(row.pk)
     row.save(update_fields=["payload"])
-    transaction.on_commit(lambda: deliver_outbox_event(row.pk), robust=True)
+    transaction.on_commit(lambda: _deliver_inline_if_available(row.pk), robust=True)
     return row
 
 

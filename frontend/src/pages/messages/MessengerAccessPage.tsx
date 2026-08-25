@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   api,
@@ -33,7 +34,7 @@ type PendingMessage = {
   state: "sending" | "failed";
 };
 
-type NewConversationMode = "direct" | "group";
+type NewConversationMode = "direct" | "group" | "channel";
 
 const REACTIONS = [
   ["LIKE", "👍"],
@@ -47,7 +48,7 @@ function conversationTitle(
   conversation: MessengerConversation,
   currentUserId: number,
 ): string {
-  if (conversation.type === "GROUP") return conversation.title;
+  if (conversation.type !== "DIRECT") return conversation.title;
   return (
     conversation.peer?.full_name ??
     conversation.members?.find(
@@ -73,7 +74,7 @@ function conversationSubtitle(
       authorId === currentUserId ? t("messengerYou") : authorName.split(" ")[0];
     return `${prefix}: ${body}`;
   }
-  return conversation.type === "GROUP"
+  return conversation.type !== "DIRECT"
     ? t("messengerMemberCount", {
         count: conversation.member_count ?? conversation.members?.length ?? 0,
       })
@@ -115,6 +116,8 @@ function NewConversationDialog({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [title, setTitle] = useState("");
   const [members, setMembers] = useState<number[]>([]);
+  const [writers, setWriters] = useState<number[]>([]);
+  const [discussionEnabled, setDiscussionEnabled] = useState(false);
   const searchInput = useRef<HTMLInputElement>(null);
   const people = useQuery({
     queryKey: ["messenger-people", debouncedSearch],
@@ -124,7 +127,14 @@ function NewConversationDialog({
     mutationFn: (person?: MessengerPerson) =>
       mode === "direct" && person
         ? api.createDirectConversation(person.id)
-        : api.createGroupConversation(title, members),
+        : mode === "channel"
+          ? api.createChannelConversation(
+              title,
+              members,
+              writers,
+              discussionEnabled,
+            )
+          : api.createGroupConversation(title, members),
     onSuccess: onCreated,
   });
 
@@ -185,7 +195,9 @@ function NewConversationDialog({
             <h2 id="messenger-dialog-title">
               {mode === "direct"
                 ? t("messengerStartDirect")
-                : t("messengerStartGroup")}
+                : mode === "channel"
+                  ? t("messengerStartChannel")
+                  : t("messengerStartGroup")}
             </h2>
           </div>
           <button
@@ -197,7 +209,7 @@ function NewConversationDialog({
             <CloseIcon />
           </button>
         </header>
-        {mode === "group" && (
+        {mode !== "direct" && (
           <label className="messenger-field">
             <span>{t("messengerGroupTitle")}</span>
             <input
@@ -223,17 +235,22 @@ function NewConversationDialog({
           {people.isError && <p role="alert">{t("errorDescription")}</p>}
           {people.data?.map((person) => (
             <label className="messenger-person" key={person.id}>
-              {mode === "group" && (
+              {mode !== "direct" && (
                 <input
                   type="checkbox"
                   checked={members.includes(person.id)}
-                  onChange={() =>
+                  onChange={() => {
+                    const removing = members.includes(person.id);
                     setMembers((current) =>
-                      current.includes(person.id)
+                      removing
                         ? current.filter((id) => id !== person.id)
                         : [...current, person.id],
-                    )
-                  }
+                    );
+                    if (removing)
+                      setWriters((current) =>
+                        current.filter((id) => id !== person.id),
+                      );
+                  }}
                 />
               )}
               <Avatar name={person.full_name} imageUrl={person.avatar_url} />
@@ -255,6 +272,24 @@ function NewConversationDialog({
                   {t("messengerOpenChat")}
                 </button>
               )}
+              {mode === "channel" && members.includes(person.id) && (
+                <button
+                  className="button button--secondary"
+                  type="button"
+                  aria-pressed={writers.includes(person.id)}
+                  onClick={() =>
+                    setWriters((current) =>
+                      current.includes(person.id)
+                        ? current.filter((id) => id !== person.id)
+                        : [...current, person.id],
+                    )
+                  }
+                >
+                  {writers.includes(person.id)
+                    ? t("messengerChannelWriter")
+                    : t("messengerChannelMember")}
+                </button>
+              )}
             </label>
           ))}
           {!people.isPending && people.data?.length === 0 && (
@@ -262,7 +297,17 @@ function NewConversationDialog({
           )}
         </div>
         {create.isError && <p role="alert">{t("messengerCreateFailed")}</p>}
-        {mode === "group" && (
+        {mode === "channel" && (
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={discussionEnabled}
+              onChange={(event) => setDiscussionEnabled(event.target.checked)}
+            />
+            <span>{t("messengerChannelDiscussion")}</span>
+          </label>
+        )}
+        {mode !== "direct" && (
           <form className="messenger-dialog__actions" onSubmit={submitGroup}>
             <span>
               {t("messengerSelectedCount", { count: members.length })}
@@ -272,7 +317,9 @@ function NewConversationDialog({
               type="submit"
               disabled={!title.trim() || !members.length || create.isPending}
             >
-              {t("messengerCreateGroup")}
+              {mode === "channel"
+                ? t("messengerCreateChannel")
+                : t("messengerCreateGroup")}
             </button>
           </form>
         )}
@@ -282,8 +329,13 @@ function NewConversationDialog({
 }
 
 export function MessengerAccessPage() {
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const targetMessageId = searchParams.get("message");
+  const [selectedId, setSelectedId] = useState<string | null>(
+    searchParams.get("conversation"),
+  );
   const [dialog, setDialog] = useState<NewConversationMode | null>(null);
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<MessengerMessage | null>(null);
@@ -330,10 +382,20 @@ export function MessengerAccessPage() {
     enabled: showMembers,
   });
   const messages = useQuery({
-    queryKey: ["messenger-messages", selectedId],
-    queryFn: () => api.messengerMessages(selectedId ?? ""),
+    queryKey: ["messenger-messages", selectedId, targetMessageId],
+    queryFn: () =>
+      targetMessageId
+        ? api.messengerMessageContext(selectedId ?? "", targetMessageId)
+        : api.messengerMessages(selectedId ?? ""),
     enabled: Boolean(selectedId),
   });
+
+  useEffect(() => {
+    if (!targetMessageId || !messages.data) return;
+    document
+      .getElementById(`message-${targetMessageId}`)
+      ?.scrollIntoView({ block: "center" });
+  }, [messages.data, targetMessageId]);
   const searchResults = useQuery({
     queryKey: ["messenger-search", selectedId, search],
     queryFn: () => api.searchMessengerMessages(selectedId ?? "", search),
@@ -436,9 +498,6 @@ export function MessengerAccessPage() {
             );
             return;
           }
-          void queryClient.invalidateQueries({
-            queryKey: ["messenger-conversations"],
-          });
           if (
             hint.conversation_id &&
             (hint.type.startsWith("messenger.message.") ||
@@ -448,6 +507,9 @@ export function MessengerAccessPage() {
               queryKey: ["messenger-messages", hint.conversation_id],
             });
           }
+          void queryClient.invalidateQueries({
+            queryKey: ["messenger-conversations"],
+          });
           if (
             hint.conversation_id &&
             hint.type.startsWith("messenger.membership.")
@@ -569,11 +631,17 @@ export function MessengerAccessPage() {
           reply_to_id: message.replyToId,
           attachment_ids: message.attachmentIds,
           forward_message_id: message.forwardMessageId,
+          kind:
+            selected?.type === "CHANNEL"
+              ? ["ADMIN", "WRITER"].includes(myMembership?.role ?? "")
+                ? "CHANNEL_POST"
+                : "DISCUSSION"
+              : "CHAT",
         },
       ),
     onSuccess: (saved, optimistic) => {
       queryClient.setQueryData<MessengerMessagePage>(
-        ["messenger-messages", optimistic.conversationId],
+        ["messenger-messages", optimistic.conversationId, targetMessageId],
         (current) =>
           current
             ? {
@@ -766,6 +834,15 @@ export function MessengerAccessPage() {
           >
             {t("messengerNewGroup")}
           </button>
+          {me.data?.access.messenger.includes("ADMIN") && (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => setDialog("channel")}
+            >
+              {t("messengerNewChannel")}
+            </button>
+          )}
         </div>
         <div className="messenger-conversations">
           {conversations.data?.results.map((conversation) => {
@@ -873,6 +950,29 @@ export function MessengerAccessPage() {
                 </p>
               </div>
               <div className="messenger-thread__actions">
+                {selected.type === "CHANNEL" &&
+                  myMembership?.role === "ADMIN" && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void api
+                          .updateMessengerChannelSettings(
+                            selected.id,
+                            !selected.discussion_enabled,
+                          )
+                          .then(() => {
+                            void queryClient.invalidateQueries({
+                              queryKey: ["messenger-conversations"],
+                            });
+                            void detail.refetch();
+                          })
+                      }
+                    >
+                      {selected.discussion_enabled
+                        ? t("messengerDisableDiscussion")
+                        : t("messengerEnableDiscussion")}
+                    </button>
+                  )}
                 <button
                   type="button"
                   onClick={() => setShowMembers((current) => !current)}
@@ -952,7 +1052,12 @@ export function MessengerAccessPage() {
                   <button
                     type="button"
                     key={message.id}
-                    onClick={() => setSearch("")}
+                    onClick={() => {
+                      setSearch("");
+                      navigate(
+                        `/messages?conversation=${selected.id}&message=${message.id}`,
+                      );
+                    }}
                   >
                     <strong>{message.author.full_name}</strong>
                     <span>{message.body}</span>
@@ -1111,7 +1216,7 @@ export function MessengerAccessPage() {
                       messages.data?.next_before_sequence ?? undefined,
                     );
                     queryClient.setQueryData<MessengerMessagePage>(
-                      ["messenger-messages", selected.id],
+                      ["messenger-messages", selected.id, targetMessageId],
                       (current) =>
                         current
                           ? {
@@ -1133,7 +1238,8 @@ export function MessengerAccessPage() {
                 const mine = message.author.id === me.data.id;
                 return (
                   <div
-                    className={`messenger-message${mine ? " messenger-message--mine" : ""}`}
+                    id={`message-${message.id}`}
+                    className={`messenger-message${mine ? " messenger-message--mine" : ""}${message.id === targetMessageId ? " messenger-message--target" : ""}`}
                     key={message.id}
                   >
                     {!mine && <strong>{message.author.full_name}</strong>}
