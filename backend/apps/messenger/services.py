@@ -346,6 +346,8 @@ def resolve_message_mentions(
 ) -> list[User]:
     if mention_all and conversation.type == Conversation.Type.DIRECT:
         raise ValidationError("@all is not allowed in direct conversations.")
+    if not mention_all and not mentioned_user_ids:
+        return []
     eligible = User.objects.filter(
         conversation_memberships__conversation=conversation,
         conversation_memberships__left_at__isnull=True,

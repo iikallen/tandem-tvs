@@ -24,8 +24,8 @@ Result: **PASS on the local clean-Compose release gate. Stage 10 was not started
   the searchable fields. Exact destinations independently reauthorize access.
 - The frontend provides the global search route, notification bell/center/settings, exact target
   navigation, push opt-in and channel discussion controls using the existing UI and i18n systems.
-  Messenger prioritizes the active message-history refresh before the inbox summary so the
-  established sub-second realtime gate remains stable.
+  Messenger fetches the exact authorized message before refreshing the inbox summary so the
+  established sub-second realtime gate remains stable without putting message content in Redis.
 - Redis failure does not invalidate database sessions or block REST/search. Source rows, fanout,
   notifications and delivery attempts remain durable in PostgreSQL.
 
@@ -43,8 +43,8 @@ Result: **PASS on the local clean-Compose release gate. Stage 10 was not started
 - Frontend: Prettier, ESLint including the production-Cyrillic rule, TypeScript, **25/25 Vitest
   tests**, npm audit and the Vite production build (153 modules): PASS.
 - Playwright: **38/38 Chromium E2E tests** passed with one deterministic worker. The Stage 7
-  sub-second realtime case also passed three consecutive isolated repetitions after the message
-  history refresh priority fix.
+  sub-second realtime case also passed five consecutive isolated repetitions after the exact
+  message refresh optimization.
 - `pip-audit`: no known vulnerabilities. `npm audit`: 0 vulnerabilities.
   `docker compose config --quiet`: PASS.
 

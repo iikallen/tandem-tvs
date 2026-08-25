@@ -443,6 +443,7 @@ export function MessengerAccessPage() {
             user_id?: number;
             online?: boolean;
             sequence?: number;
+            message_id?: string;
           };
           try {
             hint = JSON.parse(String(event.data)) as typeof hint;
@@ -499,6 +500,33 @@ export function MessengerAccessPage() {
             return;
           }
           if (
+            hint.conversation_id &&
+            hint.message_id &&
+            hint.type === "messenger.message.created"
+          ) {
+            void api
+              .messengerMessage(hint.message_id)
+              .then((message) => {
+                queryClient.setQueriesData<MessengerMessagePage>(
+                  {
+                    queryKey: ["messenger-messages", hint.conversation_id],
+                  },
+                  (current) =>
+                    current &&
+                    !current.messages.some((row) => row.id === message.id)
+                      ? {
+                          ...current,
+                          messages: [...current.messages, message],
+                        }
+                      : current,
+                );
+              })
+              .catch(() =>
+                queryClient.invalidateQueries({
+                  queryKey: ["messenger-messages", hint.conversation_id],
+                }),
+              );
+          } else if (
             hint.conversation_id &&
             (hint.type.startsWith("messenger.message.") ||
               hint.type === "messenger.reaction.changed")

@@ -670,6 +670,10 @@ export const api = {
       "POST",
       { client_message_id: clientMessageId, body, ...options },
     ),
+  messengerMessage: (messageId: string) =>
+    request<MessengerMessage>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}`,
+    ),
   editMessengerMessage: (messageId: string, body: string) =>
     request<MessengerMessage>(
       `/api/v1/messenger/messages/${encodeURIComponent(messageId)}`,

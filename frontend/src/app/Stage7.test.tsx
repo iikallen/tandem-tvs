@@ -152,6 +152,8 @@ function baseFetch(options: {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
       return options.send?.(body, sendAttempt) ?? response(savedMessage, 201);
     }
+    if (url.endsWith(`/api/v1/messenger/messages/${savedMessage.id}`))
+      return response(savedMessage);
     if (
       url.includes("/api/v1/messenger/conversations/") &&
       url.includes("/messages")
@@ -348,6 +350,15 @@ test("deduplicates outbox events and coalesces receipt bursts", async () => {
       );
     }).length;
   const initial = messageGets();
+  const detailGets = () =>
+    fetchMock.mock.calls.filter(([input, init]) => {
+      const url = String(input);
+      return (
+        url.endsWith(`/api/v1/messenger/messages/${savedMessage.id}`) &&
+        (init?.method ?? "GET") === "GET"
+      );
+    }).length;
+  const initialDetails = detailGets();
   const duplicate = JSON.stringify({
     version: 2,
     event_id: "40000000-0000-4000-8000-000000000001",
@@ -357,10 +368,11 @@ test("deduplicates outbox events and coalesces receipt bursts", async () => {
     sequence: 1,
   });
   socket.onmessage?.({ data: duplicate });
-  await waitFor(() => expect(messageGets()).toBe(initial + 1));
+  await waitFor(() => expect(detailGets()).toBe(initialDetails + 1));
+  expect(messageGets()).toBe(initial);
   socket.onmessage?.({ data: duplicate });
   await new Promise((resolve) => window.setTimeout(resolve, 50));
-  expect(messageGets()).toBe(initial + 1);
+  expect(detailGets()).toBe(initialDetails + 1);
 
   const beforeReceipts = messageGets();
   for (let index = 0; index < 3; index += 1) {

@@ -464,6 +464,9 @@ class MessageListCreateView(MessengerAPIView):
 class MessageDetailView(MessengerAPIView):
     serializer_class = MessageEditSerializer
 
+    def get(self, request, message_id):
+        return Response(_message_data(visible_message(request.user, message_id), request))
+
     def patch(self, request, message_id):
         message = visible_message(request.user, message_id)
         payload = self.get_serializer(data=request.data)

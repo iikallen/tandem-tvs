@@ -34,13 +34,13 @@ def enqueue_realtime_event(
     event_type: str,
     payload: dict[str, object],
 ) -> RealtimeOutboxEvent:
-    row = RealtimeOutboxEvent.objects.create(
+    row = RealtimeOutboxEvent(
         group_name=group_name,
         event_type=event_type,
-        payload={**payload},
+        payload={},
     )
-    row.payload["event_id"] = str(row.pk)
-    row.save(update_fields=["payload"])
+    row.payload = {**payload, "event_id": str(row.pk)}
+    row.save(force_insert=True)
     transaction.on_commit(lambda: _deliver_inline_if_available(row.pk), robust=True)
     return row
 
