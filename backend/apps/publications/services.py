@@ -3,7 +3,7 @@ import json
 import uuid
 from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
@@ -575,7 +575,23 @@ def _apply_transition_locked(
     if action == "publish":
         from .engagement import refresh_recipient_snapshot
 
-        refresh_recipient_snapshot(publication)
+        recipient_ids = [cast(Any, row).user_id for row in refresh_recipient_snapshot(publication)]
+        from apps.notifications.models import Notification
+        from apps.notifications.services import enqueue_fanout
+
+        enqueue_fanout(
+            event_key=f"publication:{publication.pk}:published:{publication.edit_revision}",
+            event_type=Notification.Type.NEW_PUBLICATION,
+            source_id=publication.pk,
+            payload={"actor_id": actor.pk, "recipient_ids": recipient_ids},
+        )
+        if publication.acknowledgement_required:
+            enqueue_fanout(
+                event_key=f"publication:{publication.pk}:ack:{publication.edit_revision}",
+                event_type=Notification.Type.ACK_REQUIRED,
+                source_id=publication.pk,
+                payload={"actor_id": actor.pk, "recipient_ids": recipient_ids},
+            )
     event_type = {
         "publish": AuditEvent.Type.PUBLISHED,
         "submit-review": AuditEvent.Type.SUBMITTED_FOR_REVIEW,

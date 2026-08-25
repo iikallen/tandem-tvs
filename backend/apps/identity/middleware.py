@@ -31,4 +31,12 @@ class AuthSessionExpiryMiddleware:
                     request.session["auth_started_at"] = started
                 if now - last_seen >= settings.AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS:
                     request.session["auth_last_seen_at"] = now
+                last_activity = request.user.last_activity_at
+                if (
+                    last_activity is None
+                    or now - int(last_activity.timestamp())
+                    >= settings.USER_ACTIVITY_CHECKPOINT_SECONDS
+                ):
+                    request.user.last_activity_at = timezone.now()
+                    request.user.save(update_fields=["last_activity_at"])
         return self.get_response(request)

@@ -181,6 +181,8 @@ def test_message_mutations_reactions_forward_search_state_and_group_admin_rules(
     message = send(owner_client, conversation_id, "Original searchable text")
     message_url = f"/api/v1/messenger/messages/{message.data['id']}"
 
+    assert member_client.get(message_url).data["body"] == "Original searchable text"
+    assert client(outsider).get(message_url).status_code == 404
     assert member_client.patch(message_url, {"body": "stolen"}, format="json").status_code == 403
     edited = owner_client.patch(message_url, {"body": "Edited searchable text"}, format="json")
     assert edited.status_code == 200 and edited.data["edited_at"]

@@ -28,6 +28,9 @@ class TicketAuthMiddleware(BaseMiddleware):
         elif path == "/ws/v1/messenger":
             expected_scope = RealtimeScope.MESSENGER
             resource_id = None
+        elif path == "/ws/v1/notifications":
+            expected_scope = RealtimeScope.NOTIFICATIONS
+            resource_id = None
         else:
             claims = None
             expected_scope = None

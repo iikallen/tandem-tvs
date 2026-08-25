@@ -12,3 +12,7 @@ def publication_group(publication_id: object) -> str:
 
 def conversation_group(conversation_id: object) -> str:
     return f"conversation.{str(conversation_id).replace('-', '')}"
+
+
+def notification_group(user_id: object) -> str:
+    return f"notification.{user_id}"

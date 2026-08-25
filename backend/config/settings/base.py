@@ -26,6 +26,8 @@ INSTALLED_APPS = [
     "apps.discussions",
     "apps.realtime",
     "apps.messenger",
+    "apps.notifications",
+    "apps.search",
 ]
 
 MIDDLEWARE = [
@@ -63,7 +65,7 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "tandem-stage1",
     },
-    "sessions": {
+    "throttles": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "tandem-sessions",
     },
@@ -121,15 +123,15 @@ if redis_url := os.getenv("REDIS_URL"):
         "default": {
             "BACKEND": "django_redis.cache.RedisCache",
             "LOCATION": redis_url,
-            "OPTIONS": {"CLIENT_CLASS": "django_redis.client.DefaultClient"},
-        },
-        "sessions": {
-            "BACKEND": "django_redis.cache.RedisCache",
-            "LOCATION": redis_url,
             "OPTIONS": {
                 "CLIENT_CLASS": "django_redis.client.DefaultClient",
-                "IGNORE_EXCEPTIONS": True,
+                "SOCKET_CONNECT_TIMEOUT": 1,
+                "SOCKET_TIMEOUT": 1,
             },
+        },
+        "throttles": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "tandem-throttles",
         },
     }
 
@@ -156,8 +158,7 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "apps.identity.validators.LocalPasswordBlocklistValidator"},
 ]
-SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
-SESSION_CACHE_ALIAS = "sessions"
+SESSION_ENGINE = "django.contrib.sessions.backends.db"
 SESSION_COOKIE_NAME: str = "tandem_session"
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
@@ -169,6 +170,7 @@ AUTH_SESSION_IDLE_SECONDS = int(os.getenv("AUTH_SESSION_IDLE_SECONDS", "1800"))
 AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS = int(
     os.getenv("AUTH_SESSION_ACTIVITY_CHECKPOINT_SECONDS", "60")
 )
+USER_ACTIVITY_CHECKPOINT_SECONDS = int(os.getenv("USER_ACTIVITY_CHECKPOINT_SECONDS", "300"))
 CSRF_USE_SESSIONS = True
 AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
 AUTH_RECOVERY_MODE = os.getenv("AUTH_RECOVERY_MODE", "ADMIN_ONLY")
@@ -196,6 +198,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "realtime.dispatch-outbox",
         "schedule": 2.0,
     },
+    "dispatch-notification-fanout": {
+        "task": "apps.notifications.tasks.dispatch_notification_fanout",
+        "schedule": 2.0,
+    },
+    "dispatch-notification-deliveries": {
+        "task": "apps.notifications.tasks.dispatch_notification_deliveries",
+        "schedule": 5.0,
+    },
 }
 
 REST_FRAMEWORK = {
@@ -213,7 +223,9 @@ REST_FRAMEWORK = {
         "messenger_message": "120/min",
         "messenger_direct": "20/hour",
         "messenger_group": "10/hour",
+        "messenger_mention_all": "10/hour",
         "messenger_people": "60/min",
+        "push_subscription": "20/hour",
     },
 }
 
@@ -224,6 +236,32 @@ REALTIME_MAX_SOCKETS_PER_USER = int(os.getenv("REALTIME_MAX_SOCKETS_PER_USER", "
 REALTIME_MAX_CLIENT_FRAMES_PER_SECOND = int(
     os.getenv("REALTIME_MAX_CLIENT_FRAMES_PER_SECOND", "30")
 )
+
+WEB_PUSH_ENABLED = os.getenv("WEB_PUSH_ENABLED", "false").lower() == "true"
+WEB_PUSH_ALLOWED_HOST_SUFFIXES = tuple(
+    value.strip().casefold()
+    for value in os.getenv(
+        "WEB_PUSH_ALLOWED_HOST_SUFFIXES",
+        "fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,web.push.apple.com",
+    ).split(",")
+    if value.strip()
+)
+WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER = int(os.getenv("WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER", "5"))
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:security@example.invalid")
+NOTIFICATION_EMAIL_ENABLED = os.getenv("NOTIFICATION_EMAIL_ENABLED", "false").lower() == "true"
+NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS = int(
+    os.getenv("NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS", "24")
+)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "tandem@example.invalid")
+EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend")
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "25"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "false").lower() == "true"
+EMAIL_TIMEOUT = int(os.getenv("EMAIL_TIMEOUT", "10"))
 REALTIME_SOCKET_LEASE_SECONDS = REALTIME_SOCKET_LIFETIME_SECONDS + 30
 REALTIME_ALLOWED_ORIGINS = [
     origin.strip()
@@ -235,7 +273,17 @@ REALTIME_ALLOWED_ORIGINS = [
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [REALTIME_REDIS_URL], "capacity": 100, "expiry": 60},
+        "CONFIG": {
+            "hosts": [
+                {
+                    "address": REALTIME_REDIS_URL,
+                    "socket_connect_timeout": 1,
+                    "socket_timeout": 1,
+                }
+            ],
+            "capacity": 100,
+            "expiry": 60,
+        },
     }
 }
 

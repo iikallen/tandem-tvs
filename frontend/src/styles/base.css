@@ -216,6 +216,99 @@ h3 {
   width: min(100%, 1180px);
   margin: 0 auto;
 }
+.portal-toolbar {
+  width: min(100%, 1180px);
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.portal-search {
+  width: min(480px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+.portal-search svg,
+.notification-bell svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+.portal-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  color: var(--text-primary);
+  background: transparent;
+}
+.notification-bell {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-input);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+.notification-bell span {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  border: 2px solid var(--bg-page);
+  border-radius: 999px;
+  color: white;
+  background: var(--color-primary);
+  font-size: 10px;
+  font-weight: 800;
+}
+.settings-table,
+.search-results {
+  display: grid;
+  gap: 12px;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(110px, auto));
+  align-items: center;
+  gap: 16px;
+}
+.check-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.check-row input {
+  width: 18px;
+  height: 18px;
+}
+.search-section {
+  display: grid;
+  gap: 12px;
+}
+.search-result-link {
+  display: grid;
+  gap: 6px;
+}
+.search-result-link p {
+  color: var(--text-muted);
+}
+.messenger-message--target {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
 .page-stack {
   display: grid;
   gap: 20px;
@@ -1488,6 +1581,15 @@ h3 {
   .main {
     margin-left: 0;
     padding: 24px 16px 92px;
+  }
+  .portal-toolbar {
+    align-items: stretch;
+  }
+  .portal-search {
+    flex: 1;
+  }
+  .settings-row {
+    grid-template-columns: 1fr;
   }
   .mobile-nav {
     position: fixed;

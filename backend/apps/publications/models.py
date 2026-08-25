@@ -29,10 +29,15 @@ def media_storage_path(instance: "MediaAsset", _filename: str) -> str:
     return instance.storage_key
 
 
-SEARCH_VECTOR = (
-    SearchVector("title", weight="A", config="simple")
-    + SearchVector("summary", weight="B", config="simple")
-    + SearchVector("body_text", weight="C", config="simple")
+SEARCH_VECTOR_RU = (
+    SearchVector("title", weight="A", config="russian")
+    + SearchVector("summary", weight="B", config="russian")
+    + SearchVector("body_text", weight="C", config="russian")
+)
+SEARCH_VECTOR_KK = (
+    SearchVector("title", weight="A", config="tandem_kazakh")
+    + SearchVector("summary", weight="B", config="tandem_kazakh")
+    + SearchVector("body_text", weight="C", config="tandem_kazakh")
 )
 
 
@@ -95,14 +100,17 @@ class PublicationQuerySet(models.QuerySet):
                 search_cursor=Cast("id", output_field=models.CharField()),
             )
 
-        search_query = SearchQuery(query, config="simple", search_type="plain")
+        search_query_ru = SearchQuery(query, config="russian", search_type="plain")
+        search_query_kk = SearchQuery(query, config="tandem_kazakh", search_type="plain")
         ranked = self.annotate(
-            search_vector=SEARCH_VECTOR,
+            search_vector_ru=SEARCH_VECTOR_RU,
+            search_vector_kk=SEARCH_VECTOR_KK,
             search_rank=Cast(
-                SearchRank(SEARCH_VECTOR, search_query),
+                SearchRank(SEARCH_VECTOR_RU, search_query_ru)
+                + SearchRank(SEARCH_VECTOR_KK, search_query_kk),
                 models.DecimalField(max_digits=12, decimal_places=8),
             ),
-        ).filter(search_vector=search_query)
+        ).filter(Q(search_vector_ru=search_query_ru) | Q(search_vector_kk=search_query_kk))
         return ranked.annotate(
             search_cursor=Concat(
                 models.Func(
@@ -212,7 +220,8 @@ class Publication(models.Model):
                 fields=["status", "-published_at", "-id"],
                 name="publications_feed_idx",
             ),
-            GinIndex(SEARCH_VECTOR, name="publications_search_idx"),
+            GinIndex(SEARCH_VECTOR_RU, name="pub_search_ru_idx"),
+            GinIndex(SEARCH_VECTOR_KK, name="pub_search_kk_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -724,6 +733,13 @@ class MediaAsset(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        indexes = [
+            GinIndex(SearchVector("original_name", config="russian"), name="media_search_ru_idx"),
+            GinIndex(
+                SearchVector("original_name", config="tandem_kazakh"),
+                name="media_search_kk_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.original_name

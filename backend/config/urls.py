@@ -18,8 +18,6 @@ from apps.discussions.views import (
     ModerationCommentActionView,
     ModerationQueueView,
     ModerationReportResolveView,
-    NotificationListView,
-    NotificationReadView,
     ReactionDetailView,
     ReactionSummaryView,
     RealtimeTicketView,
@@ -44,6 +42,7 @@ from apps.identity.views import (
     SessionView,
 )
 from apps.messenger.views import (
+    ChannelConversationView,
     ConversationAttachmentUploadView,
     ConversationDetailView,
     ConversationLeaveView,
@@ -55,12 +54,22 @@ from apps.messenger.views import (
     DeliveredView,
     DirectConversationView,
     GroupConversationView,
+    MessageContextView,
     MessageDetailView,
     MessageListCreateView,
     MessagePinView,
     MessageReactionView,
     PeopleView,
     ReadView,
+)
+from apps.notifications.views import (
+    NotificationListView,
+    NotificationReadAllView,
+    NotificationReadView,
+    NotificationSettingsView,
+    NotificationUnreadCountView,
+    PushConfigView,
+    PushSubscriptionView,
 )
 from apps.organization.views import EmployeeSearchView, OrgUnitListView, PositionGroupListView
 from apps.publications.views import (
@@ -91,8 +100,10 @@ from apps.publications.views import (
     NewsPinnedListView,
     NewsPinView,
 )
+from apps.search.views import GlobalSearchView
 
 urlpatterns = [
+    path("api/v1/search", GlobalSearchView.as_view(), name="global-search"),
     path("api/v1/auth/csrf", CsrfView.as_view(), name="auth-csrf"),
     path("api/v1/auth/login", LoginView.as_view(), name="auth-login"),
     path("api/v1/auth/session", SessionView.as_view(), name="auth-session"),
@@ -148,6 +159,11 @@ urlpatterns = [
         name="messenger-group",
     ),
     path(
+        "api/v1/messenger/conversations/channel",
+        ChannelConversationView.as_view(),
+        name="messenger-channel",
+    ),
+    path(
         "api/v1/messenger/conversations/<uuid:conversation_id>",
         ConversationDetailView.as_view(),
         name="messenger-conversation-detail",
@@ -156,6 +172,11 @@ urlpatterns = [
         "api/v1/messenger/conversations/<uuid:conversation_id>/messages",
         MessageListCreateView.as_view(),
         name="messenger-messages",
+    ),
+    path(
+        "api/v1/messenger/conversations/<uuid:conversation_id>/messages/<uuid:message_id>/context",
+        MessageContextView.as_view(),
+        name="messenger-message-context",
     ),
     path(
         "api/v1/messenger/conversations/<uuid:conversation_id>/read",
@@ -279,9 +300,35 @@ urlpatterns = [
     ),
     path("api/v1/notifications", NotificationListView.as_view(), name="notifications"),
     path(
+        "api/v1/notifications/unread-count",
+        NotificationUnreadCountView.as_view(),
+        name="notification-unread-count",
+    ),
+    path(
         "api/v1/notifications/<uuid:notification_id>/read",
         NotificationReadView.as_view(),
         name="notification-read",
+    ),
+    path(
+        "api/v1/notifications/read-all",
+        NotificationReadAllView.as_view(),
+        name="notification-read-all",
+    ),
+    path(
+        "api/v1/notification-settings",
+        NotificationSettingsView.as_view(),
+        name="notification-settings",
+    ),
+    path("api/v1/push/config", PushConfigView.as_view(), name="push-config"),
+    path(
+        "api/v1/push/subscriptions",
+        PushSubscriptionView.as_view(),
+        name="push-subscription",
+    ),
+    path(
+        "api/v1/push/subscriptions/<int:subscription_id>",
+        PushSubscriptionView.as_view(),
+        name="push-subscription-detail",
     ),
     path(
         "api/v1/editorial/publications",

@@ -1,6 +1,8 @@
 import uuid
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector
 from django.db import models
 
 
@@ -74,6 +76,8 @@ class Comment(models.Model):
             ),
             models.Index(fields=["reply_to"], name="comment_reply_to_idx"),
             models.Index(fields=["author", "-created_at"], name="comment_author_idx"),
+            GinIndex(SearchVector("body", config="russian"), name="comment_search_ru_idx"),
+            GinIndex(SearchVector("body", config="tandem_kazakh"), name="comment_search_kk_idx"),
         ]
         constraints = [
             models.CheckConstraint(
@@ -262,35 +266,3 @@ class CommentRestriction(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user.pk}: {self.expires_at or 'indefinite'}"
-
-
-class Notification(models.Model):
-    class Type(models.TextChoices):
-        COMMENT_REPLY = "COMMENT_REPLY", "Comment reply"
-        COMMENT_MENTION = "COMMENT_MENTION", "Comment mention"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    recipient = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications"
-    )
-    actor = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sent_notifications"
-    )
-    notification_type = models.CharField(max_length=32, choices=Type)
-    publication = models.ForeignKey(
-        "publications.Publication", on_delete=models.CASCADE, related_name="notifications"
-    )
-    comment = models.ForeignKey(Comment, on_delete=models.CASCADE, related_name="notifications")
-    created_at = models.DateTimeField(auto_now_add=True)
-    read_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at", "-id"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["recipient", "comment"], name="notification_recipient_comment_unique"
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.recipient.pk}: {self.notification_type}"

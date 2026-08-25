@@ -73,6 +73,21 @@ if AUTH_RECOVERY_MODE == "SMTP":
         raise ImproperlyConfigured(
             "AUTH_PUBLIC_BASE_URL must be an absolute HTTPS URL when AUTH_RECOVERY_MODE=SMTP"
         )
+if WEB_PUSH_ENABLED:  # noqa: F405
+    if not WEB_PUSH_ALLOWED_HOST_SUFFIXES:  # noqa: F405
+        raise ImproperlyConfigured(
+            "WEB_PUSH_ALLOWED_HOST_SUFFIXES is required when Web Push is enabled"
+        )
+    if not 1 <= WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER <= 20:  # noqa: F405
+        raise ImproperlyConfigured("WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER must be between 1 and 20")
+    VAPID_PUBLIC_KEY = required("VAPID_PUBLIC_KEY")
+    VAPID_PRIVATE_KEY = required("VAPID_PRIVATE_KEY")
+    VAPID_SUBJECT = required("VAPID_SUBJECT")
+    if not (VAPID_SUBJECT.startswith("mailto:") or VAPID_SUBJECT.startswith("https://")):
+        raise ImproperlyConfigured("VAPID_SUBJECT must be a mailto: or HTTPS URI")
+if NOTIFICATION_EMAIL_ENABLED:  # noqa: F405
+    DEFAULT_FROM_EMAIL = required("DEFAULT_FROM_EMAIL")
+    EMAIL_HOST = required("EMAIL_HOST")
 ALLOW_BOOTSTRAP_LOCAL_ADMIN = os.getenv("ALLOW_BOOTSTRAP_LOCAL_ADMIN", "false").lower() == "true"
 PORTAL_ADAPTER = os.getenv("PORTAL_ADAPTER", "unavailable")
 ALLOW_MOCK_PORTAL_ADAPTER = False

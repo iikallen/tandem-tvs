@@ -20,7 +20,6 @@ from .models import (
     CommentRestriction,
     EngagementSettings,
     ModerationFlag,
-    Notification,
     Reaction,
     StopWord,
 )
@@ -130,23 +129,27 @@ def create_comment(
             for index, asset in enumerate(attachments)
         ]
     )
-    recipients = {user.pk: (user, Notification.Type.COMMENT_MENTION) for user in users}
+    from apps.notifications.models import Notification
+    from apps.notifications.services import enqueue_fanout
+
+    recipients = {user.pk: Notification.Type.COMMENT_MENTION for user in users}
     if parent is not None and parent.author.pk != author.pk:
-        recipients.setdefault(parent.author.pk, (parent.author, Notification.Type.COMMENT_REPLY))
+        recipients.setdefault(parent.author.pk, Notification.Type.COMMENT_REPLY)
     recipients.pop(author.pk, None)
-    Notification.objects.bulk_create(
-        [
-            Notification(
-                recipient=user,
-                actor=author,
-                notification_type=kind,
-                publication=publication,
-                comment=comment,
-            )
-            for user, kind in recipients.values()
-        ],
-        ignore_conflicts=True,
-    )
+    for kind in set(recipients.values()):
+        enqueue_fanout(
+            event_key=f"comment:{comment.pk}:{kind}",
+            event_type=kind,
+            source_id=comment.pk,
+            payload={
+                "actor_id": author.pk,
+                "publication_id": str(publication.pk),
+                "recipient_ids": [
+                    user_id for user_id, value in recipients.items() if value == kind
+                ],
+                "source_type": "COMMENT",
+            },
+        )
     folded = unicodedata.normalize("NFKC", comment.body).casefold()
     flags = [
         ModerationFlag(comment=comment, matched_word=word.value)

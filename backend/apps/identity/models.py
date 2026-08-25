@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django.contrib.auth.base_user import AbstractBaseUser
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models.functions import Lower
@@ -33,6 +34,7 @@ class User(AbstractBaseUser):
     activated_at = models.DateTimeField(null=True, blank=True)
     password_changed_at = models.DateTimeField(null=True, blank=True)
     last_portal_sync_at = models.DateTimeField(null=True, blank=True)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -43,6 +45,10 @@ class User(AbstractBaseUser):
 
     class Meta:
         ordering = ["full_name", "username"]
+        indexes = [
+            GinIndex(fields=["full_name"], name="user_name_trgm_idx", opclasses=["gin_trgm_ops"]),
+            GinIndex(fields=["job_title"], name="user_job_trgm_idx", opclasses=["gin_trgm_ops"]),
+        ]
         constraints = [
             models.UniqueConstraint(Lower("username"), name="identity_username_ci_unique"),
             models.UniqueConstraint(
