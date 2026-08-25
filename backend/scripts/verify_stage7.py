@@ -43,6 +43,7 @@ USERS = {
     "no_access": ("stage7-no-access", "Нет доступа Stage 7"),
 }
 REQUEST_META = {"HTTP_HOST": "localhost", "HTTP_X_FORWARDED_PROTO": "https"}
+ACCEPTANCE_ORIGIN = os.getenv("ACCEPTANCE_ORIGIN", "http://localhost")
 ws_connect = cast(Any, websockets.connect)
 
 
@@ -128,7 +129,7 @@ async def receive_type(socket, event_type: str, timeout: float = 2.0) -> dict:
 async def assert_realtime_message(token: str, client: APIClient, conversation_id: str) -> float:
     message_id = str(uuid.uuid4())
     async with ws_connect(
-        websocket_url(token), origin="http://localhost", open_timeout=5, close_timeout=2
+        websocket_url(token), origin=ACCEPTANCE_ORIGIN, open_timeout=5, close_timeout=2
     ) as socket:
         started = time.perf_counter()
         response = await asyncio.to_thread(
@@ -150,7 +151,7 @@ async def assert_realtime_message(token: str, client: APIClient, conversation_id
 
 async def assert_forced_close(token: str, action) -> None:
     async with ws_connect(
-        websocket_url(token), origin="http://localhost", open_timeout=5, close_timeout=2
+        websocket_url(token), origin=ACCEPTANCE_ORIGIN, open_timeout=5, close_timeout=2
     ) as socket:
         response = await asyncio.to_thread(action)
         assert response.status_code in {200, 204}, getattr(response, "data", None)
@@ -163,7 +164,7 @@ async def assert_forced_close(token: str, action) -> None:
 
 async def assert_reconnect(token: str) -> None:
     async with ws_connect(
-        websocket_url(token), origin="http://localhost", open_timeout=5, close_timeout=2
+        websocket_url(token), origin=ACCEPTANCE_ORIGIN, open_timeout=5, close_timeout=2
     ) as socket:
         await socket.send(json.dumps({"type": "ping"}))
         assert await receive_type(socket, "pong") == {"type": "pong"}

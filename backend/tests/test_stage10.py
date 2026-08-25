@@ -168,6 +168,15 @@ def test_nginx_access_log_and_prometheus_rules_preserve_observability_privacy():
     assert "absent(tandem_postgres_up)" in alerts
 
 
+def test_realtime_acceptance_scripts_can_target_the_production_origin():
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+
+    for stage in (7, 8, 9):
+        verifier = (scripts / f"verify_stage{stage}.py").read_text()
+        assert 'os.getenv("ACCEPTANCE_ORIGIN", "http://localhost")' in verifier
+        assert "origin=ACCEPTANCE_ORIGIN" in verifier
+
+
 def test_mutating_http_requests_coordinate_with_backup_write_lock(monkeypatch):
     from apps.ops import metrics
 

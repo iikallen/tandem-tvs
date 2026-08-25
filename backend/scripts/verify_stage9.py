@@ -50,6 +50,7 @@ from apps.search.services import authorized_sections  # noqa: E402
 STATE_FILE = Path(settings.MEDIA_ROOT) / ".stage9-acceptance.json"
 PASSWORD = settings.STAGE6_DEMO_PASSWORD
 META = {"HTTP_HOST": "localhost", "HTTP_X_FORWARDED_PROTO": "https"}
+ACCEPTANCE_ORIGIN = os.getenv("ACCEPTANCE_ORIGIN", "http://localhost")
 USERNAMES = {
     "admin": "stage9-admin",
     "editor": "stage9-editor",
@@ -201,13 +202,13 @@ async def verify_two_device_read(
     async with (
         ws_connect(
             url.format(first_token),
-            origin="http://localhost",
+            origin=ACCEPTANCE_ORIGIN,
             open_timeout=5,
             close_timeout=2,
         ) as first_socket,
         ws_connect(
             url.format(second_token),
-            origin="http://localhost",
+            origin=ACCEPTANCE_ORIGIN,
             open_timeout=5,
             close_timeout=2,
         ) as second_socket,
