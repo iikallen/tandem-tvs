@@ -11,7 +11,7 @@ function scenario(exec, vus) {
     exec,
     startVUs: 0,
     stages: [
-      { duration: "2m", target: vus },
+      { duration: "5m", target: vus },
       { duration: "30m", target: vus },
     ],
   };

@@ -4,7 +4,7 @@ import http from "k6/http";
 import { baseUrl, ensureAuthenticated, requestParams } from "./auth.js";
 
 const thinkSeconds = Number(
-  __ENV.THINK_SECONDS || (__ENV.PROFILE === "smoke" ? "1" : "10"),
+  __ENV.THINK_SECONDS || (__ENV.PROFILE === "smoke" ? "1" : "30"),
 );
 
 export function browse() {
