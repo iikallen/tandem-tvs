@@ -1054,15 +1054,20 @@ def test_verify_restored_state_rejects_incomplete_and_accepts_core_state(tmp_pat
     ):
         call_command("verify_restored_state")
 
+    decoy = User.objects.create(username="restore-decoy", full_name="A Restore Decoy")
     owner = User.objects.create(username="restore-owner", full_name="Restore Owner")
     peer = User.objects.create(username="restore-peer", full_name="Restore Peer")
-    for user in (owner, peer):
+    for user in (decoy, owner, peer):
         AccessGrant.objects.create(
             user=user, module=AccessGrant.Module.MESSENGER, role=AccessGrant.Role.MEMBER
         )
     AccessGrant.objects.create(
+        user=decoy, module=AccessGrant.Module.NEWS, role=AccessGrant.Role.MEMBER
+    )
+    AccessGrant.objects.create(
         user=owner, module=AccessGrant.Module.NEWS, role=AccessGrant.Role.EDITOR
     )
+    create_direct_conversation(decoy, peer)
     conversation, _ = create_direct_conversation(owner, peer)
     message, _ = send_message(
         conversation,

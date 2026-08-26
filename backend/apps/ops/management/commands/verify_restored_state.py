@@ -17,7 +17,7 @@ def _expect(response, status: int, label: str) -> None:
 
 
 def _verify_application_smoke() -> None:
-    subject = (
+    subjects = (
         User.objects.filter(
             is_active=True,
             access_grants__module=AccessGrant.Module.NEWS,
@@ -25,20 +25,31 @@ def _verify_application_smoke() -> None:
         )
         .filter(access_grants__module=AccessGrant.Module.MESSENGER)
         .distinct()
-        .first()
     )
-    if subject is None:
+    if not subjects.exists():
         raise CommandError("Restored state has no active News + Messenger smoke user")
-    membership = ConversationMembership.objects.filter(user=subject, left_at__isnull=True).first()
-    readable_asset = next(
-        (
-            asset
-            for asset in MediaAsset.objects.filter(status=MediaAsset.Status.READY).iterator()
-            if can_read_media(subject, asset)
-        ),
-        None,
-    )
-    if membership is None or readable_asset is None:
+
+    subject = membership = readable_asset = None
+    for candidate in subjects.iterator():
+        candidate_membership = ConversationMembership.objects.filter(
+            user=candidate, left_at__isnull=True
+        ).first()
+        candidate_asset = next(
+            (
+                asset
+                for asset in MediaAsset.objects.filter(status=MediaAsset.Status.READY).iterator()
+                if can_read_media(candidate, asset)
+            ),
+            None,
+        )
+        if candidate_membership is not None and candidate_asset is not None:
+            subject, membership, readable_asset = (
+                candidate,
+                candidate_membership,
+                candidate_asset,
+            )
+            break
+    if subject is None or membership is None or readable_asset is None:
         raise CommandError("Restored state has no authorized conversation/media smoke fixture")
 
     original_password = subject.password
