@@ -1,6 +1,7 @@
 """Clean Compose acceptance for Stage 9 notifications and global search."""
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -316,13 +317,14 @@ def prepare() -> None:
         body="Маяк отдельное упоминание",
         mentioned_users=[users["member"]],
     )
+    asset_content = b"%PDF-1.7\n%%EOF\n"
     asset = MediaAsset.objects.create(
         original_name="маяк-stage9.pdf",
         storage_key=f"assets/{uuid.uuid4().hex}.pdf",
-        file=SimpleUploadedFile("stage9.pdf", b"%PDF-1.7\n%%EOF\n"),
+        file=SimpleUploadedFile("stage9.pdf", asset_content),
         mime_type="application/pdf",
-        size=15,
-        sha256="5" * 64,
+        size=len(asset_content),
+        sha256=hashlib.sha256(asset_content).hexdigest(),
         kind=MediaAsset.Kind.DOCUMENT,
         uploader=users["editor"],
         status=MediaAsset.Status.READY,
