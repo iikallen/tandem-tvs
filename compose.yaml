@@ -6,6 +6,7 @@ services:
       context: .
       dockerfile: infra/postgres/Dockerfile
     image: tandem-tvs-postgres
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}

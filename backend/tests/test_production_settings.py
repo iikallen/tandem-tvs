@@ -292,8 +292,10 @@ def test_proxy_headers_are_overwritten_and_uvicorn_trust_is_network_scoped():
 
 def test_production_compose_activates_tunnel_and_bounds_logs():
     root = Path(__file__).resolve().parents[2]
+    base = (root / "compose.yaml").read_text()
     production = (root / "compose.prod.yaml").read_text()
 
+    assert "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}" in base
     assert "profiles: !reset []" in production
     assert "tandem-tvs-postgres:${APP_GIT_SHA" in production
     assert "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}" in production
