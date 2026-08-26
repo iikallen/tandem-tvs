@@ -342,7 +342,7 @@ class MentionCandidateView(PrivateResponseMixin, generics.GenericAPIView):
 class CommentMediaUploadView(PrivateResponseMixin, generics.GenericAPIView):
     permission_classes = [HasNewsAccess]
     parser_classes = [MultiPartParser, FormParser]
-    throttle_scope = "comment_upload"
+    throttle_scope = "attachment_upload"
 
     def post(self, request, publication_id):
         publication = visible_publication_or_404(request.user, publication_id)
@@ -352,7 +352,7 @@ class CommentMediaUploadView(PrivateResponseMixin, generics.GenericAPIView):
         if upload is None:
             raise serializers.ValidationError({"file": "A file is required."})
         try:
-            asset = create_media_asset(upload=upload, actor=request.user)
+            asset = create_media_asset(upload=upload, actor=request.user, temporary=True)
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"file": exc.messages}) from exc
         return Response(MediaAssetSerializer(asset).data, status=status.HTTP_201_CREATED)

@@ -207,6 +207,8 @@ OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS = int(
     os.getenv("OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS", "14")
 )
 OPS_DISABLED_PUSH_RETENTION_DAYS = int(os.getenv("OPS_DISABLED_PUSH_RETENTION_DAYS", "30"))
+TEMPORARY_UPLOAD_RETENTION_HOURS = int(os.getenv("TEMPORARY_UPLOAD_RETENTION_HOURS", "24"))
+TEMPORARY_UPLOAD_LIMIT_PER_USER = int(os.getenv("TEMPORARY_UPLOAD_LIMIT_PER_USER", "10"))
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/2")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
@@ -244,7 +246,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "comment_create": "20/min",
         "comment_edit": "30/min",
-        "comment_upload": "10/min",
+        "attachment_upload": "10/min",
         "reaction": "60/min",
         "realtime_ticket": "30/min",
         "messenger_message": "120/min",

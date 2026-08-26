@@ -177,6 +177,14 @@ def verify_probe(compose: list[str], message_id: str, timeout: int) -> None:
     backend_manage(compose, "fault_probe", "verify", message_id, "--timeout", str(timeout))
 
 
+def create_session_probe(compose: list[str]) -> str:
+    return backend_manage(compose, "fault_probe", "session-create").splitlines()[-1]
+
+
+def verify_session_probe(compose: list[str], session_key: str) -> None:
+    backend_manage(compose, "fault_probe", "session-verify", session_key)
+
+
 def current_database(compose: list[str]) -> str:
     output = backend_manage(
         compose,
@@ -281,6 +289,7 @@ def main() -> int:
             print(f"FAULT stop {service}", flush=True)
             stopped = False
             probe_id = ""
+            session_key = create_session_probe(compose)
             try:
                 run([*compose, "stop", "--timeout", "10", service])
                 stopped = True
@@ -312,6 +321,7 @@ def main() -> int:
             if probe_id:
                 verify_probe(compose, probe_id, args.timeout)
                 baseline = snapshot(compose)
+            verify_session_probe(compose, session_key)
             verify(compose, baseline)
             print(f"RECOVERY {service}: PASS", flush=True)
     finally:

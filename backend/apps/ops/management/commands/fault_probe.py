@@ -1,20 +1,28 @@
 import json
+import os
 import time
 import uuid
 from typing import Any, cast
+from urllib.parse import quote
 
 from django.conf import settings
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
+from django.contrib.sessions.backends.db import SessionStore
 from django.core.cache import cache
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Count
+from django.utils import timezone
 from rest_framework.test import APIClient
+from websockets.sync.client import connect
 
 from apps.identity.models import User
 from apps.messenger.models import Conversation, ConversationMembership, Message
 from apps.messenger.services import send_message
 from apps.notifications.models import Notification, NotificationFanoutEvent
 from apps.publications.tasks import RECONCILIATION_HEARTBEAT_KEY
+from apps.realtime.claims import RealtimeScope
 from apps.realtime.models import RealtimeOutboxEvent
+from apps.realtime.tickets import create_ticket
 
 NAMESPACE = uuid.UUID("5063444c-2f8d-4dd9-91e4-5cbb55c00e9c")
 
@@ -31,20 +39,37 @@ class Command(BaseCommand):
         verify.add_argument("--timeout", type=int, default=90)
         heartbeat = subparsers.add_parser("heartbeat-stale")
         heartbeat.add_argument("--minimum-age", type=float, default=60)
+        subparsers.add_parser("session-create")
+        session_verify = subparsers.add_parser("session-verify")
+        session_verify.add_argument("session_key")
 
     def handle(self, *args, **options):
         action = options["action"]
+        if (
+            action != "heartbeat-stale"
+            and os.environ.get("TANDEM_ENVIRONMENT_PURPOSE") != "stage10-load"
+        ):
+            raise CommandError("Fault probes require TANDEM_ENVIRONMENT_PURPOSE=stage10-load")
         if action == "create":
             self._create(options["label"])
         elif action == "verify":
             self._verify(options["message_id"], options["timeout"])
-        else:
+        elif action == "heartbeat-stale":
             self._heartbeat_stale(options["minimum_age"])
+        elif action == "session-create":
+            self._session_create()
+        else:
+            self._session_verify(options["session_key"])
+
+    @staticmethod
+    def _load_user() -> User:
+        user = User.objects.filter(username="load-0001", is_active=True).first()
+        if user is None:
+            raise CommandError("The isolated fault environment has no load-0001 fixture")
+        return user
 
     def _create(self, label: str) -> None:
-        author = User.objects.filter(username="load-0001", is_active=True).first()
-        if author is None:
-            raise CommandError("The isolated fault environment has no load-0001 fixture")
+        author = self._load_user()
         membership = (
             ConversationMembership.objects.filter(user=author, left_at__isnull=True)
             .exclude(conversation__type=Conversation.Type.CHANNEL)
@@ -115,3 +140,47 @@ class Command(BaseCommand):
         if heartbeat and time.time() - float(heartbeat) < minimum_age:
             raise CommandError("Celery Beat heartbeat is not stale")
         self.stdout.write("Celery Beat stale-heartbeat detection: PASS")
+
+    def _session_create(self) -> None:
+        user = self._load_user()
+        now = int(timezone.now().timestamp())
+        session = SessionStore()
+        session[SESSION_KEY] = str(user.pk)
+        session[BACKEND_SESSION_KEY] = settings.AUTHENTICATION_BACKENDS[0]
+        session[HASH_SESSION_KEY] = user.get_session_auth_hash()
+        session["auth_started_at"] = now
+        session["auth_last_seen_at"] = now
+        session["security_epoch"] = user.security_epoch
+        session.set_expiry(settings.SESSION_COOKIE_AGE)
+        session.save()
+        if not session.session_key:
+            raise CommandError("Could not create the durable session probe")
+        self.stdout.write(session.session_key)
+
+    def _session_verify(self, session_key: str) -> None:
+        user = self._load_user()
+        client = APIClient()
+        client.cookies[settings.SESSION_COOKIE_NAME] = session_key
+        host = next((item for item in settings.ALLOWED_HOSTS if item != "127.0.0.1"), "127.0.0.1")
+        meta = {"HTTP_HOST": host, "HTTP_X_FORWARDED_PROTO": "https"}
+        response = cast(Any, client).get("/api/v1/auth/session", **meta)
+        if response.status_code != 200 or not response.data.get("authenticated"):
+            raise CommandError("Durable database session did not survive fault recovery")
+
+        token, _ = create_ticket(
+            user_id=user.pk,
+            security_epoch=user.security_epoch,
+            session_key=session_key,
+            scope=RealtimeScope.MESSENGER,
+        )
+        origin = settings.REALTIME_ALLOWED_ORIGINS[0]
+        uri = f"ws://127.0.0.1:8000/ws/v1/messenger?ticket={quote(token)}"
+        try:
+            with connect(uri, origin=origin, proxy=None, open_timeout=5, close_timeout=5) as socket:
+                socket.send('{"type":"ping"}')
+                payload = json.loads(socket.recv(timeout=5))
+        except Exception as exc:
+            raise CommandError("Realtime reconnect failed after fault recovery") from exc
+        if payload != {"type": "pong"}:
+            raise CommandError("Realtime reconnect returned an invalid payload")
+        self.stdout.write("Durable session and realtime reconnect: PASS")

@@ -129,6 +129,9 @@ def create_comment(
             for index, asset in enumerate(attachments)
         ]
     )
+    MediaAsset.objects.filter(pk__in=[asset.pk for asset in attachments]).update(
+        temporary_until=None
+    )
     from apps.notifications.models import Notification
     from apps.notifications.services import enqueue_fanout
 

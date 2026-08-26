@@ -740,6 +740,7 @@ class MediaAsset(models.Model):
     height = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=16, choices=Status, default=Status.READY)
     is_messenger_only = models.BooleanField(default=False, db_index=True)
+    temporary_until = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

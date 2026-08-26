@@ -6,12 +6,14 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from django.contrib.sessions.models import Session
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -40,6 +42,7 @@ from apps.ops.management.commands.seed_load_profile import (
 )
 from apps.ops.metrics import MetricsMiddleware, record_http_request, render_http_metrics
 from apps.ops.tasks import cleanup_operational_data
+from apps.publications.media import create_media_asset
 from apps.publications.models import AudienceRule, AuditEvent, Category, MediaAsset, Publication
 from apps.realtime.models import RealtimeOutboxEvent
 
@@ -244,6 +247,41 @@ def test_fault_probe_treats_a_missing_heartbeat_as_stale(monkeypatch):
     )
     with pytest.raises(CommandError, match="heartbeat is not stale"):
         call_command("fault_probe", "heartbeat-stale")
+
+
+@pytest.mark.django_db
+def test_fault_probe_persists_session_and_checks_realtime_reconnect(settings, monkeypatch):
+    monkeypatch.setenv("TANDEM_ENVIRONMENT_PURPOSE", "stage10-load")
+    user = User.objects.create(username="load-0001", full_name="Fault Session")
+    AccessGrant.objects.create(
+        user=user,
+        module=AccessGrant.Module.MESSENGER,
+        role=AccessGrant.Role.MEMBER,
+    )
+    settings.ALLOWED_HOSTS = ["testserver"]
+    settings.REALTIME_ALLOWED_ORIGINS = ["https://tandem.example"]
+    created = io.StringIO()
+    call_command("fault_probe", "session-create", stdout=created)
+    session_key = created.getvalue().strip().splitlines()[-1]
+    sent: list[str] = []
+    socket = SimpleNamespace(
+        send=sent.append,
+        recv=lambda **_kwargs: '{"type":"pong"}',
+    )
+    monkeypatch.setattr(
+        "apps.ops.management.commands.fault_probe.create_ticket",
+        lambda **_kwargs: ("ticket", 30),
+    )
+    monkeypatch.setattr(
+        "apps.ops.management.commands.fault_probe.connect",
+        lambda *_args, **_kwargs: nullcontext(socket),
+    )
+    verified = io.StringIO()
+
+    call_command("fault_probe", "session-verify", session_key, stdout=verified)
+
+    assert sent == ['{"type":"ping"}']
+    assert "Durable session and realtime reconnect: PASS" in verified.getvalue()
 
 
 @pytest.mark.django_db
@@ -656,10 +694,46 @@ def test_media_integrity_verifies_hash_and_reports_orphans(tmp_path):
     OPS_NOTIFICATION_DELIVERY_RETENTION_DAYS=1,
     OPS_DISABLED_PUSH_RETENTION_DAYS=1,
 )
-def test_cleanup_deletes_only_expired_operational_rows(monkeypatch):
+def test_cleanup_deletes_only_expired_operational_rows(
+    monkeypatch, settings, tmp_path, django_capture_on_commit_callbacks
+):
+    settings.MEDIA_ROOT = tmp_path
     now = timezone.now()
     old = now - timedelta(days=2)
     user = User.objects.create(username="cleanup", full_name="Cleanup User")
+    expired_path = tmp_path / "temporary" / "expired.pdf"
+    current_path = tmp_path / "temporary" / "current.pdf"
+    editorial_path = tmp_path / "editorial" / "kept.pdf"
+    for path in (expired_path, current_path, editorial_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"%PDF-1.7\n%%EOF\n")
+    media_kwargs = {
+        "mime_type": "application/pdf",
+        "size": expired_path.stat().st_size,
+        "sha256": hashlib.sha256(expired_path.read_bytes()).hexdigest(),
+        "kind": MediaAsset.Kind.DOCUMENT,
+        "uploader": user,
+    }
+    expired_upload = MediaAsset.objects.create(
+        original_name="expired.pdf",
+        storage_key="temporary/expired.pdf",
+        file="temporary/expired.pdf",
+        temporary_until=old,
+        **media_kwargs,
+    )
+    current_upload = MediaAsset.objects.create(
+        original_name="current.pdf",
+        storage_key="temporary/current.pdf",
+        file="temporary/current.pdf",
+        temporary_until=now + timedelta(hours=1),
+        **media_kwargs,
+    )
+    editorial_asset = MediaAsset.objects.create(
+        original_name="kept.pdf",
+        storage_key="editorial/kept.pdf",
+        file="editorial/kept.pdf",
+        **media_kwargs,
+    )
     notification = Notification.objects.create(
         recipient=user,
         notification_type=Notification.Type.NEW_MESSAGE,
@@ -725,7 +799,8 @@ def test_cleanup_deletes_only_expired_operational_rows(monkeypatch):
 
     monkeypatch.setattr(ops_tasks, "CLEANUP_BATCH_SIZE", 1)
     monkeypatch.setattr(ops_tasks.transaction, "atomic", counted_atomic)
-    result = cleanup_operational_data()
+    with django_capture_on_commit_callbacks(execute=True):
+        result = cleanup_operational_data()
 
     assert result == {
         "expired_sessions": 1,
@@ -733,8 +808,9 @@ def test_cleanup_deletes_only_expired_operational_rows(monkeypatch):
         "notification_fanout": 1,
         "notification_deliveries": 1,
         "disabled_push_subscriptions": 1,
+        "temporary_uploads": 1,
     }
-    assert atomic_calls >= 5
+    assert atomic_calls >= 6
     assert not Session.objects.filter(pk=expired_session.pk).exists()
     assert Session.objects.filter(pk=live_session.pk).exists()
     assert not RealtimeOutboxEvent.objects.filter(pk=delivered.pk).exists()
@@ -747,6 +823,41 @@ def test_cleanup_deletes_only_expired_operational_rows(monkeypatch):
     assert PushSubscription.objects.filter(pk=enabled_push.pk).exists()
     assert User.objects.filter(pk=user.pk).exists()
     assert Notification.objects.filter(pk=notification.pk).exists()
+    assert not MediaAsset.objects.filter(pk=expired_upload.pk).exists()
+    assert not expired_path.exists()
+    assert MediaAsset.objects.filter(pk=current_upload.pk).exists()
+    assert MediaAsset.objects.filter(pk=editorial_asset.pk).exists()
+    assert current_path.exists() and editorial_path.exists()
+
+
+@pytest.mark.django_db
+def test_temporary_uploads_have_a_serialized_per_user_storage_cap(settings, tmp_path):
+    settings.MEDIA_ROOT = tmp_path
+    settings.TEMPORARY_UPLOAD_LIMIT_PER_USER = 1
+    settings.TEMPORARY_UPLOAD_RETENTION_HOURS = 24
+    user = User.objects.create(username="temporary-upload-cap", full_name="Upload Cap")
+    first = create_media_asset(
+        upload=SimpleUploadedFile(
+            "first.pdf", b"%PDF-1.7\n%%EOF\n", content_type="application/pdf"
+        ),
+        actor=user,
+        messenger_only=True,
+        temporary=True,
+    )
+
+    with pytest.raises(DjangoValidationError, match="Too many unattached uploads"):
+        create_media_asset(
+            upload=SimpleUploadedFile(
+                "second.pdf", b"%PDF-1.7\n%%EOF\n", content_type="application/pdf"
+            ),
+            actor=user,
+            messenger_only=True,
+            temporary=True,
+        )
+
+    assert first.temporary_until is not None
+    assert MediaAsset.objects.filter(uploader=user).count() == 1
+    assert len(list(tmp_path.rglob("*.pdf"))) == 1
 
 
 @pytest.mark.django_db
@@ -949,6 +1060,9 @@ def test_verify_restored_state_rejects_incomplete_and_accepts_core_state(tmp_pat
         AccessGrant.objects.create(
             user=user, module=AccessGrant.Module.MESSENGER, role=AccessGrant.Role.MEMBER
         )
+    AccessGrant.objects.create(
+        user=owner, module=AccessGrant.Module.NEWS, role=AccessGrant.Role.EDITOR
+    )
     conversation, _ = create_direct_conversation(owner, peer)
     message, _ = send_message(
         conversation,
@@ -957,13 +1071,16 @@ def test_verify_restored_state_rejects_incomplete_and_accepts_core_state(tmp_pat
         body="restored message",
     )
     category = Category.objects.create(slug="restored", name="Restored")
-    Publication.objects.create(
+    publication = Publication.objects.create(
         title="Restored publication",
         slug="restored-publication",
         summary="Restored publication",
         category=category,
         author=owner,
+        status=Publication.Status.PUBLISHED,
+        published_at=timezone.now(),
     )
+    AudienceRule.objects.create(publication=publication, kind=AudienceRule.Kind.ALL)
     Notification.objects.create(
         recipient=peer,
         notification_type=Notification.Type.NEW_MESSAGE,
@@ -990,7 +1107,7 @@ def test_verify_restored_state_rejects_incomplete_and_accepts_core_state(tmp_pat
     with override_settings(MEDIA_ROOT=tmp_path):
         call_command("verify_restored_state", stdout=stdout)
 
-    assert "Restored application state: PASS" in stdout.getvalue()
+    assert "Restored application/API state: PASS" in stdout.getvalue()
 
 
 @pytest.mark.django_db

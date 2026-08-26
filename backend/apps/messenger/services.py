@@ -564,6 +564,9 @@ def send_message(
                 for index, asset in enumerate(assets)
             ]
         )
+        MediaAsset.objects.filter(pk__in=[asset.pk for asset in assets]).update(
+            temporary_until=None
+        )
         MessageMention.objects.bulk_create(
             [
                 MessageMention(message=message, user=user)

@@ -644,6 +644,7 @@ class ConversationStateView(MessengerAPIView):
 
 class ConversationAttachmentUploadView(MessengerAPIView):
     parser_classes = [MultiPartParser, FormParser]
+    throttle_scope = "attachment_upload"
 
     def post(self, request, conversation_id):
         member_conversation(request.user, conversation_id)
@@ -655,6 +656,7 @@ class ConversationAttachmentUploadView(MessengerAPIView):
                 upload=upload,
                 actor=cast(User, request.user),
                 messenger_only=True,
+                temporary=True,
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"file": exc.messages}) from exc

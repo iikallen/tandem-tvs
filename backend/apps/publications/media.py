@@ -2,12 +2,14 @@ import hashlib
 import io
 import uuid
 import zipfile
+from datetime import timedelta
 from pathlib import PurePosixPath
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.db import models, transaction
+from django.utils import timezone
 from PIL import Image, UnidentifiedImageError
 
 from apps.identity.models import User
@@ -75,7 +77,11 @@ def _image_dimensions(data: bytes) -> tuple[int, int]:
 
 
 def create_media_asset(
-    *, upload: UploadedFile, actor: User, messenger_only: bool = False
+    *,
+    upload: UploadedFile,
+    actor: User,
+    messenger_only: bool = False,
+    temporary: bool = False,
 ) -> MediaAsset:
     from apps.discussions.models import EngagementSettings
 
@@ -115,10 +121,27 @@ def create_media_asset(
         width=width,
         height=height,
         is_messenger_only=messenger_only,
+        temporary_until=(
+            timezone.now() + timedelta(hours=settings.TEMPORARY_UPLOAD_RETENTION_HOURS)
+            if temporary
+            else None
+        ),
     )
     asset.file.save(storage_key, upload, save=False)
     try:
         with transaction.atomic():
+            if temporary:
+                User.objects.select_for_update().get(pk=actor.pk)
+                if (
+                    MediaAsset.objects.filter(
+                        uploader=actor,
+                        temporary_until__isnull=False,
+                    ).count()
+                    >= settings.TEMPORARY_UPLOAD_LIMIT_PER_USER
+                ):
+                    raise ValidationError(
+                        "Too many unattached uploads. Attach or wait for cleanup."
+                    )
             asset.full_clean()
             asset.save()
             record_audit_event(
@@ -209,6 +232,7 @@ def _media_state(asset: MediaAsset) -> dict[str, object]:
         "kind": asset.kind,
         "status": asset.status,
         "is_messenger_only": asset.is_messenger_only,
+        "temporary_until": asset.temporary_until.isoformat() if asset.temporary_until else None,
     }
 
 
