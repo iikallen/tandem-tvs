@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import time
 import uuid
 from datetime import timedelta
 from pathlib import Path
@@ -135,6 +136,18 @@ def test_public_readiness_distinguishes_required_and_degraded_dependencies(
 
     assert response.status_code == expected_status
     assert response.json() == {"status": expected_body_status}
+
+
+def test_fault_probe_treats_a_missing_heartbeat_as_stale(monkeypatch):
+    monkeypatch.setattr("apps.ops.management.commands.fault_probe.cache.get", lambda _key: None)
+
+    call_command("fault_probe", "heartbeat-stale")
+
+    monkeypatch.setattr(
+        "apps.ops.management.commands.fault_probe.cache.get", lambda _key: time.time()
+    )
+    with pytest.raises(CommandError, match="heartbeat is not stale"):
+        call_command("fault_probe", "heartbeat-stale")
 
 
 @pytest.mark.django_db

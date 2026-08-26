@@ -112,6 +112,6 @@ class Command(BaseCommand):
 
     def _heartbeat_stale(self, minimum_age: float) -> None:
         heartbeat = cache.get(RECONCILIATION_HEARTBEAT_KEY)
-        if not heartbeat or time.time() - float(heartbeat) < minimum_age:
+        if heartbeat and time.time() - float(heartbeat) < minimum_age:
             raise CommandError("Celery Beat heartbeat is not stale")
         self.stdout.write("Celery Beat stale-heartbeat detection: PASS")
