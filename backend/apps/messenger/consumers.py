@@ -13,7 +13,12 @@ from django.conf import settings
 
 from apps.identity.models import User
 from apps.realtime.claims import RealtimeTicket
-from apps.realtime.groups import conversation_group, session_control_group, user_control_group
+from apps.realtime.groups import (
+    conversation_group,
+    messenger_user_group,
+    session_control_group,
+    user_control_group,
+)
 from apps.realtime.session_security import ticket_session_deadline
 from apps.realtime.socket_leases import (
     active_socket_count,
@@ -56,12 +61,14 @@ class MessengerConsumer(AsyncJsonWebsocketConsumer):
         self.lease_reserved = True
         self.client_frame_times: deque[float] = deque()
         self.control_group_name = user_control_group(user.pk)
+        self.user_group_name = messenger_user_group(user.pk)
         self.session_group_name = session_control_group(cast(str, scope["session_fingerprint"]))
         self.conversation_groups = {
             conversation_group(conversation_id)
             for conversation_id in await self._conversation_ids(user.pk)
         }
         await self.channel_layer.group_add(self.control_group_name, self.channel_name)
+        await self.channel_layer.group_add(self.user_group_name, self.channel_name)
         await self.channel_layer.group_add(self.session_group_name, self.channel_name)
         for group in self.conversation_groups:
             await self.channel_layer.group_add(group, self.channel_name)
@@ -133,6 +140,8 @@ class MessengerConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, code):
         if hasattr(self, "control_group_name"):
             await self.channel_layer.group_discard(self.control_group_name, self.channel_name)
+        if hasattr(self, "user_group_name"):
+            await self.channel_layer.group_discard(self.user_group_name, self.channel_name)
         if hasattr(self, "session_group_name"):
             await self.channel_layer.group_discard(self.session_group_name, self.channel_name)
         for group in getattr(self, "conversation_groups", set()):

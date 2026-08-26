@@ -24,7 +24,7 @@ from apps.messenger.models import (
 from apps.messenger.serializers import MessageBodyField
 from apps.messenger.services import create_direct_conversation, send_message
 from apps.realtime.claims import RealtimeScope, RealtimeTicket
-from apps.realtime.groups import conversation_group, user_control_group
+from apps.realtime.groups import conversation_group, messenger_user_group, user_control_group
 from apps.realtime.models import RealtimeOutboxEvent
 from apps.realtime.session_security import session_fingerprint
 from config.asgi import application
@@ -463,7 +463,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
             "user_id": bob.pk,
         }
         await layer.group_send(
-            user_control_group(bob.pk),
+            messenger_user_group(bob.pk),
             {"type": "messenger.membership.added", "event": added},
         )
         assert await socket.receive_json_from(timeout=5) == added
@@ -480,7 +480,7 @@ def test_messenger_ticket_socket_events_are_hints_and_invalidation_closes(monkey
         assert await socket.receive_json_from(timeout=5) == read
         removed = {**added, "event_id": str(uuid.uuid4()), "type": "messenger.membership.removed"}
         await layer.group_send(
-            user_control_group(bob.pk),
+            messenger_user_group(bob.pk),
             {"type": "messenger.membership.removed", "event": removed},
         )
         assert await socket.receive_json_from(timeout=5) == removed
@@ -620,7 +620,7 @@ def test_membership_event_and_model_strings(monkeypatch):
 
     monkeypatch.setattr("apps.realtime.outbox.get_channel_layer", lambda: Layer())
     membership_changed_after_commit("messenger.membership.added", conversation.pk, bob.pk)
-    assert sent[0][0] == user_control_group(bob.pk)
+    assert sent[0][0] == messenger_user_group(bob.pk)
     assert sent[0][1]["event"]["type"] == "messenger.membership.added"
 
 
