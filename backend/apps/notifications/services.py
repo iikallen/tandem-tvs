@@ -309,7 +309,7 @@ def process_fanout_event(event_id: object) -> bool:
             event.save(update_fields=["attempts", "processed_at"])
             recipient_ids = {cast(Any, row).recipient_id for row in notifications}
             for recipient_id in recipient_ids:
-                emit_notification_hint(recipient_id, "notification.changed")
+                emit_notification_hint(recipient_id, "notification.changed", deliver_inline=False)
             return True
     except Exception:
         with transaction.atomic():
@@ -356,7 +356,11 @@ def unread_count(user_id: int) -> int:
 
 
 def emit_notification_hint(
-    user_id: int, event_type: str, notification_id: object | None = None
+    user_id: int,
+    event_type: str,
+    notification_id: object | None = None,
+    *,
+    deliver_inline: bool = True,
 ) -> None:
     payload: dict[str, object] = {
         "type": event_type,
@@ -365,4 +369,9 @@ def emit_notification_hint(
     }
     if notification_id is not None:
         payload["notification_id"] = str(notification_id)
-    enqueue_realtime_event(notification_group(user_id), event_type.replace(".", "_"), payload)
+    enqueue_realtime_event(
+        notification_group(user_id),
+        event_type.replace(".", "_"),
+        payload,
+        deliver_inline=deliver_inline,
+    )

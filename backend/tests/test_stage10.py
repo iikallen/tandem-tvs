@@ -30,7 +30,7 @@ from apps.notifications.models import (
     NotificationFanoutEvent,
     PushSubscription,
 )
-from apps.notifications.services import dispatch_pending_fanout
+from apps.notifications.services import dispatch_pending_fanout, process_fanout_event
 from apps.ops import tasks as ops_tasks
 from apps.ops.management.commands.seed_load_profile import (
     Command as SeedLoadProfileCommand,
@@ -98,6 +98,27 @@ def test_notification_fanout_default_batch_finishes_in_bounded_slices():
     assert dispatch_pending_fanout() == 10
     assert NotificationFanoutEvent.objects.filter(processed_at__isnull=False).count() == 10
     assert NotificationFanoutEvent.objects.filter(processed_at__isnull=True).count() == 16
+
+
+@pytest.mark.django_db
+def test_notification_fanout_defers_realtime_hints(monkeypatch, django_capture_on_commit_callbacks):
+    recipient = User.objects.create(username="stage10-deferred-hint", full_name="Recipient")
+    event = NotificationFanoutEvent.objects.create(
+        event_key="stage10-deferred-hint",
+        event_type=Notification.Type.COMMENT_REPLY,
+        source_id=uuid.uuid4(),
+        payload={"recipient_ids": [recipient.pk]},
+    )
+    inline_deliveries = []
+    monkeypatch.setattr(
+        "apps.realtime.outbox._deliver_inline_if_available", inline_deliveries.append
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        assert process_fanout_event(event.pk)
+    assert inline_deliveries == []
+    hint = RealtimeOutboxEvent.objects.get(delivered_at__isnull=True)
+    assert hint.payload["event_id"] == str(hint.pk)
 
 
 @pytest.mark.django_db
