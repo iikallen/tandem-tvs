@@ -4,7 +4,9 @@ umask 077
 
 root_dir="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 work_dir="$(mktemp -d)"
+windows_host=0
 if command -v cygpath >/dev/null 2>&1; then
+    windows_host=1
     root_dir="$(cygpath -m "$root_dir")"
     work_dir="$(cygpath -m "$work_dir")"
     export MSYS2_ARG_CONV_EXCL='*'
@@ -16,7 +18,7 @@ postgres_user=""
 PYTHON="${PYTHON:-python3}"
 restore_media_owner=""
 restore_media_chown_with_sudo=0
-if command -v sudo >/dev/null 2>&1; then
+if [ "$windows_host" = "0" ] && command -v sudo >/dev/null 2>&1; then
     restore_media_owner=10001:10001
     restore_media_chown_with_sudo=1
 fi
