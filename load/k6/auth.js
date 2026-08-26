@@ -8,8 +8,7 @@ export const baseUrl = (__ENV.BASE_URL || "http://localhost:8080").replace(
 export const wsBaseUrl = (
   __ENV.WS_BASE_URL || baseUrl.replace(/^http/, "ws")
 ).replace(/\/$/, "");
-const trustedOrigin =
-  __ENV.TANDEM_ORIGIN || "https://tandem-tvs.chatlink.kz";
+const trustedOrigin = __ENV.TANDEM_ORIGIN || "https://tandem-tvs.chatlink.kz";
 export const proxyHeaders =
   __ENV.TANDEM_TRUSTED_PROXY === "true"
     ? {
@@ -63,10 +62,7 @@ export function ensureAuthenticated() {
   if (authenticated) return csrfToken;
   const password = __ENV.TANDEM_LOAD_PASSWORD;
   if (!password) fail("TANDEM_LOAD_PASSWORD is required");
-  const csrf = http.get(
-    `${baseUrl}/api/v1/auth/csrf`,
-    requestParams("auth"),
-  );
+  const csrf = http.get(`${baseUrl}/api/v1/auth/csrf`, requestParams("auth"));
   if (!check(csrf, { "csrf issued": (response) => response.status === 200 })) {
     fail(`CSRF request failed: ${csrf.status}`);
   }
@@ -111,5 +107,9 @@ export function firstConversation() {
   )
     return null;
   const rows = response.json("results") || response.json("conversations") || [];
-  return rows.find((row) => row.type !== "CHANNEL") || rows[0] || null;
+  const eligible = rows
+    .filter((row) => row.type !== "CHANNEL")
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!eligible.length) return rows[0] || null;
+  return eligible[(__VU - 1) % eligible.length];
 }

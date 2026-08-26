@@ -49,7 +49,7 @@ backend + Celery + migration + monitoring/backup + DBA reserve + surge headroom
 <= max_connections - PostgreSQL reserved connections
 ```
 
-Django production uses `CONN_MAX_AGE=0`, six Uvicorn workers and Celery concurrency 2. The six-worker value is the smallest measured correction after four workers saturated during the first exact 300-user run and realtime p95 missed its one-second gate; it preserves the explicit 400-connection budget above. Record `pg_stat_activity`, CPU saturation and p95 during the final full run before accepting this allocation.
+Django production uses `CONN_MAX_AGE=0`, four Uvicorn workers and Celery concurrency 2. A measured six-worker diagnostic increased PostgreSQL contention and did not improve realtime p95, so the smaller four-worker configuration is retained. The final load harness chooses an eligible conversation deterministically by UUID/VU instead of repeatedly concentrating traffic in whichever conversation a previous run made hottest. Record `pg_stat_activity`, CPU saturation and p95 during the final full run before accepting this allocation.
 
 ## Query profiling
 

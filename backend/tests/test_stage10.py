@@ -247,6 +247,13 @@ def test_realtime_acceptance_scripts_can_target_the_production_origin():
         assert "origin=ACCEPTANCE_ORIGIN" in verifier
 
 
+def test_load_harness_does_not_concentrate_every_vu_in_the_hottest_conversation():
+    script = (Path(__file__).resolve().parents[2] / "load/k6/auth.js").read_text()
+
+    assert ".sort((left, right) => left.id.localeCompare(right.id))" in script
+    assert "eligible[(__VU - 1) % eligible.length]" in script
+
+
 def test_mutating_http_requests_coordinate_with_backup_write_lock(monkeypatch):
     from apps.ops import metrics
 
