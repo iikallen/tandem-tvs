@@ -77,6 +77,7 @@ services:
       ALLOW_BOOTSTRAP_LOCAL_ADMIN: ${ALLOW_BOOTSTRAP_LOCAL_ADMIN:-true}
       STAGE6_DEMO_PASSWORD: ${STAGE6_DEMO_PASSWORD:-Tandem development passphrase 2026}
       MEDIA_ROOT: /app/media
+      PROMETHEUS_MULTIPROC_DIR: /tmp/tandem-prometheus
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
       MOCK_PORTAL_USER_ID: ${MOCK_PORTAL_USER_ID:-employee-1}

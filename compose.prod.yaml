@@ -43,6 +43,7 @@ x-backend-production-environment: &backend-production-environment
   APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
   APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
   OPS_MONITORING_TOKEN: ${OPS_MONITORING_TOKEN:?OPS_MONITORING_TOKEN is required}
+  PROMETHEUS_MULTIPROC_DIR: /tmp/tandem-prometheus
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
 x-production-logging: &production-logging

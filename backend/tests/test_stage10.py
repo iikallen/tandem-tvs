@@ -1,6 +1,9 @@
 import hashlib
 import io
 import json
+import os
+import subprocess
+import sys
 import time
 import uuid
 from datetime import timedelta
@@ -183,6 +186,39 @@ def test_http_method_metric_label_has_a_finite_fallback():
 
     assert 'method="OTHER",route="method-cardinality-test\\\\\\n\\""' in rendered
     assert 'method="BREW"' not in rendered
+
+
+def test_http_metrics_aggregate_across_worker_processes(tmp_path, monkeypatch):
+    worker = (
+        "from apps.ops.metrics import record_http_request; "
+        "record_http_request('GET', 'multiprocess-test', 200, 0.01)"
+    )
+    environment = {
+        **os.environ,
+        "DJANGO_SETTINGS_MODULE": "config.settings.test",
+        "PROMETHEUS_MULTIPROC_DIR": str(tmp_path),
+    }
+    for _ in range(2):
+        subprocess.run([sys.executable, "-c", worker], check=True, env=environment)
+
+    monkeypatch.setenv("PROMETHEUS_MULTIPROC_DIR", str(tmp_path))
+    rendered = "\n".join(render_http_metrics())
+
+    assert (
+        'tandem_http_requests_total{method="GET",route="multiprocess-test",status="200"} 2.0'
+        in rendered
+    )
+
+
+def test_compose_initializes_the_prometheus_multiprocess_directory():
+    repository_root = Path(__file__).resolve().parents[2]
+    compose = (repository_root / "compose.yaml").read_text()
+    production = (repository_root / "compose.prod.yaml").read_text()
+    entrypoint = (repository_root / "backend/entrypoint.sh").read_text()
+
+    for content in (compose, production):
+        assert "PROMETHEUS_MULTIPROC_DIR: /tmp/tandem-prometheus" in content
+    assert 'find "$PROMETHEUS_MULTIPROC_DIR"' in entrypoint
 
 
 def test_nginx_access_log_and_prometheus_rules_preserve_observability_privacy():

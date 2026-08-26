@@ -1,81 +1,48 @@
+import os
 import time
-from collections import Counter, defaultdict
-from threading import Lock
 
 from django.db import DatabaseError, connection
 from django.http import JsonResponse
+from prometheus_client import CollectorRegistry, Counter, Histogram, generate_latest, multiprocess
 
 HTTP_BUCKETS = (0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0)
 HTTP_METHODS = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"})
 BACKUP_WRITE_LOCK_ID = 82_425_010
 
-_lock = Lock()
-_requests: Counter[tuple[str, str, str]] = Counter()
-_duration_buckets: Counter[tuple[str, str, float]] = Counter()
-_duration_count: Counter[tuple[str, str]] = Counter()
-_duration_sum: defaultdict[tuple[str, str], float] = defaultdict(float)
-
-
-def _escape(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+METRICS_REGISTRY = CollectorRegistry()
+HTTP_REQUESTS = Counter(
+    "tandem_http_requests_total",
+    "HTTP requests handled by Django.",
+    ("method", "route", "status"),
+    registry=METRICS_REGISTRY,
+)
+HTTP_DURATION = Histogram(
+    "tandem_http_request_duration_seconds",
+    "Django request latency.",
+    ("method", "route"),
+    buckets=HTTP_BUCKETS,
+    registry=METRICS_REGISTRY,
+)
 
 
 def record_http_request(method: str, route: str, status: int, duration: float) -> None:
     method = method.upper()
     if method not in HTTP_METHODS:
         method = "OTHER"
-    labels = (method, route)
-    with _lock:
-        _requests[method, route, str(status)] += 1
-        _duration_count[labels] += 1
-        _duration_sum[labels] += duration
-        for bucket in HTTP_BUCKETS:
-            if duration <= bucket:
-                _duration_buckets[method, route, bucket] += 1
+    try:
+        HTTP_REQUESTS.labels(method=method, route=route, status=str(status)).inc()
+        HTTP_DURATION.labels(method=method, route=route).observe(duration)
+    except Exception:
+        # Monitoring must fail open when its local multiprocess files are unavailable.
+        return
 
 
 def render_http_metrics() -> list[str]:
-    with _lock:
-        requests = dict(_requests)
-        buckets = dict(_duration_buckets)
-        counts = dict(_duration_count)
-        sums = dict(_duration_sum)
-
-    lines = [
-        "# HELP tandem_http_requests_total HTTP requests handled by Django.",
-        "# TYPE tandem_http_requests_total counter",
-    ]
-    for (method, route, status), value in sorted(requests.items()):
-        lines.append(
-            "tandem_http_requests_total"
-            f'{{method="{_escape(method)}",route="{_escape(route)}",'
-            f'status="{_escape(status)}"}} {value}'
-        )
-    lines.extend(
-        [
-            "# HELP tandem_http_request_duration_seconds Django request latency.",
-            "# TYPE tandem_http_request_duration_seconds histogram",
-        ]
-    )
-    for method, route in sorted(counts):
-        label_prefix = f'method="{_escape(method)}",route="{_escape(route)}"'
-        for bucket in HTTP_BUCKETS:
-            value = buckets.get((method, route, bucket), 0)
-            lines.append(
-                "tandem_http_request_duration_seconds_bucket"
-                f'{{{label_prefix},le="{bucket:g}"}} {value}'
-            )
-        lines.append(
-            "tandem_http_request_duration_seconds_bucket"
-            f'{{{label_prefix},le="+Inf"}} {counts[method, route]}'
-        )
-        lines.append(
-            f"tandem_http_request_duration_seconds_sum{{{label_prefix}}} {sums[method, route]:.9f}"
-        )
-        lines.append(
-            f"tandem_http_request_duration_seconds_count{{{label_prefix}}} {counts[method, route]}"
-        )
-    return lines
+    registry = METRICS_REGISTRY
+    if os.getenv("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+    return generate_latest(registry).decode("utf-8").rstrip().splitlines()
 
 
 class MetricsMiddleware:
