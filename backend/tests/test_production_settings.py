@@ -104,7 +104,7 @@ def test_runtime_limits_websocket_frames_before_application_buffering():
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text()
 
     assert '"--ws-max-size", "512"' in dockerfile
-    assert '"--workers", "4"' in dockerfile
+    assert '"--workers", "6"' in dockerfile
     assert '"--no-access-log"' in dockerfile
 
 
