@@ -118,29 +118,31 @@ def verify_backlogs() -> None:
 
 
 def verify_private_conversation_isolation() -> None:
-    platform_admin = (
-        User.objects.filter(
-            access_grants__module=AccessGrant.Module.PLATFORM,
-            access_grants__role=AccessGrant.Role.ADMIN,
-            is_active=True,
+    fixture = None
+    private_conversations = Conversation.objects.filter(
+        type__in=[Conversation.Type.DIRECT, Conversation.Type.GROUP]
+    )
+    for private_conversation in private_conversations.iterator():
+        members = ConversationMembership.objects.filter(
+            conversation=private_conversation, left_at__isnull=True
+        ).values("user_id")
+        non_member = (
+            User.objects.filter(
+                access_grants__module=AccessGrant.Module.MESSENGER,
+                is_active=True,
+            )
+            .exclude(pk__in=members)
+            .distinct()
+            .first()
         )
-        .distinct()
-        .first()
-    )
-    if platform_admin is None:
-        raise RuntimeError("No active platform administrator fixture")
-    joined = ConversationMembership.objects.filter(
-        user=platform_admin, left_at__isnull=True
-    ).values("conversation_id")
-    private_conversation = (
-        Conversation.objects.exclude(pk__in=joined)
-        .filter(type__in=[Conversation.Type.DIRECT, Conversation.Type.GROUP])
-        .first()
-    )
-    if private_conversation is None:
+        if non_member is not None:
+            fixture = (non_member, private_conversation)
+            break
+    if fixture is None:
         raise RuntimeError("No private non-member conversation fixture")
+    non_member, private_conversation = fixture
     client = APIClient()
-    cast(Any, client).force_authenticate(user=platform_admin)
+    cast(Any, client).force_authenticate(user=non_member)
     response = cast(Any, client).get(
         f"/api/v1/messenger/conversations/{private_conversation.pk}", **META
     )
