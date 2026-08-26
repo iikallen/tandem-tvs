@@ -33,8 +33,6 @@ def enqueue_realtime_event(
     group_name: str,
     event_type: str,
     payload: dict[str, object],
-    *,
-    deliver_inline: bool = True,
 ) -> RealtimeOutboxEvent:
     row = RealtimeOutboxEvent(
         group_name=group_name,
@@ -43,8 +41,7 @@ def enqueue_realtime_event(
     )
     row.payload = {**payload, "event_id": str(row.pk)}
     row.save(force_insert=True)
-    if deliver_inline:
-        transaction.on_commit(lambda: _deliver_inline_if_available(row.pk), robust=True)
+    transaction.on_commit(lambda: _deliver_inline_if_available(row.pk), robust=True)
     return row
 
 

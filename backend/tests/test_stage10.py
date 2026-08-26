@@ -21,7 +21,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.identity.models import AccessGrant, User
-from apps.messenger.models import Message
+from apps.messenger.models import Conversation, ConversationMembership, Message
 from apps.messenger.serializers import MessageSerializer
 from apps.messenger.services import create_direct_conversation, send_message
 from apps.notifications.models import (
@@ -119,6 +119,46 @@ def test_notification_fanout_defers_realtime_hints(monkeypatch, django_capture_o
     assert inline_deliveries == []
     hint = RealtimeOutboxEvent.objects.get(delivered_at__isnull=True)
     assert hint.payload["event_id"] == str(hint.pk)
+
+
+@pytest.mark.django_db
+def test_large_group_message_fanout_is_batched(django_assert_max_num_queries):
+    author = User.objects.create(username="stage10-batch-author", full_name="Author")
+    recipients = User.objects.bulk_create(
+        [
+            User(username=f"stage10-batch-{index}", full_name=f"Recipient {index}")
+            for index in range(100)
+        ]
+    )
+    conversation = Conversation.objects.create(
+        type=Conversation.Type.GROUP,
+        title="Batch group",
+        created_by=author,
+    )
+    ConversationMembership.objects.bulk_create(
+        [
+            ConversationMembership(conversation=conversation, user=user)
+            for user in [author, *recipients]
+        ]
+    )
+    message = Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        client_message_id=uuid.uuid4(),
+        author=author,
+        body="Batch fanout",
+        request_fingerprint="0" * 64,
+    )
+    event = NotificationFanoutEvent.objects.create(
+        event_key=f"message:{message.pk}",
+        event_type=Notification.Type.NEW_MESSAGE,
+        source_id=message.pk,
+    )
+
+    with django_assert_max_num_queries(15):
+        assert process_fanout_event(event.pk)
+    assert Notification.objects.filter(conversation_id=conversation.pk).count() == 100
+    assert RealtimeOutboxEvent.objects.filter(delivered_at__isnull=True).count() == 100
 
 
 @pytest.mark.django_db
