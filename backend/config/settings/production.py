@@ -166,6 +166,14 @@ if any(
 ):
     raise ImproperlyConfigured("REALTIME_ALLOWED_ORIGINS contains a development value")
 
+# The capacity gate ramps sockets for two minutes and then holds all 300
+# concurrently for fifteen minutes. The earliest socket therefore needs more
+# than seventeen minutes before the normal server-side reconnect boundary.
+REALTIME_SOCKET_LIFETIME_SECONDS = bounded_integer(
+    "REALTIME_SOCKET_LIFETIME_SECONDS", 1_200, 1_080, 43_200
+)
+REALTIME_SOCKET_LEASE_SECONDS = REALTIME_SOCKET_LIFETIME_SECONDS + 30
+
 AUTH_MODE = os.getenv("AUTH_MODE", "LOCAL_ONLY")
 if AUTH_MODE != "LOCAL_ONLY":
     raise ImproperlyConfigured("Stage 6 production requires AUTH_MODE=LOCAL_ONLY")

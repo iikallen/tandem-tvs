@@ -16,6 +16,11 @@ capacity profile opens 300 authenticated sockets, each held for 900 seconds; its
 threshold allows five seconds of scheduler/close-observation tolerance while still proving the
 required 15-minute hold.
 
+Because the sockets ramp for two minutes before all 300 are present, the earliest socket remains
+open for about 17 minutes. Production enforces a server-side socket lifetime of at least 18 minutes
+and defaults to 20 minutes, leaving a bounded reconnect interval while covering the acceptance
+window. Session revocation and session idle/max-age checks remain independent of that lifetime.
+
 The full HTTP profile uses a 30-second think time between complete user journeys; smoke uses one
 second. Override `THINK_SECONDS` only for an explicitly documented diagnostic run.
 

@@ -73,6 +73,8 @@ def test_production_settings_load_with_complete_operator_configuration(monkeypat
         assert production.REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"] == [
             "rest_framework.renderers.JSONRenderer"
         ]
+        assert production.REALTIME_SOCKET_LIFETIME_SECONDS == 1_200
+        assert production.REALTIME_SOCKET_LEASE_SECONDS == 1_230
         assert production.USE_X_FORWARDED_HOST is False
     finally:
         sys.modules.pop("config.settings.production", None)
@@ -120,6 +122,16 @@ def test_production_requires_an_isolated_realtime_redis_database():
     result = run_manage("check", environment=environment)
     assert result.returncode != 0
     assert "REALTIME_REDIS_URL must use logical Redis database 1" in result.stderr
+
+
+def test_production_socket_lifetime_covers_capacity_ramp_and_hold():
+    result = run_manage(
+        "check",
+        environment=production_environment(REALTIME_SOCKET_LIFETIME_SECONDS="900"),
+    )
+
+    assert result.returncode != 0
+    assert "REALTIME_SOCKET_LIFETIME_SECONDS must be between 1080 and 43200" in result.stderr
 
 
 def test_production_requires_an_isolated_celery_redis_database():
