@@ -108,6 +108,8 @@ from apps.publications.views import (
 )
 from apps.search.views import GlobalSearchView
 
+handler400 = "apps.core.views.bad_request"
+
 urlpatterns = [
     path("api/v1/search", GlobalSearchView.as_view(), name="global-search"),
     path("api/v1/auth/csrf", CsrfView.as_view(), name="auth-csrf"),

@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.http import JsonResponse
 from django.utils.cache import patch_cache_control
 from drf_spectacular.utils import extend_schema
 from rest_framework.permissions import AllowAny
@@ -8,6 +9,15 @@ from rest_framework.views import APIView
 from apps.ops.health import dependency_status
 
 from .serializers import HealthSerializer, RuntimeMetaSerializer
+
+
+def bad_request(request, exception=None):
+    response = JsonResponse(
+        {"error": {"code": "bad_request", "message": "Bad request."}},
+        status=400,
+    )
+    patch_cache_control(response, no_store=True, max_age=0)
+    return response
 
 
 class PublicAPIView(APIView):
