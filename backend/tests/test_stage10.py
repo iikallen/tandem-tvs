@@ -101,6 +101,38 @@ def test_notification_fanout_default_batch_finishes_in_bounded_slices():
 
 
 @pytest.mark.django_db
+def test_notification_fanout_skips_an_overlapping_dispatch(monkeypatch):
+    event = NotificationFanoutEvent.objects.create(
+        event_key="stage10-overlapping-fanout",
+        event_type=Notification.Type.COMMENT_REPLY,
+        source_id=uuid.uuid4(),
+        payload={"recipient_ids": []},
+    )
+    statements: list[str] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, statement, _parameters):
+            statements.append(statement)
+
+        def fetchone(self):
+            return [False]
+
+    fake_connection = SimpleNamespace(vendor="postgresql", cursor=lambda: Cursor())
+    monkeypatch.setattr("apps.notifications.services.connection", fake_connection)
+
+    assert dispatch_pending_fanout() == 0
+    assert statements == ["SELECT pg_try_advisory_lock(%s)"]
+    event.refresh_from_db()
+    assert event.processed_at is None
+
+
+@pytest.mark.django_db
 @override_settings(OPS_MONITORING_TOKEN=OPS_TOKEN)
 def test_internal_ops_endpoints_require_exact_bearer_token(monkeypatch):
     monkeypatch.setattr("apps.ops.views.dependency_status", dependencies)

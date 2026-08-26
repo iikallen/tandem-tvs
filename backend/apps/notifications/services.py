@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import DatabaseError, IntegrityError, connection, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -21,6 +21,7 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+FANOUT_DISPATCH_LOCK_ID = 82_425_011
 
 
 def enqueue_fanout(
@@ -323,14 +324,29 @@ def process_fanout_event(event_id: object) -> bool:
 
 
 def dispatch_pending_fanout(limit: int = 10) -> int:
-    ids = list(
-        NotificationFanoutEvent.objects.filter(
-            processed_at__isnull=True, available_at__lte=timezone.now()
+    lock_acquired = False
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [FANOUT_DISPATCH_LOCK_ID])
+            lock_acquired = bool(cursor.fetchone()[0])
+        if not lock_acquired:
+            return 0
+    try:
+        ids = list(
+            NotificationFanoutEvent.objects.filter(
+                processed_at__isnull=True, available_at__lte=timezone.now()
+            )
+            .order_by("created_at", "id")
+            .values_list("pk", flat=True)[:limit]
         )
-        .order_by("created_at", "id")
-        .values_list("pk", flat=True)[:limit]
-    )
-    return sum(process_fanout_event(event_id) for event_id in ids)
+        return sum(process_fanout_event(event_id) for event_id in ids)
+    finally:
+        if lock_acquired:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", [FANOUT_DISPATCH_LOCK_ID])
+            except DatabaseError:
+                connection.close()
 
 
 def unread_count(user_id: int) -> int:
