@@ -830,6 +830,38 @@ def test_cleanup_deletes_only_expired_operational_rows(
     assert current_path.exists() and editorial_path.exists()
 
 
+def test_cleanup_defers_all_deletions_while_backup_holds_the_write_lock(monkeypatch):
+    statements = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, statement, parameters):
+            statements.append((statement, parameters))
+
+        def fetchone(self):
+            return (False,)
+
+    fake_connection = SimpleNamespace(vendor="postgresql", cursor=lambda: Cursor())
+    monkeypatch.setattr(ops_tasks, "connection", fake_connection)
+
+    assert cleanup_operational_data() == {
+        "expired_sessions": 0,
+        "realtime_outbox": 0,
+        "notification_fanout": 0,
+        "notification_deliveries": 0,
+        "disabled_push_subscriptions": 0,
+        "temporary_uploads": 0,
+    }
+    assert statements == [
+        ("SELECT pg_try_advisory_lock_shared(%s)", [ops_tasks.BACKUP_WRITE_LOCK_ID])
+    ]
+
+
 @pytest.mark.django_db
 def test_temporary_uploads_have_a_serialized_per_user_storage_cap(settings, tmp_path):
     settings.MEDIA_ROOT = tmp_path
@@ -1109,7 +1141,7 @@ def test_verify_restored_state_rejects_incomplete_and_accepts_core_state(tmp_pat
     )
     stdout = io.StringIO()
 
-    with override_settings(MEDIA_ROOT=tmp_path):
+    with override_settings(MEDIA_ROOT=tmp_path, ALLOWED_HOSTS=["restore.example.test"]):
         call_command("verify_restored_state", stdout=stdout)
 
     assert "Restored application/API state: PASS" in stdout.getvalue()

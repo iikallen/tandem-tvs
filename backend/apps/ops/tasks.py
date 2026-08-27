@@ -3,7 +3,7 @@ from datetime import timedelta
 from celery import shared_task
 from django.conf import settings
 from django.contrib.sessions.models import Session
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from apps.notifications.models import (
@@ -13,6 +13,8 @@ from apps.notifications.models import (
 )
 from apps.publications.models import MediaAsset
 from apps.realtime.models import RealtimeOutboxEvent
+
+from .metrics import BACKUP_WRITE_LOCK_ID
 
 CLEANUP_BATCH_SIZE = 500
 
@@ -43,6 +45,30 @@ def _delete_temporary_media(queryset) -> int:
 
 @shared_task(name="ops.cleanup-operational-data")
 def cleanup_operational_data() -> dict[str, int]:
+    backup_lock = False
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock_shared(%s)", [BACKUP_WRITE_LOCK_ID])
+            backup_lock = bool(cursor.fetchone()[0])
+        if not backup_lock:
+            return {
+                "expired_sessions": 0,
+                "realtime_outbox": 0,
+                "notification_fanout": 0,
+                "notification_deliveries": 0,
+                "disabled_push_subscriptions": 0,
+                "temporary_uploads": 0,
+            }
+
+    try:
+        return _cleanup_operational_data()
+    finally:
+        if backup_lock:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock_shared(%s)", [BACKUP_WRITE_LOCK_ID])
+
+
+def _cleanup_operational_data() -> dict[str, int]:
     now = timezone.now()
     realtime_cutoff = now - timedelta(days=settings.OPS_REALTIME_OUTBOX_RETENTION_DAYS)
     notification_cutoff = now - timedelta(days=settings.OPS_NOTIFICATION_OUTBOX_RETENTION_DAYS)

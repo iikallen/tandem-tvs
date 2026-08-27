@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "prettier": {
+    "endOfLine": "auto"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
