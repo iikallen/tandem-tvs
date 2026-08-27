@@ -81,6 +81,12 @@ export interface MessengerMessage {
     created_at: string;
   } | null;
   attachments?: MediaAsset[];
+  resource_preview?: {
+    type: "publication";
+    id: string;
+    title: string;
+    url: string;
+  } | null;
   reactions?: MessengerReaction[];
   edited_at?: string | null;
   deleted_at?: string | null;
@@ -142,6 +148,39 @@ export interface MessengerMessagePage {
   messages: MessengerMessage[];
   has_more: boolean;
   next_before_sequence: number | null;
+}
+
+export interface MessengerSearchFilters {
+  q?: string;
+  author_id?: number;
+  date_from?: string;
+  date_to?: string;
+  has_attachments?: boolean;
+}
+
+export interface MessengerMessageReport {
+  id: string;
+  reason: string;
+  state: "OPEN" | "RESOLVED";
+  decision: "" | "DISMISSED" | "VIOLATION";
+  moderator_note: string;
+  moderated_at: string | null;
+  created_at: string;
+}
+
+export interface MessengerModerationReport {
+  id: string;
+  reason: string;
+  state: "OPEN" | "RESOLVED";
+  created_at: string;
+  reporter_id: number;
+  message: {
+    id: string;
+    conversation_id: string;
+    author_id: number;
+    body: string;
+    created_at: string;
+  };
 }
 
 export interface PlatformUser extends Omit<Me, "org_unit"> {
@@ -268,7 +307,7 @@ export interface ReactionSummary {
   total: number;
   counts: Record<string, number>;
   mine: string[];
-  actors?: Record<string, Employee[]>;
+  actors?: Record<string, UserSummary[]>;
   enabled_types?: ReactionType[];
 }
 
@@ -333,6 +372,9 @@ export interface EngagementSettings {
   enabled_reaction_types: ReactionType[];
   max_comment_attachments: number;
   max_comment_attachment_bytes: number;
+  allowed_media_extensions: string[];
+  message_retention_days: number;
+  media_retention_days: number;
   stop_words: Array<{ id: number; value: string; is_active: boolean }>;
   updated_at: string;
 }
@@ -359,6 +401,27 @@ export interface PublicationAnalytics {
     reach_percent: string;
     acknowledged: number;
   }>;
+}
+
+export interface DepartmentAnalytics {
+  department: string;
+  publications: number;
+  recipients: number;
+  views: number;
+  reach_percent: string;
+  acknowledged: number;
+  acknowledgement_percent: string;
+}
+
+export interface AuditEvent {
+  id: number;
+  event_type: string;
+  target_type: string;
+  target_id: string;
+  actor: UserSummary;
+  previous_state: Record<string, unknown>;
+  new_state: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface EditorialPublication {
@@ -450,6 +513,7 @@ async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const unsafe = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase());
   const token = unsafe ? await ensureCsrf() : "";
@@ -469,6 +533,7 @@ async function request<T>(
         : body instanceof FormData
           ? body
           : JSON.stringify(body),
+    signal,
   });
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as {
@@ -696,6 +761,26 @@ export const api = {
       `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/reaction`,
       "DELETE",
     ),
+  reportMessengerMessage: (messageId: string, reason: string) =>
+    request<MessengerMessageReport>(
+      `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/report`,
+      "POST",
+      { reason },
+    ),
+  messengerModerationReports: () =>
+    request<{ reports: MessengerModerationReport[] }>(
+      "/api/v1/messenger/moderation/reports",
+    ),
+  resolveMessengerReport: (
+    reportId: string,
+    decision: "DISMISSED" | "VIOLATION",
+    note: string,
+  ) =>
+    request<MessengerMessageReport>(
+      `/api/v1/messenger/moderation/reports/${encodeURIComponent(reportId)}/resolve`,
+      "POST",
+      { decision, note },
+    ),
   pinMessengerMessage: (messageId: string) =>
     request<void>(
       `/api/v1/messenger/messages/${encodeURIComponent(messageId)}/pin`,
@@ -757,19 +842,33 @@ export const api = {
       "PATCH",
       state,
     ),
-  uploadMessengerAttachment: (conversationId: string, file: File) => {
+  uploadMessengerAttachment: (
+    conversationId: string,
+    file: File,
+    signal?: AbortSignal,
+  ) => {
     const data = new FormData();
     data.append("file", file);
     return request<MediaAsset>(
       `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/attachments`,
       "POST",
       data,
+      signal,
     );
   },
-  searchMessengerMessages: (conversationId: string, query: string) =>
-    request<{ results: MessengerMessage[] }>(
-      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/search?q=${encodeURIComponent(query)}`,
-    ),
+  searchMessengerMessages: (
+    conversationId: string,
+    filters: string | MessengerSearchFilters,
+  ) => {
+    const params = new URLSearchParams();
+    const values = typeof filters === "string" ? { q: filters } : filters;
+    for (const [key, value] of Object.entries(values)) {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    }
+    return request<{ results: MessengerMessage[] }>(
+      `/api/v1/messenger/conversations/${encodeURIComponent(conversationId)}/search?${params}`,
+    );
+  },
   messengerRealtimeTicket: () =>
     request<{ ticket: string; expires_in: number }>(
       "/api/v1/realtime/tickets",
@@ -812,13 +911,14 @@ export const api = {
       "POST",
       { body, ...options },
     ),
-  uploadCommentMedia: (id: string, file: File) => {
+  uploadCommentMedia: (id: string, file: File, signal?: AbortSignal) => {
     const data = new FormData();
     data.append("file", file);
     return request<MediaAsset>(
       `/api/v1/news/${encodeURIComponent(id)}/comment-media`,
       "POST",
       data,
+      signal,
     );
   },
   updateComment: (publicationId: string, commentId: string, body: string) =>
@@ -964,10 +1064,10 @@ export const api = {
       `/api/v1/editorial/publications/${id}/versions`,
     ),
   media: () => request<CursorPage<MediaAsset>>("/api/v1/editorial/media"),
-  uploadMedia: (file: File) => {
+  uploadMedia: (file: File, signal?: AbortSignal) => {
     const data = new FormData();
     data.append("file", file);
-    return request<MediaAsset>("/api/v1/editorial/media", "POST", data);
+    return request<MediaAsset>("/api/v1/editorial/media", "POST", data, signal);
   },
   deleteMedia: (id: string) =>
     request<void>(`/api/v1/editorial/media/${id}`, "DELETE"),
@@ -1028,7 +1128,17 @@ export const api = {
   resolveReport: (id: string) =>
     request<void>(`/api/v1/editorial/moderation/reports/${id}/resolve`, "POST"),
   analytics: () =>
-    request<{ results: PublicationAnalytics[] }>("/api/v1/editorial/analytics"),
+    request<{
+      results: PublicationAnalytics[];
+      departments: DepartmentAnalytics[];
+    }>("/api/v1/editorial/analytics"),
+  audit: () =>
+    request<{
+      count: number;
+      next: string | null;
+      previous: string | null;
+      results: AuditEvent[];
+    }>("/api/v1/editorial/audit?limit=50"),
   publicationAnalytics: (id: string) =>
     request<PublicationAnalytics>(
       `/api/v1/editorial/publications/${id}/analytics`,

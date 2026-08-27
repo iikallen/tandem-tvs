@@ -16,6 +16,7 @@ from .models import (
     ConversationMembership,
     Message,
     MessageReaction,
+    MessageReport,
     MessageRevision,
     PinnedMessage,
 )
@@ -439,6 +440,36 @@ class MessageEditSerializer(serializers.Serializer):
 
 class MessageReactionWriteSerializer(serializers.Serializer):
     reaction_type = serializers.ChoiceField(choices=MessageReaction.Type.choices)
+
+
+class MessageReportSerializer(serializers.ModelSerializer):
+    class Meta:  # pyright: ignore[reportIncompatibleVariableOverride]
+        model = MessageReport
+        fields = [
+            "id",
+            "reason",
+            "state",
+            "decision",
+            "moderator_note",
+            "moderated_at",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "state",
+            "decision",
+            "moderator_note",
+            "moderated_at",
+            "created_at",
+        ]
+
+
+class MessageReportDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=MessageReport.Decision.choices)
+    note = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    restriction_hours = serializers.IntegerField(
+        required=False, min_value=1, max_value=8760, default=24
+    )
 
 
 class MessageRevisionSerializer(serializers.ModelSerializer):

@@ -16,6 +16,21 @@ def client():
     return APIClient()
 
 
+@override_settings(
+    ALLOWED_HOSTS=["allowed.example"],
+    CSRF_USE_SESSIONS=True,
+    DEBUG=False,
+)
+def test_invalid_host_returns_400_before_session_middleware(client):
+    client.raise_request_exception = False
+
+    response = client.get("/api/v1/auth/csrf", HTTP_HOST="invalid.example")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "bad_request"
+    assert set(response["Cache-Control"].split(", ")) == {"max-age=0", "no-store"}
+
+
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="employee-1")
 def test_me_returns_read_only_portal_projection(client):
@@ -218,12 +233,16 @@ def test_publication_employee_targeting_uses_only_local_user_id(client):
 
 @pytest.mark.django_db
 @override_settings(MOCK_PORTAL_USER_ID="")
-def test_public_health_and_runtime_do_not_create_a_user(client):
+def test_public_health_and_runtime_do_not_create_a_user(client, monkeypatch):
+    monkeypatch.setattr(
+        "apps.core.views.dependency_status",
+        lambda: {"postgres": "ok", "media": "ok", "redis": "ok", "celery": "degraded"},
+    )
     assert client.get("/api/v1/health/live").data == {"status": "ok"}
 
     ready = client.get("/api/v1/health/ready")
     assert ready.status_code == 200
-    assert ready.data["components"] == {"database": "ok", "cache": "ok", "portal": "ok"}
+    assert ready.data == {"status": "degraded"}
 
     runtime = client.get("/api/v1/runtime/meta")
     assert runtime.status_code == 200

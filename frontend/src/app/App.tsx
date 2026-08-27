@@ -39,6 +39,7 @@ import { PlatformUsersPage } from "../pages/platform/PlatformUsersPage";
 import { MessengerAccessPage } from "../pages/messages/MessengerAccessPage";
 import { api } from "../shared/api";
 import { AnalyticsPage } from "../pages/editorial/AnalyticsPage";
+import { AuditPage } from "../pages/editorial/AuditPage";
 import { EngagementSettingsPage } from "../pages/editorial/EngagementSettingsPage";
 import { ModerationPage } from "../pages/editorial/ModerationPage";
 import { AppShell } from "../shared/ui/AppShell";
@@ -60,6 +61,7 @@ function ModuleGuard({ module }: { module: "platform" | "messenger" }) {
 function AuthBoundary() {
   const session = useQuery({ queryKey: ["session"], queryFn: api.session });
   if (session.isPending) return <PageState kind="loading" />;
+  if (session.isError) return <PageState error={session.error} />;
   const authenticated = Boolean(session.data?.authenticated);
   return (
     <Routes>
@@ -113,6 +115,7 @@ function AuthBoundary() {
           <Route path="editorial/taxonomy" element={<TaxonomyPage />} />
           <Route path="editorial/moderation" element={<ModerationPage />} />
           <Route path="editorial/analytics" element={<AnalyticsPage />} />
+          <Route path="editorial/audit" element={<AuditPage />} />
           <Route
             path="editorial/settings/engagement"
             element={<EngagementSettingsPage />}

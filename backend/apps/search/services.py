@@ -25,8 +25,9 @@ def _ranked(queryset, fields: list[tuple[str, str]], query: str):
     query_ru = SearchQuery(query, config="russian", search_type="websearch")
     query_kk = SearchQuery(query, config="tandem_kazakh", search_type="websearch")
     return (
-        queryset.annotate(search_rank=SearchRank(russian, query_ru) + SearchRank(kazakh, query_kk))
-        .filter(search_rank__gt=0)
+        queryset.annotate(search_vector_ru=russian, search_vector_kk=kazakh)
+        .filter(Q(search_vector_ru=query_ru) | Q(search_vector_kk=query_kk))
+        .annotate(search_rank=SearchRank(russian, query_ru) + SearchRank(kazakh, query_kk))
         .order_by("-search_rank", "-id")
     )
 

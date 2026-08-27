@@ -2,6 +2,7 @@ import hashlib
 import json
 import unicodedata
 from collections.abc import Iterable
+from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -31,7 +32,9 @@ from .models import (
     MessageAttachment,
     MessageMention,
     MessageReaction,
+    MessageReport,
     MessageRevision,
+    MessengerRestriction,
     PinnedMessage,
 )
 
@@ -160,6 +163,93 @@ def visible_message(user: User, message_id: object) -> Message:
 
         raise Http404
     return message
+
+
+@transaction.atomic
+def report_message(*, message: Message, reporter: User, reason: str) -> tuple[MessageReport, bool]:
+    report, created = MessageReport.objects.get_or_create(
+        message=message,
+        reporter=reporter,
+        defaults={"reason": reason.strip()[:500]},
+    )
+    if created:
+        record_audit_event(
+            actor=reporter,
+            event_type=AuditEvent.Type.MESSENGER_MESSAGE_REPORTED,
+            target_type=AuditEvent.TargetType.MESSAGE,
+            target_id=message.pk,
+            new_state={"report_id": str(report.pk), "state": report.state},
+        )
+    return report, created
+
+
+@transaction.atomic
+def resolve_message_report(
+    *,
+    report: MessageReport,
+    actor: User,
+    decision: str,
+    note: str = "",
+    restriction_hours: int = 24,
+) -> MessageReport:
+    locked = (
+        MessageReport.objects.select_for_update()
+        .select_related("message__author", "message__conversation")
+        .get(pk=report.pk)
+    )
+    if locked.state != MessageReport.State.OPEN:
+        raise ValidationError("Message report is already resolved.")
+    if decision == MessageReport.Decision.MESSAGE_DELETED:
+        message = (
+            Message.objects.select_for_update()
+            .select_related("conversation", "author")
+            .get(pk=locked.message.pk)
+        )
+        _tombstone_message(message, actor=actor)
+    elif decision == MessageReport.Decision.AUTHOR_RESTRICTED:
+        author = User.objects.select_for_update().get(pk=locked.message.author.pk)
+        restriction = MessengerRestriction.objects.create(
+            user=author,
+            reason=note.strip()[:500] or locked.reason,
+            expires_at=timezone.now() + timedelta(hours=restriction_hours),
+            created_by=actor,
+        )
+        record_audit_event(
+            actor=actor,
+            event_type=AuditEvent.Type.MESSENGER_USER_RESTRICTED,
+            target_type=AuditEvent.TargetType.USER,
+            target_id=author.pk,
+            new_state={
+                "restriction_id": restriction.pk,
+                "expires_at": restriction.expires_at.isoformat(),
+            },
+        )
+    locked.state = MessageReport.State.RESOLVED
+    locked.decision = decision
+    locked.moderator_note = note.strip()[:500]
+    locked.moderated_by = actor
+    locked.moderated_at = timezone.now()
+    locked.save(
+        update_fields=["state", "decision", "moderator_note", "moderated_by", "moderated_at"]
+    )
+    record_audit_event(
+        actor=actor,
+        event_type=AuditEvent.Type.MESSENGER_REPORT_RESOLVED,
+        target_type=AuditEvent.TargetType.REPORT,
+        target_id=locked.pk,
+        previous_state={"state": MessageReport.State.OPEN},
+        new_state={"state": locked.state, "decision": locked.decision},
+    )
+    return locked
+
+
+def messenger_restriction_is_active(user: User) -> bool:
+    now = timezone.now()
+    return MessengerRestriction.objects.filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=now),
+        user=user,
+        revoked_at__isnull=True,
+    ).exists()
 
 
 def create_direct_conversation(creator: User, other: User) -> tuple[Conversation, bool]:
@@ -401,6 +491,9 @@ def send_message(
         return existing, False
     with transaction.atomic():
         locked = Conversation.objects.select_for_update().get(pk=conversation.pk)
+        locked_author = User.objects.select_for_update().get(pk=author.pk)
+        if messenger_restriction_is_active(locked_author):
+            raise PermissionDenied("Messenger posting is temporarily restricted.")
         membership = active_membership(locked, author, for_update=True)
         require_message_permission(
             conversation=locked,
@@ -470,6 +563,9 @@ def send_message(
                 MessageAttachment(message=message, asset=asset, sort_order=index)
                 for index, asset in enumerate(assets)
             ]
+        )
+        MediaAsset.objects.filter(pk__in=[asset.pk for asset in assets]).update(
+            temporary_until=None
         )
         MessageMention.objects.bulk_create(
             [
@@ -766,6 +862,10 @@ def delete_message(message: Message, *, actor: User) -> Message:
     active_membership(locked.conversation, actor, for_update=True)
     if locked.author.pk != actor.pk:
         raise PermissionDenied("Only the author can delete this message.")
+    return _tombstone_message(locked, actor=actor)
+
+
+def _tombstone_message(locked: Message, *, actor: User) -> Message:
     if locked.deleted_at is not None:
         return locked
     MessageRevision.objects.create(message=locked, body=locked.body, edited_by=actor)

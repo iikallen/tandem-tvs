@@ -6,6 +6,7 @@ services:
       context: .
       dockerfile: infra/postgres/Dockerfile
     image: tandem-tvs-postgres
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
@@ -29,6 +30,31 @@ services:
       retries: 20
     restart: unless-stopped
 
+  migrate:
+    build: ./backend
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "migrate", "--noinput"]
+    environment:
+      DJANGO_SETTINGS_MODULE: ${DJANGO_SETTINGS_MODULE:-config.settings.development}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-tandem}
+      POSTGRES_USER: ${POSTGRES_USER:-tandem}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      AUTH_MODE: LOCAL_ONLY
+      PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
+      ALLOW_BOOTSTRAP_LOCAL_ADMIN: "false"
+      STAGE6_DEMO_PASSWORD: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=0700
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+
   backend:
     build: ./backend
     environment:
@@ -36,6 +62,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-development-only-change-me}
       DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1,tandem-tvs.chatlink.kz}
       DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
+      TANDEM_ENVIRONMENT_PURPOSE: ${TANDEM_ENVIRONMENT_PURPOSE:-}
       POSTGRES_DB: ${POSTGRES_DB:-tandem}
       POSTGRES_USER: ${POSTGRES_USER:-tandem}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tandem-development-only}
@@ -51,6 +78,7 @@ services:
       ALLOW_BOOTSTRAP_LOCAL_ADMIN: ${ALLOW_BOOTSTRAP_LOCAL_ADMIN:-true}
       STAGE6_DEMO_PASSWORD: ${STAGE6_DEMO_PASSWORD:-Tandem development passphrase 2026}
       MEDIA_ROOT: /app/media
+      PROMETHEUS_MULTIPROC_DIR: /tmp/tandem-prometheus
       REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1:8080,https://tandem-tvs.chatlink.kz}
       PORTAL_ADAPTER: ${PORTAL_ADAPTER:-mock}
       MOCK_PORTAL_USER_ID: ${MOCK_PORTAL_USER_ID:-employee-1}
@@ -69,12 +97,12 @@ services:
       EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
       EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/v1/health/ready', headers={'X-Forwarded-Proto': 'https'}), timeout=3)"]
+      test: ["CMD", "uv", "run", "--no-sync", "python", "-c", "import os,urllib.request; host=os.environ.get('DJANGO_ALLOWED_HOSTS','localhost').split(',')[0]; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/v1/health/ready', headers={'Host': host, 'X-Forwarded-Proto': 'https'}), timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 20
@@ -86,6 +114,9 @@ services:
       - /tmp:uid=10001,gid=10001,mode=0700
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
+    networks:
+      - default
+      - backend-proxy
     restart: unless-stopped
 
   celery-worker:
@@ -224,7 +255,7 @@ services:
     cap_add: ["NET_BIND_SERVICE"]
     security_opt: ["no-new-privileges:true"]
     networks:
-      - default
+      - backend-proxy
       - tunnel-edge
     restart: unless-stopped
 
@@ -247,6 +278,10 @@ volumes:
   media-data:
 
 networks:
+  backend-proxy:
+    ipam:
+      config:
+        - subnet: 172.31.251.0/29
   tunnel-edge:
     ipam:
       config:

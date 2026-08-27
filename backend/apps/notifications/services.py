@@ -3,13 +3,14 @@ from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
-from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db import DatabaseError, IntegrityError, connection, transaction
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
 from apps.messenger.models import ConversationMembership, Message
 from apps.publications.models import PublicationRecipient
 from apps.realtime.groups import notification_group
+from apps.realtime.models import RealtimeOutboxEvent
 from apps.realtime.outbox import enqueue_realtime_event
 
 from .models import (
@@ -21,6 +22,7 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+FANOUT_DISPATCH_LOCK_ID = 82_425_011
 
 
 def enqueue_fanout(
@@ -224,32 +226,139 @@ def _message_recipients(event: NotificationFanoutEvent):
         )
 
 
+def _dispatch_message(event: NotificationFanoutEvent) -> list[Notification]:
+    recipients = list(_message_recipients(event))
+    recipient_ids = {row[0] for row in recipients}
+    disabled = set(
+        NotificationSettings.objects.filter(user_id__in=recipient_ids, enabled=False).values_list(
+            "user_id", flat=True
+        )
+    )
+    preferences = {
+        (cast(Any, row).user_id, row.notification_type): (
+            row.in_app_enabled,
+            row.push_enabled,
+            row.email_enabled,
+        )
+        for row in NotificationPreference.objects.filter(user_id__in=recipient_ids)
+    }
+    targets = []
+    for recipient_id, event_type, actor_id, conversation_id, muted, payload in recipients:
+        if recipient_id in disabled:
+            continue
+        in_app, push, email = preferences.get(
+            (recipient_id, event_type),
+            (True, False, event_type == Notification.Type.ACK_REQUIRED),
+        )
+        if not any((in_app, push, email)):
+            continue
+        key = _dedupe_key(event_type, event.source_id, conversation_id)
+        targets.append(
+            (
+                recipient_id,
+                event_type,
+                actor_id,
+                conversation_id,
+                muted,
+                payload,
+                in_app,
+                push,
+                email,
+                key if in_app else f"{key}:external",
+            )
+        )
+    existing = {
+        (cast(Any, row).recipient_id, row.dedupe_key): row
+        for row in Notification.objects.select_for_update().filter(
+            recipient_id__in={row[0] for row in targets},
+            dedupe_key__in={row[9] for row in targets},
+            read_at__isnull=True,
+        )
+    }
+    now = timezone.now()
+    updated = []
+    created = []
+    rows = []
+    for (
+        recipient_id,
+        event_type,
+        actor_id,
+        conversation_id,
+        muted,
+        payload,
+        in_app,
+        push,
+        email,
+        key,
+    ) in targets:
+        notification = existing.get((recipient_id, key))
+        if notification is None:
+            notification = Notification(
+                recipient_id=recipient_id,
+                actor_id=actor_id,
+                notification_type=event_type,
+                source_type="MESSAGE",
+                source_id=event.source_id,
+                conversation_id=conversation_id,
+                dedupe_key=key,
+                payload=payload,
+                in_app_visible=in_app,
+                last_event_at=now,
+            )
+            created.append(notification)
+        else:
+            cast(Any, notification).actor_id = actor_id
+            notification.source_id = event.source_id
+            notification.occurrence_count += 1
+            notification.event_version += 1
+            notification.last_event_at = now
+            notification.payload = payload
+            notification.in_app_visible = notification.in_app_visible or in_app
+            updated.append(notification)
+        rows.append((notification, push, email, muted))
+    if updated:
+        Notification.objects.bulk_update(
+            updated,
+            [
+                "actor",
+                "source_id",
+                "occurrence_count",
+                "event_version",
+                "last_event_at",
+                "payload",
+                "in_app_visible",
+            ],
+        )
+    if created:
+        Notification.objects.bulk_create(created)
+    deliveries = []
+    for notification, push, email, muted in rows:
+        if muted:
+            continue
+        for channel, enabled in (
+            (NotificationDelivery.Channel.PUSH, push and settings.WEB_PUSH_ENABLED),
+            (NotificationDelivery.Channel.EMAIL, email and settings.NOTIFICATION_EMAIL_ENABLED),
+        ):
+            if enabled:
+                deliveries.append(
+                    NotificationDelivery(
+                        notification=notification,
+                        channel=channel,
+                        event_version=notification.event_version,
+                        available_at=now + timedelta(seconds=30),
+                    )
+                )
+    NotificationDelivery.objects.bulk_create(deliveries, ignore_conflicts=True)
+    return [row[0] for row in rows]
+
+
 def _dispatch(event: NotificationFanoutEvent) -> list[Notification]:
     created: list[Notification] = []
     if event.event_type in {
         Notification.Type.NEW_MESSAGE,
         Notification.Type.MESSAGE_MENTION,
     }:
-        for (
-            recipient_id,
-            event_type,
-            actor_id,
-            conversation_id,
-            muted,
-            payload,
-        ) in _message_recipients(event):
-            row = _upsert_notification(
-                recipient_id=recipient_id,
-                actor_id=actor_id,
-                event_type=event_type,
-                source_type="MESSAGE",
-                source_id=event.source_id,
-                conversation_id=conversation_id,
-                payload=payload,
-                external_suppressed=muted,
-            )
-            if row:
-                created.append(row)
+        created.extend(_dispatch_message(event))
     elif event.event_type in {
         Notification.Type.NEW_PUBLICATION,
         Notification.Type.ACK_REQUIRED,
@@ -292,6 +401,34 @@ def _dispatch(event: NotificationFanoutEvent) -> list[Notification]:
     return created
 
 
+def _enqueue_notification_hints(recipient_ids: set[int]) -> None:
+    counts = {
+        row["recipient_id"]: row["total"]
+        for row in Notification.objects.filter(
+            recipient_id__in=recipient_ids,
+            in_app_visible=True,
+            read_at__isnull=True,
+        )
+        .values("recipient_id")
+        .annotate(total=Count("id"))
+    }
+    rows = []
+    for recipient_id in recipient_ids:
+        row = RealtimeOutboxEvent(
+            group_name=notification_group(recipient_id),
+            event_type="notification_changed",
+            payload={},
+        )
+        row.payload = {
+            "type": "notification.changed",
+            "version": 1,
+            "unread_count": counts.get(recipient_id, 0),
+            "event_id": str(row.pk),
+        }
+        rows.append(row)
+    RealtimeOutboxEvent.objects.bulk_create(rows)
+
+
 def process_fanout_event(event_id: object) -> bool:
     try:
         with transaction.atomic():
@@ -307,8 +444,7 @@ def process_fanout_event(event_id: object) -> bool:
             event.processed_at = timezone.now()
             event.save(update_fields=["attempts", "processed_at"])
             recipient_ids = {cast(Any, row).recipient_id for row in notifications}
-            for recipient_id in recipient_ids:
-                emit_notification_hint(recipient_id, "notification.changed")
+            _enqueue_notification_hints(recipient_ids)
             return True
     except Exception:
         with transaction.atomic():
@@ -322,15 +458,30 @@ def process_fanout_event(event_id: object) -> bool:
         return False
 
 
-def dispatch_pending_fanout(limit: int = 100) -> int:
-    ids = list(
-        NotificationFanoutEvent.objects.filter(
-            processed_at__isnull=True, available_at__lte=timezone.now()
+def dispatch_pending_fanout(limit: int = 10) -> int:
+    lock_acquired = False
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [FANOUT_DISPATCH_LOCK_ID])
+            lock_acquired = bool(cursor.fetchone()[0])
+        if not lock_acquired:
+            return 0
+    try:
+        ids = list(
+            NotificationFanoutEvent.objects.filter(
+                processed_at__isnull=True, available_at__lte=timezone.now()
+            )
+            .order_by("created_at", "id")
+            .values_list("pk", flat=True)[:limit]
         )
-        .order_by("created_at", "id")
-        .values_list("pk", flat=True)[:limit]
-    )
-    return sum(process_fanout_event(event_id) for event_id in ids)
+        return sum(process_fanout_event(event_id) for event_id in ids)
+    finally:
+        if lock_acquired:
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_unlock(%s)", [FANOUT_DISPATCH_LOCK_ID])
+            except DatabaseError:
+                connection.close()
 
 
 def unread_count(user_id: int) -> int:

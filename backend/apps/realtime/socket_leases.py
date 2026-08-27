@@ -48,6 +48,16 @@ def active_socket_count(user_id: int) -> int:
     return cast(int, client.zcard(key))
 
 
+def total_active_socket_count() -> int:
+    now = int(time.time())
+    client = _client()
+    total = 0
+    for key in client.scan_iter(match="realtime:sockets:user:*", count=100):
+        client.zremrangebyscore(key, "-inf", now)
+        total += cast(int, client.zcard(key))
+    return total
+
+
 def touch_presence(user_id: int, connection_id: str) -> None:
     _client().set(f"realtime:presence:{user_id}:{connection_id}", "1", ex=70)
 

@@ -836,6 +836,62 @@ def test_notification_realtime_reaches_two_devices():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_notification_socket_limit_is_enforced_and_lease_is_released(settings, monkeypatch):
+    recipient = account("realtime-notification-limit", messenger_role=None)
+    claims = RealtimeTicket(
+        user_id=recipient.pk,
+        security_epoch=recipient.security_epoch,
+        session_key="test-session",
+        session_fingerprint="test-fingerprint",
+        scope=RealtimeScope.NOTIFICATIONS,
+        expires_at=int(time.time()) + 60,
+        nonce="test-nonce",
+    )
+    settings.REALTIME_MAX_SOCKETS_PER_USER = 1
+    active: set[str] = set()
+    released: list[str] = []
+
+    def reserve(_user_id, connection_id):
+        if len(active) >= settings.REALTIME_MAX_SOCKETS_PER_USER:
+            return False
+        active.add(connection_id)
+        return True
+
+    def release(_user_id, connection_id):
+        active.discard(connection_id)
+        released.append(connection_id)
+
+    monkeypatch.setattr("apps.notifications.consumers.reserve_socket", reserve)
+    monkeypatch.setattr("apps.notifications.consumers.release_socket", release)
+    consumer = NotificationConsumer.as_asgi()
+
+    async def authenticated(scope, receive, send):
+        scope.update(
+            user=recipient,
+            session_fingerprint=claims.session_fingerprint,
+            session_deadline=int(time.time()) + 60,
+            realtime_claims=claims,
+        )
+        await consumer(scope, receive, send)
+
+    async def scenario():
+        first = WebsocketCommunicator(authenticated, "/ws/v1/notifications")
+        denied = WebsocketCommunicator(authenticated, "/ws/v1/notifications")
+        assert (await first.connect())[0]
+        assert await denied.connect() == (False, 4429)
+        await first.disconnect()
+        assert len(released) == 1 and not active
+
+        replacement = WebsocketCommunicator(authenticated, "/ws/v1/notifications")
+        assert (await replacement.connect())[0]
+        await replacement.disconnect()
+        await denied.disconnect()
+        assert len(released) == 2 and not active
+
+    async_to_sync(scenario)()
+
+
+@pytest.mark.django_db(transaction=True)
 def test_notification_realtime_rejects_bad_clients_and_auth_invalidation(settings):
     recipient = account("realtime-notification-controls", messenger_role=None)
     claims = RealtimeTicket(

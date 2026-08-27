@@ -114,7 +114,7 @@ class AccessGrant(models.Model):
                         module="NEWS",
                         role__in=["MEMBER", "AUTHOR", "EDITOR", "MODERATOR", "ADMIN"],
                     )
-                    | models.Q(module="MESSENGER", role__in=["MEMBER", "ADMIN"])
+                    | models.Q(module="MESSENGER", role__in=["MEMBER", "MODERATOR", "ADMIN"])
                 ),
                 name="identity_access_grant_valid_pair",
             ),

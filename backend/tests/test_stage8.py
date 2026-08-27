@@ -317,6 +317,7 @@ def test_attachment_download_requires_visible_message_membership(settings, tmp_p
     )
     assert upload.status_code == 201
     asset_id = upload.data["id"]
+    assert MediaAsset.objects.get(pk=asset_id).temporary_until is not None
     content_url = f"/api/v1/media/{asset_id}/content"
     assert client(member).get(content_url).status_code == 404
     assert client(editor).get(content_url).status_code == 404
@@ -329,6 +330,7 @@ def test_attachment_download_requires_visible_message_membership(settings, tmp_p
         format="json",
     )
     assert attached.status_code == 201
+    assert MediaAsset.objects.get(pk=asset_id).temporary_until is None
     assert attached.data["attachments"][0]["id"] == asset_id
     assert client(member).get(content_url).status_code == 200
     assert client(outsider).get(content_url).status_code == 404

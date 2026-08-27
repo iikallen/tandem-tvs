@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any, cast
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
@@ -219,6 +220,9 @@ class EngagementSettingsSerializer(serializers.ModelSerializer):
             "enabled_reaction_types",
             "max_comment_attachments",
             "max_comment_attachment_bytes",
+            "allowed_media_extensions",
+            "message_retention_days",
+            "media_retention_days",
             "stop_words",
             "updated_at",
         ]
@@ -230,6 +234,33 @@ class EngagementSettingsSerializer(serializers.ModelSerializer):
         if any(value not in Reaction.Type.values for value in values):
             raise serializers.ValidationError("Unknown reaction type.")
         return values
+
+    def validate_max_comment_attachment_bytes(self, value):
+        hard_limit = int(getattr(settings, "MEDIA_MAX_UPLOAD_BYTES", 25 * 1024 * 1024))
+        if not 1 <= value <= hard_limit:
+            raise serializers.ValidationError(
+                f"Upload limit must be between 1 and {hard_limit} bytes."
+            )
+        return value
+
+    def validate_allowed_media_extensions(self, values):
+        supported = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".pdf", ".docx", ".xlsx"}
+        normalized = [str(value).strip().casefold() for value in values]
+        if not normalized or len(normalized) != len(set(normalized)):
+            raise serializers.ValidationError("Choose one or more unique file extensions.")
+        if any(value not in supported for value in normalized):
+            raise serializers.ValidationError("Unknown or unsafe file extension.")
+        return normalized
+
+    def validate_message_retention_days(self, value):
+        if value > 3_650:
+            raise serializers.ValidationError("Retention cannot exceed 3650 days.")
+        return value
+
+    def validate_media_retention_days(self, value):
+        if value > 3_650:
+            raise serializers.ValidationError("Retention cannot exceed 3650 days.")
+        return value
 
     def get_stop_words(self, _obj):
         return StopWordSerializer(StopWord.objects.all(), many=True).data

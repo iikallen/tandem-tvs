@@ -59,6 +59,9 @@ from apps.messenger.views import (
     MessageListCreateView,
     MessagePinView,
     MessageReactionView,
+    MessageReportView,
+    MessengerModerationQueueView,
+    MessengerModerationReportResolveView,
     PeopleView,
     ReadView,
 )
@@ -71,6 +74,7 @@ from apps.notifications.views import (
     PushConfigView,
     PushSubscriptionView,
 )
+from apps.ops.views import InternalHealthView, MetricsView
 from apps.organization.views import EmployeeSearchView, OrgUnitListView, PositionGroupListView
 from apps.publications.views import (
     CategoryListView,
@@ -78,8 +82,10 @@ from apps.publications.views import (
     EditorialAcknowledgementListView,
     EditorialAnalyticsCsvView,
     EditorialAnalyticsView,
+    EditorialAuditListView,
     EditorialCategoryDetailView,
     EditorialCategoryListCreateView,
+    EditorialDepartmentAnalyticsCsvView,
     EditorialMediaDeleteView,
     EditorialMediaListUploadView,
     EditorialPublicationAnalyticsView,
@@ -101,6 +107,8 @@ from apps.publications.views import (
     NewsPinView,
 )
 from apps.search.views import GlobalSearchView
+
+handler400 = "apps.core.views.bad_request"
 
 urlpatterns = [
     path("api/v1/search", GlobalSearchView.as_view(), name="global-search"),
@@ -233,6 +241,21 @@ urlpatterns = [
         MessagePinView.as_view(),
         name="messenger-message-pin",
     ),
+    path(
+        "api/v1/messenger/messages/<uuid:message_id>/report",
+        MessageReportView.as_view(),
+        name="messenger-message-report",
+    ),
+    path(
+        "api/v1/messenger/moderation/reports",
+        MessengerModerationQueueView.as_view(),
+        name="messenger-moderation-reports",
+    ),
+    path(
+        "api/v1/messenger/moderation/reports/<uuid:report_id>/resolve",
+        MessengerModerationReportResolveView.as_view(),
+        name="messenger-moderation-report-resolve",
+    ),
     path("api/v1/news", NewsListView.as_view(), name="news-list"),
     path("api/v1/news/pinned", NewsPinnedListView.as_view(), name="news-pinned-list"),
     path("api/v1/news/categories", CategoryListView.as_view(), name="news-category-list"),
@@ -363,10 +386,16 @@ urlpatterns = [
     path(
         "api/v1/editorial/analytics", EditorialAnalyticsView.as_view(), name="editorial-analytics"
     ),
+    path("api/v1/editorial/audit", EditorialAuditListView.as_view(), name="editorial-audit"),
     path(
         "api/v1/editorial/analytics.csv",
         EditorialAnalyticsCsvView.as_view(),
         name="editorial-analytics-csv",
+    ),
+    path(
+        "api/v1/editorial/analytics/departments.csv",
+        EditorialDepartmentAnalyticsCsvView.as_view(),
+        name="editorial-department-analytics-csv",
     ),
     path(
         "api/v1/editorial/settings/engagement",
@@ -487,6 +516,8 @@ urlpatterns = [
     path("api/v1/runtime/meta", RuntimeMetaView.as_view(), name="runtime-meta"),
     path("api/v1/health/live", LiveView.as_view(), name="health-live"),
     path("api/v1/health/ready", ReadyView.as_view(), name="health-ready"),
+    path("internal/health", InternalHealthView.as_view(), name="internal-health"),
+    path("internal/metrics", MetricsView.as_view(), name="internal-metrics"),
 ]
 
 if settings.API_DOCS_ENABLED:

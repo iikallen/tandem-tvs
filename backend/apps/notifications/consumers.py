@@ -1,8 +1,11 @@
 import asyncio
+import logging
+import secrets
 import time
 from collections import deque
 from typing import cast
 
+from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.conf import settings
@@ -11,6 +14,9 @@ from apps.identity.models import User
 from apps.realtime.claims import RealtimeTicket
 from apps.realtime.groups import notification_group, session_control_group, user_control_group
 from apps.realtime.session_security import ticket_session_deadline
+from apps.realtime.socket_leases import release_socket, reserve_socket
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationConsumer(AsyncJsonWebsocketConsumer):
@@ -20,6 +26,21 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
             return
         scope = cast(dict[str, object], self.scope)
         user = cast(User, scope["user"])
+        self.user_id = user.pk
+        self.connection_id = secrets.token_urlsafe(16)
+        self.lease_reserved = False
+        try:
+            allowed = await sync_to_async(reserve_socket, thread_sensitive=False)(
+                user.pk, self.connection_id
+            )
+        except Exception:
+            logger.exception("notifications.websocket.lease_failed", extra={"user_id": user.pk})
+            await self.close(code=1013)
+            return
+        if not allowed:
+            await self.close(code=4429)
+            return
+        self.lease_reserved = True
         self.group_name = notification_group(user.pk)
         self.control_group_name = user_control_group(user.pk)
         self.session_group_name = session_control_group(cast(str, scope["session_fingerprint"]))
@@ -60,6 +81,16 @@ class NotificationConsumer(AsyncJsonWebsocketConsumer):
         ):
             if task:
                 task.cancel()
+        if getattr(self, "lease_reserved", False):
+            try:
+                await sync_to_async(release_socket, thread_sensitive=False)(
+                    self.user_id, self.connection_id
+                )
+            except Exception:
+                logger.exception(
+                    "notifications.websocket.lease_release_failed",
+                    extra={"user_id": self.user_id},
+                )
 
     async def receive(self, text_data=None, bytes_data=None, **kwargs):
         now = time.monotonic()

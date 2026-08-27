@@ -1,6 +1,7 @@
 """Clean Compose acceptance for Stage 9 notifications and global search."""
 
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -50,6 +51,7 @@ from apps.search.services import authorized_sections  # noqa: E402
 STATE_FILE = Path(settings.MEDIA_ROOT) / ".stage9-acceptance.json"
 PASSWORD = settings.STAGE6_DEMO_PASSWORD
 META = {"HTTP_HOST": "localhost", "HTTP_X_FORWARDED_PROTO": "https"}
+ACCEPTANCE_ORIGIN = os.getenv("ACCEPTANCE_ORIGIN", "http://localhost")
 USERNAMES = {
     "admin": "stage9-admin",
     "editor": "stage9-editor",
@@ -201,13 +203,13 @@ async def verify_two_device_read(
     async with (
         ws_connect(
             url.format(first_token),
-            origin="http://localhost",
+            origin=ACCEPTANCE_ORIGIN,
             open_timeout=5,
             close_timeout=2,
         ) as first_socket,
         ws_connect(
             url.format(second_token),
-            origin="http://localhost",
+            origin=ACCEPTANCE_ORIGIN,
             open_timeout=5,
             close_timeout=2,
         ) as second_socket,
@@ -315,13 +317,14 @@ def prepare() -> None:
         body="Маяк отдельное упоминание",
         mentioned_users=[users["member"]],
     )
+    asset_content = b"%PDF-1.7\n%%EOF\n"
     asset = MediaAsset.objects.create(
         original_name="маяк-stage9.pdf",
         storage_key=f"assets/{uuid.uuid4().hex}.pdf",
-        file=SimpleUploadedFile("stage9.pdf", b"%PDF-1.7\n%%EOF\n"),
+        file=SimpleUploadedFile("stage9.pdf", asset_content),
         mime_type="application/pdf",
-        size=15,
-        sha256="5" * 64,
+        size=len(asset_content),
+        sha256=hashlib.sha256(asset_content).hexdigest(),
         kind=MediaAsset.Kind.DOCUMENT,
         uploader=users["editor"],
         status=MediaAsset.Status.READY,

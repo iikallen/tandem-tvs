@@ -1,0 +1,130 @@
+x-backend-production-environment: &backend-production-environment
+  DJANGO_SETTINGS_MODULE: config.settings.production
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?DJANGO_SECRET_KEY is required}
+  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:?DJANGO_ALLOWED_HOSTS is required}
+  DJANGO_CSRF_TRUSTED_ORIGINS: ${DJANGO_CSRF_TRUSTED_ORIGINS:?DJANGO_CSRF_TRUSTED_ORIGINS is required}
+  TANDEM_ENVIRONMENT_PURPOSE: ${TANDEM_ENVIRONMENT_PURPOSE:-}
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_CONNECT_TIMEOUT_SECONDS: ${POSTGRES_CONNECT_TIMEOUT_SECONDS:-5}
+  POSTGRES_STATEMENT_TIMEOUT_MS: ${POSTGRES_STATEMENT_TIMEOUT_MS:-15000}
+  REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+  REALTIME_REDIS_URL: ${REALTIME_REDIS_URL:?REALTIME_REDIS_URL is required}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:?CELERY_BROKER_URL is required}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:?CELERY_RESULT_BACKEND is required}
+  REALTIME_ALLOWED_ORIGINS: ${REALTIME_ALLOWED_ORIGINS:?REALTIME_ALLOWED_ORIGINS is required}
+  REALTIME_SOCKET_LIFETIME_SECONDS: ${REALTIME_SOCKET_LIFETIME_SECONDS:-1200}
+  AUTH_MODE: LOCAL_ONLY
+  AUTH_RECOVERY_MODE: ${AUTH_RECOVERY_MODE:?AUTH_RECOVERY_MODE is required}
+  AUTH_PUBLIC_BASE_URL: ${AUTH_PUBLIC_BASE_URL:?AUTH_PUBLIC_BASE_URL is required}
+  PORTAL_ADAPTER: unavailable
+  MOCK_PORTAL_USER_ID: ""
+  ALLOW_BOOTSTRAP_LOCAL_ADMIN: "false"
+  STAGE6_DEMO_PASSWORD: ""
+  MEDIA_ROOT: /app/media
+  API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
+  WEB_PUSH_ENABLED: ${WEB_PUSH_ENABLED:?WEB_PUSH_ENABLED must be true or false}
+  WEB_PUSH_ALLOWED_HOST_SUFFIXES: ${WEB_PUSH_ALLOWED_HOST_SUFFIXES:-fcm.googleapis.com,updates.push.services.mozilla.com,notify.windows.com,web.push.apple.com}
+  WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER: ${WEB_PUSH_MAX_SUBSCRIPTIONS_PER_USER:-5}
+  VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+  VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+  VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+  NOTIFICATION_EMAIL_ENABLED: ${NOTIFICATION_EMAIL_ENABLED:?NOTIFICATION_EMAIL_ENABLED must be true or false}
+  NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS: ${NOTIFICATION_EMAIL_INACTIVE_AFTER_HOURS:-24}
+  DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+  EMAIL_HOST: ${EMAIL_HOST:-}
+  EMAIL_PORT: ${EMAIL_PORT:-25}
+  EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+  EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+  EMAIL_USE_TLS: ${EMAIL_USE_TLS:-false}
+  APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+  APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+  OPS_MONITORING_TOKEN: ${OPS_MONITORING_TOKEN:?OPS_MONITORING_TOKEN is required}
+  PROMETHEUS_MULTIPROC_DIR: /tmp/tandem-prometheus
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+x-production-logging: &production-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: tandem-tvs-postgres:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-400}"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    logging: *production-logging
+
+  redis:
+    logging: *production-logging
+
+  migrate:
+    image: tandem-tvs-backend:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+        APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+    environment: *backend-production-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *production-logging
+
+  backend:
+    image: tandem-tvs-backend:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+        APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+    environment: *backend-production-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    logging: *production-logging
+
+  celery-worker:
+    image: tandem-tvs-backend:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+        APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+    environment: *backend-production-environment
+    logging: *production-logging
+
+  celery-beat:
+    image: tandem-tvs-backend:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    build:
+      context: ./backend
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+        APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+    environment: *backend-production-environment
+    logging: *production-logging
+
+  frontend:
+    image: tandem-tvs-frontend:${APP_GIT_SHA:?APP_GIT_SHA is required}
+    build:
+      context: ./frontend
+      args:
+        APP_VERSION: ${APP_VERSION:?APP_VERSION is required}
+        APP_GIT_SHA: ${APP_GIT_SHA:?APP_GIT_SHA is required}
+    logging: *production-logging
+
+  cloudflared:
+    profiles: !reset []
+    command:
+      ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARE_TUNNEL_TOKEN:?CLOUDFLARE_TUNNEL_TOKEN is required}"]
+    logging: *production-logging

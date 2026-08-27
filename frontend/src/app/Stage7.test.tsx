@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { axe } from "jest-axe";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import type {
   Me,
+  MediaAsset,
   MessengerConversation,
   MessengerMessage,
   MessengerPerson,
@@ -44,6 +45,42 @@ const savedMessage: MessengerMessage = {
   body: "Проверка realtime",
   created_at: "2026-08-24T10:40:00Z",
   receipt: { read: false, read_count: 0, recipient_count: 1 },
+};
+
+const imageAsset: MediaAsset = {
+  id: "60000000-0000-4000-8000-000000000001",
+  original_name: "scheme.png",
+  mime_type: "image/png",
+  size: 2048,
+  sha256: "a".repeat(64),
+  kind: "IMAGE",
+  width: 640,
+  height: 480,
+  status: "READY",
+  created_at: savedMessage.created_at,
+  content_url: "/media/scheme.png",
+};
+
+const videoAsset: MediaAsset = {
+  ...imageAsset,
+  id: "60000000-0000-4000-8000-000000000002",
+  original_name: "demo.mp4",
+  mime_type: "video/mp4",
+  kind: "VIDEO",
+  width: 1280,
+  height: 720,
+  content_url: "/media/demo.mp4",
+};
+
+const documentAsset: MediaAsset = {
+  ...imageAsset,
+  id: "60000000-0000-4000-8000-000000000003",
+  original_name: "brief.pdf",
+  mime_type: "application/pdf",
+  kind: "DOCUMENT",
+  width: null,
+  height: null,
+  content_url: "/media/brief.pdf",
 };
 
 const conversation: MessengerConversation = {
@@ -109,14 +146,16 @@ function baseFetch(options: {
   send?: (body: Record<string, unknown>, attempt: number) => Response;
   people?: MessengerPerson[];
   conversations?: MessengerConversation[];
+  messages?: MessengerMessage[];
+  user?: Me;
 }) {
   let sendAttempt = 0;
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     if (url.endsWith("/api/v1/auth/session"))
-      return response({ authenticated: true, user: me });
-    if (url.endsWith("/api/v1/me")) return response(me);
+      return response({ authenticated: true, user: options.user ?? me });
+    if (url.endsWith("/api/v1/me")) return response(options.user ?? me);
     if (url.endsWith("/api/v1/auth/csrf"))
       return response({ csrf_token: "csrf" });
     if (url.endsWith("/api/v1/realtime/tickets"))
@@ -145,6 +184,11 @@ function baseFetch(options: {
       });
     if (
       url.includes("/api/v1/messenger/conversations/") &&
+      url.includes("/search?")
+    )
+      return response({ results: options.messages ?? [savedMessage] });
+    if (
+      url.includes("/api/v1/messenger/conversations/") &&
       url.endsWith("/messages") &&
       method === "POST"
     ) {
@@ -159,7 +203,7 @@ function baseFetch(options: {
       url.includes("/messages")
     )
       return response({
-        messages: [savedMessage],
+        messages: options.messages ?? [savedMessage],
         has_more: false,
         next_before_sequence: null,
       });
@@ -390,4 +434,227 @@ test("deduplicates outbox events and coalesces receipt bursts", async () => {
   await waitFor(() => expect(messageGets()).toBe(beforeReceipts + 1), {
     timeout: 1_000,
   });
+});
+
+test("searches the inbox and prefills a shared News link after choosing a chat", async () => {
+  window.history.pushState({}, "", "/messages?share=%2Fnews%2Freglament-vpn");
+  vi.stubGlobal("fetch", baseFetch({}));
+  render(<App />);
+
+  const inboxSearch = await screen.findByLabelText(
+    "Поиск по названию или участникам",
+  );
+  await userEvent.type(inboxSearch, "неизвестный");
+  expect(
+    screen.queryByRole("button", { name: /Дмитрий Орлов/ }),
+  ).not.toBeInTheDocument();
+  await userEvent.clear(inboxSearch);
+  await userEvent.type(inboxSearch, "Дмитрий");
+  await userEvent.click(screen.getByRole("button", { name: /Дмитрий Орлов/ }));
+
+  expect(await screen.findByLabelText("Сообщение")).toHaveValue(
+    "/news/reglament-vpn",
+  );
+});
+
+test("filters messages by author, date, and attachments", async () => {
+  const fetchMock = baseFetch({});
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Дмитрий Орлов/ }),
+  );
+  await userEvent.click(screen.getByText("Расширенные фильтры"));
+  await userEvent.selectOptions(screen.getByLabelText("Автор"), String(bob.id));
+  fireEvent.change(screen.getByLabelText("С даты"), {
+    target: { value: "2026-08-01" },
+  });
+  fireEvent.change(screen.getByLabelText("По дату"), {
+    target: { value: "2026-08-31" },
+  });
+  await userEvent.click(screen.getByLabelText("Только с вложениями"));
+
+  await waitFor(() =>
+    expect(
+      fetchMock.mock.calls.some(([input]) => {
+        const url = new URL(String(input), "http://localhost");
+        return (
+          url.pathname.endsWith(`/conversations/${conversation.id}/search`) &&
+          url.searchParams.get("author_id") === String(bob.id) &&
+          url.searchParams.has("date_from") &&
+          url.searchParams.has("date_to") &&
+          url.searchParams.get("has_attachments") === "true"
+        );
+      }),
+    ).toBe(true),
+  );
+});
+
+test("renders media previews, publication cards, and the authorized attachment tab", async () => {
+  const message = {
+    ...savedMessage,
+    attachments: [imageAsset, videoAsset, documentAsset],
+    resource_preview: {
+      type: "publication" as const,
+      id: "publication-id",
+      title: "Регламент VPN",
+      url: "/news/publication-id",
+    },
+  };
+  const fetchMock = baseFetch({ messages: [message] });
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Дмитрий Орлов/ }),
+  );
+
+  expect(await screen.findByRole("img", { name: "scheme.png" })).toBeVisible();
+  expect(screen.getByLabelText("demo.mp4")).toBeVisible();
+  expect(screen.getByRole("link", { name: "Скачать файл" })).toHaveAttribute(
+    "download",
+    "brief.pdf",
+  );
+  expect(screen.getByRole("link", { name: /Регламент VPN/ })).toHaveAttribute(
+    "href",
+    "/news/publication-id",
+  );
+
+  await userEvent.click(screen.getByRole("tab", { name: "Файлы" }));
+  expect(
+    await screen.findByText("brief.pdf", {
+      selector: ".messenger-attachment-list strong",
+    }),
+  ).toBeVisible();
+  expect(
+    fetchMock.mock.calls.some(([input]) =>
+      String(input).includes("has_attachments=true"),
+    ),
+  ).toBe(true);
+});
+
+test("uploads pasted and dropped files and cancels an in-flight upload", async () => {
+  const fallback = baseFetch({});
+  let uploadCount = 0;
+  const pendingSignal: { current: AbortSignal | null } = { current: null };
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      if (url.endsWith(`/conversations/${conversation.id}/attachments`)) {
+        uploadCount += 1;
+        if (uploadCount === 1) return response(documentAsset, 201);
+        pendingSignal.current = init?.signal ?? null;
+        return new Promise((_resolve, reject) => {
+          pendingSignal.current?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      }
+      return fallback(input, init);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Дмитрий Орлов/ }),
+  );
+  const composer = document.querySelector(".messenger-composer");
+  expect(composer).not.toBeNull();
+  fireEvent.paste(composer!, {
+    clipboardData: {
+      files: [new File(["pdf"], "brief.pdf", { type: "application/pdf" })],
+    },
+  });
+  expect(await screen.findByText("brief.pdf")).toBeVisible();
+
+  fireEvent.drop(composer!, {
+    dataTransfer: {
+      files: [new File(["png"], "drop.png", { type: "image/png" })],
+    },
+  });
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Отменить загрузку" }),
+  );
+  expect(pendingSignal.current?.aborted).toBe(true);
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("progressbar", { name: "Загрузка файла" }),
+    ).not.toBeInTheDocument(),
+  );
+});
+
+test("submits a complaint and lets a Messenger moderator resolve the queue", async () => {
+  const moderator: Me = {
+    ...me,
+    access: { ...me.access, messenger: ["MEMBER", "MODERATOR"] },
+  };
+  const fallback = baseFetch({ user: moderator });
+  const actions: Array<Record<string, unknown>> = [];
+  const reportId = "70000000-0000-4000-8000-000000000001";
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url.endsWith(`/messages/${savedMessage.id}/report`)) {
+        actions.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return response({ id: reportId, state: "OPEN" }, 201);
+      }
+      if (url.endsWith(`/moderation/reports/${reportId}/resolve`)) {
+        actions.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return response({ id: reportId, state: "RESOLVED" });
+      }
+      if (url.endsWith("/messenger/moderation/reports") && method === "GET")
+        return response({
+          reports: [
+            {
+              id: reportId,
+              reason: "Нарушение правил",
+              state: "OPEN",
+              created_at: savedMessage.created_at,
+              reporter_id: me.id,
+              message: {
+                id: savedMessage.id,
+                conversation_id: conversation.id,
+                author_id: bob.id,
+                body: savedMessage.body,
+                created_at: savedMessage.created_at,
+              },
+            },
+          ],
+        });
+      return fallback(input, init);
+    },
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(<App />);
+  await userEvent.click(
+    await screen.findByRole("button", { name: /Дмитрий Орлов/ }),
+  );
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Пожаловаться" }),
+  );
+  await userEvent.type(
+    screen.getByLabelText("Причина жалобы"),
+    "Нарушение правил",
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Отправить жалобу" }),
+  );
+  await waitFor(() =>
+    expect(actions[0]).toEqual({ reason: "Нарушение правил" }),
+  );
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Модерация Messenger" }),
+  );
+  expect(await screen.findByText(/Нарушение правил/)).toBeVisible();
+  await userEvent.type(
+    screen.getByLabelText("Комментарий модератора"),
+    "Проверено",
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: "Подтвердить нарушение" }),
+  );
+  await waitFor(() =>
+    expect(actions[1]).toEqual({ decision: "VIOLATION", note: "Проверено" }),
+  );
 });

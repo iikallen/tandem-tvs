@@ -99,7 +99,11 @@ class GrantInputSerializer(serializers.Serializer):
         allowed = {
             AccessGrant.Module.PLATFORM: {AccessGrant.Role.ADMIN},
             AccessGrant.Module.NEWS: set(AccessGrant.Role.values),
-            AccessGrant.Module.MESSENGER: {AccessGrant.Role.MEMBER, AccessGrant.Role.ADMIN},
+            AccessGrant.Module.MESSENGER: {
+                AccessGrant.Role.MEMBER,
+                AccessGrant.Role.MODERATOR,
+                AccessGrant.Role.ADMIN,
+            },
         }
         if attrs["role"] not in allowed[attrs["module"]]:
             raise serializers.ValidationError("Role is not valid for this module.")

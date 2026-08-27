@@ -370,6 +370,7 @@ def _set_media_usages(
         for asset in {asset.id: asset for asset in attachments}.values()
     )
     MediaUsage.objects.bulk_create(rows, ignore_conflicts=True)
+    MediaAsset.objects.filter(pk__in=[row.asset.pk for row in rows]).update(temporary_until=None)
 
 
 @transaction.atomic

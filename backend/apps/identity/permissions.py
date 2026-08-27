@@ -96,6 +96,17 @@ class IsMessengerAdmin(BasePermission):
         return has_role(request.user, AccessGrant.Module.MESSENGER, AccessGrant.Role.ADMIN)
 
 
+class IsMessengerModerator(BasePermission):
+    message = "A messenger moderator role is required."
+
+    def has_permission(self, request, view):
+        return has_any_role(
+            request.user,
+            AccessGrant.Module.MESSENGER,
+            {AccessGrant.Role.MODERATOR, AccessGrant.Role.ADMIN},
+        )
+
+
 class IsPlatformAdmin(BasePermission):
     message = "Platform administrator access is required."
 

@@ -13,6 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.discussions.consumers import PublicationConsumer
 from apps.discussions.events import publication_group
 from apps.discussions.tickets import TicketClaims, consume_ticket, create_ticket
 from apps.identity.models import AccessGrant, User
@@ -411,6 +412,94 @@ def test_websocket_origin_ticket_scope_event_and_read_only(settings, monkeypatch
         assert await flooded.receive_json_from() == {"type": "pong"}
         assert await flooded.receive_output() == {"type": "websocket.close", "code": 4429}
         await flooded.disconnect()
+
+    async_to_sync(scenario)()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_publication_socket_limit_is_enforced_and_lease_is_released(settings, monkeypatch):
+    user, publication = make_publication(settings)
+    claims = ticket_claims(user, RealtimeScope.NEWS_PUBLICATION, publication.pk)
+    settings.REALTIME_MAX_SOCKETS_PER_USER = 1
+    active: set[str] = set()
+    released: list[str] = []
+
+    def reserve(_user_id, connection_id):
+        if len(active) >= settings.REALTIME_MAX_SOCKETS_PER_USER:
+            return False
+        active.add(connection_id)
+        return True
+
+    def release(_user_id, connection_id):
+        active.discard(connection_id)
+        released.append(connection_id)
+
+    monkeypatch.setattr("apps.discussions.consumers.reserve_socket", reserve)
+    monkeypatch.setattr("apps.discussions.consumers.release_socket", release)
+    consumer = PublicationConsumer.as_asgi()
+
+    async def authenticated(scope, receive, send):
+        scope.update(
+            user=user,
+            publication_id=publication.pk,
+            session_fingerprint=claims.session_fingerprint,
+            session_deadline=int(time.time()) + 60,
+            realtime_claims=claims,
+        )
+        await consumer(scope, receive, send)
+
+    async def scenario():
+        first = WebsocketCommunicator(authenticated, "/ws/v1/publications/test")
+        denied = WebsocketCommunicator(authenticated, "/ws/v1/publications/test")
+        assert (await first.connect())[0]
+        assert await denied.connect() == (False, 4429)
+        await first.disconnect()
+        assert len(released) == 1 and not active
+
+        replacement = WebsocketCommunicator(authenticated, "/ws/v1/publications/test")
+        assert (await replacement.connect())[0]
+        await replacement.disconnect()
+        await denied.disconnect()
+        assert len(released) == 2 and not active
+
+    async_to_sync(scenario)()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_publication_socket_lease_backend_fails_closed_and_release_failure_is_safe(
+    settings, monkeypatch
+):
+    user, publication = make_publication(settings)
+    claims = ticket_claims(user, RealtimeScope.NEWS_PUBLICATION, publication.pk)
+    consumer = PublicationConsumer.as_asgi()
+
+    async def authenticated(scope, receive, send):
+        scope.update(
+            user=user,
+            publication_id=publication.pk,
+            session_fingerprint=claims.session_fingerprint,
+            session_deadline=int(time.time()) + 60,
+            realtime_claims=claims,
+        )
+        await consumer(scope, receive, send)
+
+    async def scenario():
+        monkeypatch.setattr(
+            "apps.discussions.consumers.reserve_socket",
+            lambda *_args: (_ for _ in ()).throw(ConnectionError("Redis down")),
+        )
+        failed = WebsocketCommunicator(authenticated, "/ws/v1/publications/test")
+        assert await failed.connect() == (False, 1013)
+
+        monkeypatch.setattr("apps.discussions.consumers.reserve_socket", lambda *_args: True)
+        monkeypatch.setattr(
+            "apps.discussions.consumers.release_socket",
+            lambda *_args: (_ for _ in ()).throw(ConnectionError("Redis down")),
+        )
+        connected = WebsocketCommunicator(authenticated, "/ws/v1/publications/test")
+        assert (await connected.connect())[0]
+        await connected.disconnect()
+        await failed.disconnect()
 
     async_to_sync(scenario)()
 

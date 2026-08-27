@@ -139,9 +139,12 @@ def deliver(delivery_id: int) -> bool:
             if row.attempts >= 8:
                 row.status = NotificationDelivery.Status.FAILED
             row.save(update_fields=["attempts", "error_code", "available_at", "status"])
-        logger.exception(
+        logger.error(
             "notification.delivery.failed",
-            extra={"delivery_id": delivery_id, "channel": row.channel},
+            extra={
+                "exception_class": type(exc).__name__,
+                "exception_code": "notification_delivery_failed",
+            },
         )
         return False
 

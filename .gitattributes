@@ -1,3 +1,4 @@
 *.docx binary
 *.woff2 binary
+*.sh text eol=lf
 references/source/*.html whitespace=-trailing-space

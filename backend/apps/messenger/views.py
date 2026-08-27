@@ -12,7 +12,7 @@ from rest_framework.throttling import BaseThrottle, UserRateThrottle
 
 from apps.core.views import PrivateResponseMixin
 from apps.identity.models import AccessGrant, User
-from apps.identity.permissions import HasMessengerAccess, IsMessengerAdmin
+from apps.identity.permissions import HasMessengerAccess, IsMessengerAdmin, IsMessengerModerator
 from apps.publications.media import create_media_asset
 from apps.publications.serializers import MediaAssetSerializer
 
@@ -22,6 +22,7 @@ from .models import (
     Message,
     MessageAttachment,
     MessageReaction,
+    MessageReport,
     PinnedMessage,
 )
 from .pagination import ConversationCursorPagination, MembershipPagination
@@ -38,6 +39,8 @@ from .serializers import (
     MembershipSerializer,
     MessageEditSerializer,
     MessageReactionWriteSerializer,
+    MessageReportDecisionSerializer,
+    MessageReportSerializer,
     MessageSearchSerializer,
     MessageSerializer,
     MessageWriteSerializer,
@@ -62,6 +65,8 @@ from .services import (
     pin_message,
     put_message_reaction,
     remove_group_member,
+    report_message,
+    resolve_message_report,
     send_message,
     unpin_message,
     update_channel_settings,
@@ -503,6 +508,73 @@ class MessageReactionView(MessengerAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class MessageReportView(MessengerAPIView):
+    serializer_class = MessageReportSerializer
+
+    def post(self, request, message_id):
+        message = visible_message(request.user, message_id)
+        payload = self.get_serializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        report, created = report_message(
+            message=message,
+            reporter=request.user,
+            reason=payload.validated_data["reason"],
+        )
+        return Response(
+            self.get_serializer(report).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
+class MessengerModerationQueueView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsMessengerModerator]
+
+    def get(self, request):
+        reports = MessageReport.objects.filter(state=MessageReport.State.OPEN).select_related(
+            "message__author", "message__conversation", "reporter"
+        )[:100]
+        return Response(
+            {
+                "reports": [
+                    {
+                        "id": str(report.pk),
+                        "reason": report.reason,
+                        "state": report.state,
+                        "created_at": report.created_at,
+                        "reporter_id": report.reporter.pk,
+                        "message": {
+                            "id": str(report.message.pk),
+                            "conversation_id": str(report.message.conversation.pk),
+                            "author_id": report.message.author.pk,
+                            "body": report.message.body,
+                            "created_at": report.message.created_at,
+                        },
+                    }
+                    for report in reports
+                ]
+            }
+        )
+
+
+class MessengerModerationReportResolveView(PrivateResponseMixin, generics.GenericAPIView):
+    permission_classes = [IsMessengerModerator]
+    serializer_class = MessageReportDecisionSerializer
+
+    def post(self, request, report_id):
+        report = get_object_or_404(MessageReport, pk=report_id)
+        payload = self.get_serializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        report = _validation_call(
+            resolve_message_report,
+            report=report,
+            actor=request.user,
+            decision=payload.validated_data["decision"],
+            note=payload.validated_data.get("note", ""),
+            restriction_hours=payload.validated_data["restriction_hours"],
+        )
+        return Response(MessageReportSerializer(report).data)
+
+
 class MessagePinView(MessengerAPIView):
     def put(self, request, message_id):
         message = visible_message(request.user, message_id)
@@ -572,6 +644,7 @@ class ConversationStateView(MessengerAPIView):
 
 class ConversationAttachmentUploadView(MessengerAPIView):
     parser_classes = [MultiPartParser, FormParser]
+    throttle_scope = "attachment_upload"
 
     def post(self, request, conversation_id):
         member_conversation(request.user, conversation_id)
@@ -583,6 +656,7 @@ class ConversationAttachmentUploadView(MessengerAPIView):
                 upload=upload,
                 actor=cast(User, request.user),
                 messenger_only=True,
+                temporary=True,
             )
         except DjangoValidationError as exc:
             raise serializers.ValidationError({"file": exc.messages}) from exc

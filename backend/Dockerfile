@@ -1,5 +1,11 @@
 FROM python:3.13.14-slim-bookworm AS runtime
 
+ARG APP_VERSION=development
+ARG APP_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="Tandem TVS backend" \
+    org.opencontainers.image.version=$APP_VERSION \
+    org.opencontainers.image.revision=$APP_GIT_SHA
+
 COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -22,4 +28,4 @@ RUN mkdir -p /app/media \
 EXPOSE 8000
 USER app
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*", "--ws-max-size", "512", "--no-access-log"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "6", "--proxy-headers", "--forwarded-allow-ips=127.0.0.1,172.31.251.0/29", "--ws-max-size", "512", "--no-access-log"]

@@ -6,6 +6,10 @@ def session_control_group(fingerprint: str) -> str:
     return f"session.{fingerprint[:48]}.control"
 
 
+def messenger_user_group(user_id: object) -> str:
+    return f"messenger.user.{user_id}"
+
+
 def publication_group(publication_id: object) -> str:
     return f"publication.{str(publication_id).replace('-', '')}"
 

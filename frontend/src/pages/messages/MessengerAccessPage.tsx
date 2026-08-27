@@ -4,10 +4,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
+  type DragEvent,
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import {
   api,
@@ -101,6 +103,135 @@ function receiptLabel(message: MessengerMessage): string {
     count: message.receipt.read_count,
     total: message.receipt.recipient_count,
   });
+}
+
+function formatFileSize(bytes: number): string {
+  return bytes < 1_048_576
+    ? `${Math.ceil(bytes / 1024)} KB`
+    : `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function MessageAttachmentCard({ asset }: { asset: MediaAsset }) {
+  return (
+    <figure className="messenger-attachment" data-kind={asset.kind}>
+      {asset.kind === "IMAGE" && (
+        <img src={asset.content_url} alt={asset.original_name} loading="lazy" />
+      )}
+      {asset.kind === "VIDEO" && (
+        <video controls preload="metadata" aria-label={asset.original_name}>
+          <source src={asset.content_url} type={asset.mime_type} />
+        </video>
+      )}
+      <figcaption>
+        <strong>{asset.original_name}</strong>
+        <small>
+          {asset.mime_type} · {formatFileSize(asset.size)}
+          {asset.width && asset.height
+            ? ` · ${asset.width}×${asset.height}`
+            : ""}
+        </small>
+        {asset.kind === "DOCUMENT" && (
+          <a href={asset.content_url} download={asset.original_name}>
+            {t("messengerDownloadFile")}
+          </a>
+        )}
+      </figcaption>
+    </figure>
+  );
+}
+
+function MessengerModerationPanel({ onClose }: { onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const reports = useQuery({
+    queryKey: ["messenger-moderation-reports"],
+    queryFn: api.messengerModerationReports,
+  });
+  const resolve = useMutation({
+    mutationFn: ({
+      id,
+      decision,
+    }: {
+      id: string;
+      decision: "DISMISSED" | "VIOLATION";
+    }) => api.resolveMessengerReport(id, decision, notes[id] ?? ""),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["messenger-moderation-reports"],
+      }),
+  });
+  return (
+    <section className="messenger-moderation">
+      <header>
+        <div>
+          <p className="overline">{t("messenger")}</p>
+          <h2>{t("messengerModeration")}</h2>
+        </div>
+        <button type="button" onClick={onClose}>
+          {t("close")}
+        </button>
+      </header>
+      {reports.isPending && <PageState kind="loading" />}
+      {reports.isError && <PageState error={reports.error} />}
+      {reports.data?.reports.map((report) => (
+        <article key={report.id}>
+          <p>{report.message.body}</p>
+          <small>
+            {t("messengerReportReason")}: {report.reason}
+          </small>
+          <label>
+            <span>{t("messengerModeratorNote")}</span>
+            <textarea
+              value={notes[report.id] ?? ""}
+              maxLength={500}
+              onChange={(event) =>
+                setNotes((current) => ({
+                  ...current,
+                  [report.id]: event.target.value,
+                }))
+              }
+            />
+          </label>
+          <div>
+            <Link
+              to={`/messages?conversation=${report.message.conversation_id}&message=${report.message.id}`}
+            >
+              {t("messengerOpenMessage")}
+            </Link>
+            <button
+              type="button"
+              disabled={resolve.isPending}
+              onClick={() =>
+                resolve.mutate({ id: report.id, decision: "DISMISSED" })
+              }
+            >
+              {t("messengerDismissReport")}
+            </button>
+            <button
+              type="button"
+              disabled={resolve.isPending}
+              onClick={() =>
+                resolve.mutate({ id: report.id, decision: "VIOLATION" })
+              }
+            >
+              {t("messengerConfirmViolation")}
+            </button>
+          </div>
+        </article>
+      ))}
+      {!reports.isPending && reports.data?.reports.length === 0 && (
+        <div className="messenger-empty">
+          <strong>{t("messengerModerationEmpty")}</strong>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function localDateBoundary(value: string, end = false): string | undefined {
+  if (!value) return undefined;
+  const date = new Date(`${value}T${end ? "23:59:59.999" : "00:00:00.000"}`);
+  return date.toISOString();
 }
 
 function NewConversationDialog({
@@ -344,7 +475,18 @@ export function MessengerAccessPage() {
   const [attachments, setAttachments] = useState<MediaAsset[]>([]);
   const [uploading, setUploading] = useState(false);
   const [composerError, setComposerError] = useState(false);
+  const [inboxSearch, setInboxSearch] = useState("");
   const [search, setSearch] = useState("");
+  const [searchAuthor, setSearchAuthor] = useState(0);
+  const [searchDateFrom, setSearchDateFrom] = useState("");
+  const [searchDateTo, setSearchDateTo] = useState("");
+  const [searchAttachments, setSearchAttachments] = useState(false);
+  const [threadView, setThreadView] = useState<"messages" | "attachments">(
+    "messages",
+  );
+  const [showModeration, setShowModeration] = useState(false);
+  const [reportTarget, setReportTarget] = useState<string | null>(null);
+  const [reportReason, setReportReason] = useState("");
   const [showMembers, setShowMembers] = useState(false);
   const [memberCandidate, setMemberCandidate] = useState(0);
   const [typingUsers, setTypingUsers] = useState<Record<number, number>>({});
@@ -358,6 +500,9 @@ export function MessengerAccessPage() {
   const seenEvents = useRef(new Set<string>());
   const receiptRefreshTimers = useRef(new Map<string, number>());
   const typingStop = useRef<number>(0);
+  const uploadController = useRef<AbortController | null>(null);
+  const shareApplied = useRef(false);
+  const sharedResource = searchParams.get("share");
   const me = useQuery({ queryKey: ["me"], queryFn: api.me });
   const conversations = useQuery({
     queryKey: ["messenger-conversations"],
@@ -397,9 +542,39 @@ export function MessengerAccessPage() {
       ?.scrollIntoView({ block: "center" });
   }, [messages.data, targetMessageId]);
   const searchResults = useQuery({
-    queryKey: ["messenger-search", selectedId, search],
-    queryFn: () => api.searchMessengerMessages(selectedId ?? "", search),
-    enabled: Boolean(selectedId && search.trim()),
+    queryKey: [
+      "messenger-search",
+      selectedId,
+      search,
+      searchAuthor,
+      searchDateFrom,
+      searchDateTo,
+      searchAttachments,
+    ],
+    queryFn: () =>
+      api.searchMessengerMessages(selectedId ?? "", {
+        q: search.trim() || undefined,
+        author_id: searchAuthor || undefined,
+        date_from: localDateBoundary(searchDateFrom),
+        date_to: localDateBoundary(searchDateTo, true),
+        has_attachments: searchAttachments || undefined,
+      }),
+    enabled: Boolean(
+      selectedId &&
+      (search.trim() ||
+        searchAuthor ||
+        searchDateFrom ||
+        searchDateTo ||
+        searchAttachments),
+    ),
+  });
+  const attachmentResults = useQuery({
+    queryKey: ["messenger-attachments", selectedId],
+    queryFn: () =>
+      api.searchMessengerMessages(selectedId ?? "", {
+        has_attachments: true,
+      }),
+    enabled: Boolean(selectedId && threadView === "attachments"),
   });
   const currentPending = pending.filter(
     (message) =>
@@ -408,6 +583,25 @@ export function MessengerAccessPage() {
         (saved) => saved.client_message_id === message.clientMessageId,
       ),
   );
+  const visibleConversations = conversations.data?.results.filter(
+    (conversation) => {
+      const query = inboxSearch.trim().toLocaleLowerCase("ru-RU");
+      if (!query) return true;
+      return [
+        conversationTitle(conversation, me.data?.id ?? 0),
+        conversation.peer?.full_name,
+        ...(conversation.members?.map((row) => row.user.full_name) ?? []),
+      ].some((value) => value?.toLocaleLowerCase("ru-RU").includes(query));
+    },
+  );
+
+  useEffect(() => {
+    if (!sharedResource || !selectedId || shareApplied.current) return;
+    shareApplied.current = true;
+    setDraft((current) => current || sharedResource);
+  }, [selectedId, sharedResource]);
+
+  useEffect(() => () => uploadController.current?.abort(), []);
 
   useEffect(() => {
     let stopped = false;
@@ -677,7 +871,8 @@ export function MessengerAccessPage() {
                 messages: [
                   ...current.messages.filter(
                     (message) =>
-                      message.client_message_id !== saved.client_message_id,
+                      message.client_message_id !== saved.client_message_id &&
+                      message.id !== saved.id,
                   ),
                   saved,
                 ],
@@ -704,6 +899,19 @@ export function MessengerAccessPage() {
             : message,
         ),
       );
+    },
+  });
+  const report = useMutation({
+    mutationFn: ({
+      messageId,
+      reason,
+    }: {
+      messageId: string;
+      reason: string;
+    }) => api.reportMessengerMessage(messageId, reason),
+    onSuccess: () => {
+      setReportTarget(null);
+      setReportReason("");
     },
   });
 
@@ -780,25 +988,57 @@ export function MessengerAccessPage() {
   }
 
   async function uploadAttachment(file: File | undefined) {
-    if (!file || !selectedId) return;
+    if (!file || !selectedId || editing) return;
+    const controller = new AbortController();
+    uploadController.current = controller;
     setUploading(true);
     setComposerError(false);
     try {
-      const asset = await api.uploadMessengerAttachment(selectedId, file);
+      const asset = await api.uploadMessengerAttachment(
+        selectedId,
+        file,
+        controller.signal,
+      );
       setAttachments((current) => [...current, asset]);
-    } catch {
-      setComposerError(true);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setComposerError(true);
+      }
     } finally {
-      setUploading(false);
+      if (uploadController.current === controller) {
+        uploadController.current = null;
+        setUploading(false);
+      }
     }
   }
 
+  function uploadDroppedFile(event: DragEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!uploading && attachments.length < 10) {
+      void uploadAttachment(event.dataTransfer.files[0]);
+    }
+  }
+
+  function uploadPastedFile(event: ClipboardEvent<HTMLFormElement>) {
+    const file = event.clipboardData.files[0];
+    if (!file || uploading || attachments.length >= 10) return;
+    event.preventDefault();
+    void uploadAttachment(file);
+  }
+
   function selectConversation(conversation: MessengerConversation) {
+    uploadController.current?.abort();
+    const sharedDraft = shareApplied.current ? "" : (sharedResource ?? "");
+    if (sharedDraft) shareApplied.current = true;
     setSelectedId(conversation.id);
-    setDraft(conversation.state?.draft_body ?? "");
+    setDraft(
+      [conversation.state?.draft_body, sharedDraft].filter(Boolean).join("\n"),
+    );
     setReplyTo(null);
     setEditing(null);
     setAttachments([]);
+    setThreadView("messages");
+    setShowModeration(false);
   }
 
   const selectedTitle = useMemo(
@@ -810,6 +1050,16 @@ export function MessengerAccessPage() {
   );
   const canPinMessage =
     selected?.type === "DIRECT" || myMembership?.role === "ADMIN";
+  const canModerate = me.data?.access.messenger.some((role) =>
+    ["MODERATOR", "ADMIN"].includes(role),
+  );
+  const hasMessageSearch = Boolean(
+    search.trim() ||
+    searchAuthor ||
+    searchDateFrom ||
+    searchDateTo ||
+    searchAttachments,
+  );
 
   if (me.isPending || conversations.isPending)
     return <PageState kind="loading" />;
@@ -817,7 +1067,9 @@ export function MessengerAccessPage() {
     return <PageState error={me.error ?? conversations.error} />;
 
   return (
-    <section className={`messenger${selected ? " messenger--selected" : ""}`}>
+    <section
+      className={`messenger${selected || showModeration ? " messenger--selected" : ""}`}
+    >
       <aside
         className="messenger-inbox"
         aria-label={t("messengerConversationList")}
@@ -871,9 +1123,28 @@ export function MessengerAccessPage() {
               {t("messengerNewChannel")}
             </button>
           )}
+          {canModerate && (
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={() => setShowModeration(true)}
+            >
+              {t("messengerModeration")}
+            </button>
+          )}
         </div>
+        <label className="messenger-inbox-search">
+          <SearchIcon aria-hidden="true" />
+          <span className="sr-only">{t("messengerSearchConversations")}</span>
+          <input
+            type="search"
+            value={inboxSearch}
+            onChange={(event) => setInboxSearch(event.target.value)}
+            placeholder={t("messengerSearchConversations")}
+          />
+        </label>
         <div className="messenger-conversations">
-          {conversations.data?.results.map((conversation) => {
+          {visibleConversations?.map((conversation) => {
             const title = conversationTitle(conversation, me.data.id);
             const peer =
               conversation.peer ??
@@ -932,10 +1203,14 @@ export function MessengerAccessPage() {
               {t("loadingMore")}
             </button>
           )}
-          {conversations.data?.results.length === 0 && (
+          {visibleConversations?.length === 0 && (
             <div className="messenger-empty">
-              <strong>{t("messengerEmpty")}</strong>
-              <p>{t("messengerEmptyDescription")}</p>
+              <strong>
+                {inboxSearch
+                  ? t("messengerInboxSearchEmpty")
+                  : t("messengerEmpty")}
+              </strong>
+              {!inboxSearch && <p>{t("messengerEmptyDescription")}</p>}
             </div>
           )}
         </div>
@@ -945,7 +1220,9 @@ export function MessengerAccessPage() {
         className="messenger-thread"
         aria-label={selectedTitle || t("messages")}
       >
-        {selected && me.data ? (
+        {showModeration && canModerate ? (
+          <MessengerModerationPanel onClose={() => setShowModeration(false)} />
+        ) : selected && me.data ? (
           <>
             <header className="messenger-thread__header">
               <button
@@ -1065,16 +1342,90 @@ export function MessengerAccessPage() {
                 </button>
               </div>
             </header>
-            <label className="messenger-thread-search">
-              <SearchIcon aria-hidden="true" />
-              <span className="sr-only">{t("messengerSearchMessages")}</span>
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("messengerSearchMessages")}
-              />
-            </label>
-            {search.trim() && (
+            <div className="messenger-thread-tabs" role="tablist">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={threadView === "messages"}
+                onClick={() => setThreadView("messages")}
+              >
+                {t("messages")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={threadView === "attachments"}
+                onClick={() => setThreadView("attachments")}
+              >
+                {t("messengerAttachmentsTab")}
+              </button>
+            </div>
+            <div hidden={threadView !== "messages"}>
+              <label className="messenger-thread-search">
+                <SearchIcon aria-hidden="true" />
+                <span className="sr-only">{t("messengerSearchMessages")}</span>
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("messengerSearchMessages")}
+                />
+              </label>
+              <details className="messenger-search-filters">
+                <summary>{t("messengerAdvancedSearch")}</summary>
+                <div>
+                  <label>
+                    <span>{t("messengerSearchAuthor")}</span>
+                    <select
+                      value={searchAuthor}
+                      onChange={(event) =>
+                        setSearchAuthor(Number(event.target.value))
+                      }
+                    >
+                      <option value={0}>{t("messengerAnyAuthor")}</option>
+                      {members.data?.results.map((membership) => (
+                        <option
+                          key={membership.user.id}
+                          value={membership.user.id}
+                        >
+                          {membership.user.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t("messengerDateFrom")}</span>
+                    <input
+                      type="date"
+                      value={searchDateFrom}
+                      onChange={(event) =>
+                        setSearchDateFrom(event.target.value)
+                      }
+                    />
+                  </label>
+                  <label>
+                    <span>{t("messengerDateTo")}</span>
+                    <input
+                      type="date"
+                      value={searchDateTo}
+                      min={searchDateFrom || undefined}
+                      onChange={(event) => setSearchDateTo(event.target.value)}
+                    />
+                  </label>
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={searchAttachments}
+                      onChange={(event) =>
+                        setSearchAttachments(event.target.checked)
+                      }
+                    />
+                    <span>{t("messengerHasAttachments")}</span>
+                  </label>
+                </div>
+              </details>
+            </div>
+            {threadView === "messages" && hasMessageSearch && (
               <div className="messenger-search-results">
                 {searchResults.data?.results.map((message) => (
                   <button
@@ -1231,7 +1582,49 @@ export function MessengerAccessPage() {
                 </button>
               </div>
             ))}
-            <div className="messenger-history" aria-live="polite">
+            {threadView === "attachments" && (
+              <div className="messenger-attachment-list" aria-live="polite">
+                {attachmentResults.isPending && <PageState kind="loading" />}
+                {attachmentResults.isError && (
+                  <PageState error={attachmentResults.error} />
+                )}
+                {attachmentResults.data?.results.flatMap((message) =>
+                  (message.attachments ?? []).map((asset) => (
+                    <article key={`${message.id}-${asset.id}`}>
+                      <header>
+                        <span>
+                          {message.author.full_name} ·{" "}
+                          {shortTime(message.created_at)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setThreadView("messages");
+                            navigate(
+                              `/messages?conversation=${selected.id}&message=${message.id}`,
+                            );
+                          }}
+                        >
+                          {t("messengerOpenMessage")}
+                        </button>
+                      </header>
+                      <MessageAttachmentCard asset={asset} />
+                    </article>
+                  )),
+                )}
+                {!attachmentResults.isPending &&
+                  attachmentResults.data?.results.length === 0 && (
+                    <div className="messenger-empty">
+                      <strong>{t("messengerNoAttachments")}</strong>
+                    </div>
+                  )}
+              </div>
+            )}
+            <div
+              className="messenger-history"
+              aria-live="polite"
+              hidden={threadView !== "messages"}
+            >
               {messages.isPending && <PageState kind="loading" />}
               {messages.isError && <PageState error={messages.error} />}
               {messages.data?.has_more && (
@@ -1298,17 +1691,17 @@ export function MessengerAccessPage() {
                         ? t("messengerDeleted")
                         : message.body}
                     </p>
-                    {message.attachments?.map((asset) => (
-                      <a
-                        className="messenger-attachment"
-                        href={asset.content_url}
-                        key={asset.id}
-                        target="_blank"
-                        rel="noreferrer"
+                    {message.resource_preview && (
+                      <Link
+                        className="messenger-resource-preview"
+                        to={message.resource_preview.url}
                       >
-                        {asset.original_name} · {Math.ceil(asset.size / 1024)}{" "}
-                        KB
-                      </a>
+                        <small>{t("messengerSharedPublication")}</small>
+                        <strong>{message.resource_preview.title}</strong>
+                      </Link>
+                    )}
+                    {message.attachments?.map((asset) => (
+                      <MessageAttachmentCard asset={asset} key={asset.id} />
                     ))}
                     {!message.deleted_at && (
                       <div className="messenger-reactions">
@@ -1359,6 +1752,16 @@ export function MessengerAccessPage() {
                             onClick={() => setForwarding(message)}
                           >
                             {t("messengerForward")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReportTarget(message.id);
+                              setReportReason("");
+                              report.reset();
+                            }}
+                          >
+                            {t("messengerReport")}
                           </button>
                           {canPinMessage && (
                             <button
@@ -1412,6 +1815,50 @@ export function MessengerAccessPage() {
                         </>
                       )}
                     </div>
+                    {reportTarget === message.id && (
+                      <form
+                        className="messenger-report-form"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (reportReason.trim()) {
+                            report.mutate({
+                              messageId: message.id,
+                              reason: reportReason.trim(),
+                            });
+                          }
+                        }}
+                      >
+                        <label>
+                          <span>{t("messengerReportReason")}</span>
+                          <textarea
+                            value={reportReason}
+                            maxLength={500}
+                            onChange={(event) =>
+                              setReportReason(event.target.value)
+                            }
+                          />
+                        </label>
+                        <span>
+                          <button
+                            type="button"
+                            onClick={() => setReportTarget(null)}
+                          >
+                            {t("cancel")}
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={!reportReason.trim() || report.isPending}
+                          >
+                            {t("messengerSendReport")}
+                          </button>
+                        </span>
+                        {report.isError && (
+                          <small role="alert">
+                            {t("messengerReportFailed")}
+                          </small>
+                        )}
+                      </form>
+                    )}
                     <span>
                       <time dateTime={message.created_at}>
                         {shortTime(message.created_at)}
@@ -1464,14 +1911,20 @@ export function MessengerAccessPage() {
               )}
               <div ref={messageEnd} />
             </div>
-            {Object.keys(typingUsers).some(
-              (id) => Number(id) !== me.data.id,
-            ) && (
-              <p className="messenger-typing" aria-live="polite">
-                {t("messengerTyping")}
-              </p>
-            )}
-            <form className="messenger-composer" onSubmit={submitMessage}>
+            {Object.keys(typingUsers).some((id) => Number(id) !== me.data.id) &&
+              threadView === "messages" && (
+                <p className="messenger-typing" aria-live="polite">
+                  {t("messengerTyping")}
+                </p>
+              )}
+            <form
+              className="messenger-composer"
+              onSubmit={submitMessage}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={uploadDroppedFile}
+              onPaste={uploadPastedFile}
+              hidden={threadView !== "messages"}
+            >
               {(replyTo || editing || forwarding) && (
                 <div className="messenger-composer__context">
                   <strong>
@@ -1513,7 +1966,17 @@ export function MessengerAccessPage() {
                   </button>
                 </span>
               ))}
-              {uploading && <progress aria-label={t("messengerUploading")} />}
+              {uploading && (
+                <div className="messenger-upload-progress">
+                  <progress aria-label={t("messengerUploading")} />
+                  <button
+                    type="button"
+                    onClick={() => uploadController.current?.abort()}
+                  >
+                    {t("messengerCancelUpload")}
+                  </button>
+                </div>
+              )}
               {composerError && (
                 <p role="alert">{t("messengerComposerError")}</p>
               )}

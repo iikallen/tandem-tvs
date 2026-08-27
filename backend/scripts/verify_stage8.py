@@ -36,6 +36,7 @@ from apps.realtime.models import RealtimeOutboxEvent  # noqa: E402
 STATE_FILE = Path(settings.MEDIA_ROOT) / ".stage8-acceptance.json"
 PASSWORD = settings.STAGE6_DEMO_PASSWORD
 META = {"HTTP_HOST": "localhost", "HTTP_X_FORWARDED_PROTO": "https"}
+ACCEPTANCE_ORIGIN = os.getenv("ACCEPTANCE_ORIGIN", "http://localhost")
 ws_connect = cast(Any, websockets.connect)
 
 
@@ -105,10 +106,10 @@ async def receive_type(socket, event_type: str, timeout: float = 3.0) -> dict:
 async def assert_session_logout(first_token: str, second_token: str, first: APIClient) -> None:
     async with (
         ws_connect(
-            ws_url(first_token), origin="http://localhost", open_timeout=5, close_timeout=2
+            ws_url(first_token), origin=ACCEPTANCE_ORIGIN, open_timeout=5, close_timeout=2
         ) as first_socket,
         ws_connect(
-            ws_url(second_token), origin="http://localhost", open_timeout=5, close_timeout=2
+            ws_url(second_token), origin=ACCEPTANCE_ORIGIN, open_timeout=5, close_timeout=2
         ) as second_socket,
     ):
         response = await asyncio.to_thread(mutate, first, "post", "/api/v1/auth/logout")

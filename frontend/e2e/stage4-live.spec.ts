@@ -119,3 +119,59 @@ test("protected media survives HTTP delivery and Stage 4 layouts do not overflow
     await context.close();
   }
 });
+
+test("editorial settings stay within the 768px viewport", async ({
+  browser,
+}) => {
+  const editor = await authenticatedContext(browser, "editor-1");
+  const page = await editor.newPage();
+  await page.setViewportSize({ width: 768, height: 900 });
+
+  for (const [path, selector, maxColumns] of [
+    ["/editorial/taxonomy", ".taxonomy-grid", 1],
+    ["/editorial/settings/engagement", ".settings-grid", 2],
+    ["/settings/notifications", ".settings-row", 1],
+  ] as const) {
+    await page.goto(path);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    expect(
+      await page
+        .locator(selector)
+        .first()
+        .evaluate(
+          (element) =>
+            getComputedStyle(element).gridTemplateColumns.split(" ").length,
+        ),
+      path,
+    ).toBeLessThanOrEqual(maxColumns);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+      path,
+    ).toBe(true);
+  }
+
+  await editor.close();
+
+  const admin = await authenticatedContext(browser, "admin-1");
+  const adminPage = await admin.newPage();
+  await adminPage.setViewportSize({ width: 768, height: 900 });
+  await adminPage.goto("/platform/users");
+  await expect(adminPage.getByRole("heading", { level: 1 })).toBeVisible();
+  expect(
+    await adminPage
+      .locator(".user-row")
+      .first()
+      .evaluate(
+        (element) =>
+          getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      ),
+  ).toBe(1);
+  expect(
+    await adminPage.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await admin.close();
+});

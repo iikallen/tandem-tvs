@@ -575,6 +575,18 @@ class AuditEvent(models.Model):
             "messenger.message.unpinned",
             "Messenger message unpinned",
         )
+        MESSENGER_MESSAGE_REPORTED = (
+            "messenger.message.reported",
+            "Messenger message reported",
+        )
+        MESSENGER_REPORT_RESOLVED = (
+            "messenger.report.resolved",
+            "Messenger report resolved",
+        )
+        MESSENGER_USER_RESTRICTED = (
+            "messenger.user.restricted",
+            "Messenger user restricted",
+        )
 
     publication = models.ForeignKey(
         Publication,
@@ -728,6 +740,7 @@ class MediaAsset(models.Model):
     height = models.PositiveIntegerField(null=True, blank=True)
     status = models.CharField(max_length=16, choices=Status, default=Status.READY)
     is_messenger_only = models.BooleanField(default=False, db_index=True)
+    temporary_until = models.DateTimeField(null=True, blank=True, db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

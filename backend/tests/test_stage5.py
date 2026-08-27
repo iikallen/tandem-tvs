@@ -88,6 +88,7 @@ def stage5(db, settings):
         sha256="a" * 64,
         kind=MediaAsset.Kind.DOCUMENT,
         uploader=employee,
+        temporary_until=timezone.now() + timedelta(hours=24),
     )
     return client, publication, asset
 
@@ -167,6 +168,7 @@ def test_threads_mentions_attachments_notifications_stop_words_and_policy(stage5
         {"body": "СПАМ: изучите файл", "mentions": ["admin-1"], "attachments": [str(asset.pk)]},
     )
     assert root.status_code == 201
+    assert MediaAsset.objects.get(pk=asset.pk).temporary_until is None
     root_id = root.data["id"]
     assert root.data["attachments"][0]["id"] == str(asset.pk)
     assert CommentMention.objects.filter(comment_id=root_id).count() == 1

@@ -1,21 +1,13 @@
-# Cloudflare Tunnel deployment
+# Cloudflare deployment
 
-The optional tunnel publishes only Nginx. PostgreSQL, Redis, and Django have no host ports. Public HTTPS terminates at Cloudflare; origin TLS is not required for this standalone development topology.
+This page is retained as a compatibility entry point. The current production procedure is [`stage10/deployment.md`](stage10/deployment.md); incident recovery is [`stage10/incident-response.md`](stage10/incident-response.md).
 
-1. Create a remotely managed named tunnel and map its public hostname to `http://frontend:80`.
-2. Put Cloudflare Access in front of the hostname with an explicit allow policy; do not use a public allow-all policy for employee data.
-3. Supply `CLOUDFLARE_TUNNEL_TOKEN` through the deployment environment or secret store. Never add it to `.env.example`, Git, logs, or an image layer.
-4. Set `DJANGO_ALLOWED_HOSTS` to the public hostname plus any required local hosts, and set `DJANGO_CSRF_TRUSTED_ORIGINS` to its `https://` origin. The development mock remains appropriate only for this Stage 1 integration proof; a production deployment must also select `config.settings.production` and a supported non-mock portal adapter.
-5. Start the isolated stack:
+The approved topology uses the remotely managed named tunnel `tandem-tvs`. Its public hostname targets `http://frontend:80` inside the isolated `tunnel-edge` network. Cloudflare Access must challenge anonymous users before origin content.
 
-```sh
-docker compose --profile tunnel up -d --build
-```
+Production always starts through `compose.yaml` plus `compose.prod.yaml` and an operator-owned
+secret env file. The production overlay removes the development-only tunnel profile, so plain
+production `up -d --wait` includes `cloudflared`; do not add a profile flag. It uses local Tandem
+authentication, `PORTAL_ADAPTER=unavailable`, one-shot migrations and exact SHA-tagged images. The
+old Stage 1 mock/passwordless instructions are no longer valid.
 
-For local access without a tunnel, use the explicit loopback-only override:
-
-```sh
-docker compose -f compose.yaml -f compose.local.yaml up -d --build
-```
-
-Then open `http://127.0.0.1:8080`. The production portal contract may require a different hostname, proxy chain, cookie policy, or Access topology; those decisions remain open in `portal-integration-questions.md`.
+Never commit or log `CLOUDFLARE_TUNNEL_TOKEN`. Do not publish Nginx, Django, PostgreSQL or Redis as a direct Internet origin. Multiple `cloudflared` processes on the same physical host protect only against connector-process failure; host-level HA requires another failure domain and separate database/media availability design.

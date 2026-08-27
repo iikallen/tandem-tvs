@@ -103,6 +103,43 @@ function SettingsContent() {
               setForm({ ...form, max_comment_attachments: value })
             }
           />
+          <NumberField
+            label={t("uploadLimitBytes")}
+            value={form.max_comment_attachment_bytes}
+            min={1}
+            onChange={(value) =>
+              setForm({ ...form, max_comment_attachment_bytes: value })
+            }
+          />
+          <NumberField
+            label={t("messageRetentionDays")}
+            value={form.message_retention_days}
+            onChange={(value) =>
+              setForm({ ...form, message_retention_days: value })
+            }
+          />
+          <NumberField
+            label={t("mediaRetentionDays")}
+            value={form.media_retention_days}
+            onChange={(value) =>
+              setForm({ ...form, media_retention_days: value })
+            }
+          />
+          <label>
+            {t("allowedMediaExtensions")}
+            <input
+              value={form.allowed_media_extensions.join(", ")}
+              onChange={(event) =>
+                setForm({
+                  ...form,
+                  allowed_media_extensions: event.target.value
+                    .split(",")
+                    .map((value) => value.trim().toLowerCase())
+                    .filter(Boolean),
+                })
+              }
+            />
+          </label>
         </div>
         <h2>{t("reactions")}</h2>
         <div className="settings-checks">
@@ -133,6 +170,7 @@ function SettingsContent() {
         >
           {t("save")}
         </button>
+        {save.isError ? <PageState error={save.error} /> : null}
       </Card>
       <Card>
         <h2>{t("stopWords")}</h2>
@@ -179,10 +217,12 @@ function SettingsContent() {
 function NumberField({
   label,
   value,
+  min = 0,
   onChange,
 }: {
   label: string;
   value: number;
+  min?: number;
   onChange: (value: number) => void;
 }) {
   return (
@@ -190,7 +230,7 @@ function NumberField({
       {label}
       <input
         type="number"
-        min={0}
+        min={min}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />

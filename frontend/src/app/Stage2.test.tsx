@@ -132,6 +132,12 @@ test("renders publication JSON safely without executable markup", async () => {
   expect(await screen.findByText("Безопасный текст")).toBeVisible();
   expect(screen.queryByText("не показывать")).not.toBeInTheDocument();
   expect(document.querySelector("script")).toBeNull();
+  expect(
+    screen.getByRole("link", { name: "Поделиться в Messenger" }),
+  ).toHaveAttribute(
+    "href",
+    `/messages?share=${encodeURIComponent(`/news/${publication.id}`)}`,
+  );
 });
 
 test("hides editorial navigation and route from an employee", async () => {
