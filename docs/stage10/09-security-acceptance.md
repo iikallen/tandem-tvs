@@ -24,7 +24,7 @@ Historical Stage 9 review reported zero unresolved Critical/High/Major findings 
 | Backup permissions/secrets  | `0700`/`umask 077`, separate mount, no URL output, safe manifest/tar, production restore refusal                  | `PASS` — script tests and isolated restore drill                                                                           |
 | Metrics/log privacy         | Monitoring bearer token; stable low-cardinality labels; no IDs, credentials, cookies, endpoints or bodies         | `PASS` — monitoring tests and sanitized evidence scan                                                                      |
 | Outbox/retry exhaustion     | Pending work never deleted by cleanup; bounded retry/alerts; duplicates blocked transactionally                   | `PASS` — cleanup, retry and fault recovery suites                                                                          |
-| Disk full/read-only media   | Ready fails; upload rollback preserves DB/file consistency; recovery and verifier documented                      | `PARTIAL` — automated behavior PASS; live read-only-media exercise pending                                                 |
+| Disk full/read-only media   | Ready fails; upload rollback preserves DB/file consistency; recovery and verifier documented                      | `PASS` — automated rollback/full-disk coverage plus live read-only readiness 503 and verified recovery                     |
 | DB pool exhaustion          | Measured connection budget/headroom under 300-user and WSS profiles                                               | `PASS` — peak 23/400 mixed and 6/400 WSS; rollback/deadlock 0                                                              |
 | Load-test authorization     | Seed/users/secrets isolated; load endpoints are normal authorized APIs; no production private-content capture     | `PASS` — isolated `stage10_load_*` database and normal session/ticket APIs                                                 |
 | Optional delivery           | Internal SMTP; Web Push disabled without customer approval, generic payload and vendor allowlist                  | `OPS_DEPENDENT` — customer infrastructure/approval                                                                         |
@@ -54,16 +54,20 @@ Actual test counts and commands belong in `STAGE10_REPORT.md`, not in this plan.
 5. Run production-shaped load, fault matrix and isolated restore.
 6. Re-run exact `make prod` after fixes.
 
+Item 3 is locally complete: 24/24 core route/viewport cells had no horizontal overflow; keyboard
+focus, accessible names, reduced motion and every listed state were exercised. The authorized
+external CSP/header sweep remains item 2, not part of this local PASS.
+
 ## Sign-off
 
-| Field               | Value                                                                                       |
-| ------------------- | ------------------------------------------------------------------------------------------- |
-| Reviewer            | Codex Security diff scan; independent human reviewer `PENDING`                              |
-| Reviewed commit     | `bf668a5a611de60cd30e788062f7ba67cf3842e8`; follow-up operational fixes reviewed separately |
-| Critical unresolved | `0`                                                                                         |
-| High unresolved     | `0`                                                                                         |
-| Major unresolved    | `0`                                                                                         |
-| Full gate rerun     | `PASS` — CI `33037413497` on `135029ea94d6aa7bb7390be7c1950788007ce508`                     |
-| Decision            | Automated security gate `PASS`; independent/live sign-off `PENDING`                         |
+| Field               | Value                                                                                               |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| Reviewer            | Codex Security diff scan; independent human reviewer `PENDING`                                      |
+| Reviewed commit     | `bf668a5a611de60cd30e788062f7ba67cf3842e8`; follow-up operational/browser fixes reviewed separately |
+| Critical unresolved | `0`                                                                                                 |
+| High unresolved     | `0`                                                                                                 |
+| Major unresolved    | `0`                                                                                                 |
+| Full gate rerun     | `PASS` — CI `33061347368` on `ef4edb0016cea73d4eb64403cd9ad3eca48d61c0`                             |
+| Decision            | Automated security gate `PASS`; independent/live sign-off `PENDING`                                 |
 
 Release criterion is exactly zero unresolved Critical, High and Major findings. Lower-severity debt must be recorded with owner/rationale and may not conceal a higher-impact issue.
