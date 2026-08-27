@@ -175,6 +175,7 @@ class Command(BaseCommand):
         )
         origin = settings.REALTIME_ALLOWED_ORIGINS[0]
         uri = f"ws://127.0.0.1:8000/ws/v1/messenger?ticket={quote(token)}"
+        pong_received = False
         try:
             with connect(uri, origin=origin, proxy=None, open_timeout=5, close_timeout=5) as socket:
                 socket.send('{"type":"ping"}')
@@ -182,9 +183,10 @@ class Command(BaseCommand):
                 while time.monotonic() < deadline:
                     payload = json.loads(socket.recv(timeout=deadline - time.monotonic()))
                     if payload == {"type": "pong"}:
+                        pong_received = True
                         break
         except Exception as exc:
             raise CommandError("Realtime reconnect failed after fault recovery") from exc
-        if payload != {"type": "pong"}:
+        if not pong_received:
             raise CommandError("Realtime reconnect returned an invalid payload")
         self.stdout.write("Durable session and realtime reconnect: PASS")
