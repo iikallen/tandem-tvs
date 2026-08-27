@@ -61,6 +61,7 @@ function ModuleGuard({ module }: { module: "platform" | "messenger" }) {
 function AuthBoundary() {
   const session = useQuery({ queryKey: ["session"], queryFn: api.session });
   if (session.isPending) return <PageState kind="loading" />;
+  if (session.isError) return <PageState error={session.error} />;
   const authenticated = Boolean(session.data?.authenticated);
   return (
     <Routes>

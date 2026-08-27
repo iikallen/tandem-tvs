@@ -92,6 +92,18 @@ test("shows a loading state while the local session is pending", () => {
   expect(screen.getByRole("status")).toBeVisible();
 });
 
+test("shows an error state when the local session is unavailable", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => response({}, 500)),
+  );
+  render(<App />);
+
+  expect(
+    await screen.findByRole("heading", { name: "Не удалось загрузить данные" }),
+  ).toBeVisible();
+});
+
 test("shows the empty organization fallback", async () => {
   const user = { ...profile, org_unit: null };
   vi.stubGlobal("fetch", authenticatedFetch(user));

@@ -304,3 +304,23 @@ for (const width of [360, 390, 768, 1440]) {
     ).toBe(true);
   });
 }
+
+test("reduced motion stops repeating UI animation", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/login");
+  const motion = await page.evaluate(() => {
+    const spinner = document.createElement("div");
+    spinner.className = "spinner";
+    document.body.append(spinner);
+    const style = getComputedStyle(spinner);
+    const duration = Number.parseFloat(style.animationDuration);
+    const durationMs = style.animationDuration.endsWith("ms")
+      ? duration
+      : duration * 1_000;
+    const iterationCount = style.animationIterationCount;
+    spinner.remove();
+    return { durationMs, iterationCount };
+  });
+  expect(motion.durationMs).toBeLessThan(1);
+  expect(motion.iterationCount).toBe("1");
+});
