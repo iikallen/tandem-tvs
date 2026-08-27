@@ -17,14 +17,14 @@ Release-significant decisions:
 
 ## Acceptance
 
-| Check | Result |
-| --- | --- |
-| Production Compose rendered with no development values | `PENDING` |
-| One-shot migrate observed before backend start | `PENDING` |
-| No public backend/PostgreSQL/Redis origin | `PENDING` |
-| Named tunnel `tandem-tvs` and Access | `PENDING` |
-| Redis degradation and durable recovery | `PENDING` |
-| PostgreSQL/media readiness failure behavior | `PENDING` |
-| Exact runtime/image SHA | `PENDING` |
+| Check                                                  | Result                                                                                             |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Production Compose rendered with no development values | `PASS` — preflight and production-shaped deployment                                                |
+| One-shot migrate observed before backend start         | `PASS` — production-shaped deployment                                                              |
+| No public backend/PostgreSQL/Redis origin              | `PARTIAL` — exact-SHA local Compose published no origin ports; outside-network bypass test pending |
+| Named tunnel `tandem-tvs` and Access                   | `PARTIAL` — anonymous Access challenge observed; named-tunnel and authorized-origin proof pending  |
+| Redis degradation and durable recovery                 | `PASS` — exact-SHA local fault matrix                                                              |
+| PostgreSQL/media readiness failure behavior            | `PASS` — fault/readiness and automated media tests                                                 |
+| Exact runtime/image SHA                                | `PASS` — `2852bdb7c1500e85fe3b9785f1a4aaf77ad87f7e`                                                |
 
 This file is an acceptance summary, not evidence by itself.

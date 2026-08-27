@@ -4,31 +4,31 @@ Historical Stage 9 review reported zero unresolved Critical/High/Major findings 
 
 ## Review matrix
 
-| Area | Required control/evidence | Result |
-| --- | --- | --- |
-| Production settings bypass | `config.settings.production`; missing/unsafe values stop startup; `check --deploy` | `PENDING` |
-| Development defaults | No development secret/password, demo admin/password, mock adapter, localhost/wildcard production origin | `PENDING` |
-| Release identity | Semantic `APP_VERSION`, exact 40-hex SHA, immutable image labels/tags | `PENDING` |
-| Host/proxy/origin | Allowed hosts/origins exact; trusted Cloudflare client IP only from tunnel subnet; direct origin blocked | `PENDING` |
-| HTTPS/headers | Valid TLS, HSTS, nosniff, DENY frame, Permissions-Policy; CSP enforced after clean browser audit | `PENDING` |
-| XSS/rich text | Structured allowlist, safe links/media node kinds, no `unsafe-eval`; no unexplained CSP violations | `PENDING` |
-| CSRF/session | HttpOnly/Secure/SameSite session, CSRF on mutations, rotation, idle/absolute expiry, security-epoch invalidation | `PENDING` |
-| Password/recovery | Argon2, generic denial, throttles, hash-only expiring one-use capabilities, no secret logs/URL query token | `PENDING` |
-| WebSocket auth | Exact origin, one-use session-bound scoped ticket, epoch/expiry/socket limit, no private payload in Redis | `PENDING` |
-| News/comment IDOR | Addressed queryset before detail/comment/reaction/ack/search/media | `PENDING` |
-| Private-message IDOR | Membership intervals for inbox/history/context/search/reply/forward/file; Platform Admin has no bypass | `PENDING` |
-| Channel permissions | Admin/writer/member mutation policy, bounded `@all`, membership changes audited | `PENDING` |
-| Notification/search IDOR | Recipient-only notifications; every search section and destination independently reauthorize | `PENDING` |
-| Media | Signature/type/size checks, non-executable/private response, safe storage path, rollback-safe file lifecycle | `PENDING` |
-| Audit | Security/business/application logs separated; business/security audit append-only and previous/new state complete | `PENDING` |
-| Backup permissions/secrets | `0700`/`umask 077`, separate mount, no URL output, safe manifest/tar, production restore refusal | `PENDING` |
-| Metrics/log privacy | Monitoring bearer token; stable low-cardinality labels; no IDs, credentials, cookies, endpoints or bodies | `PENDING` |
-| Outbox/retry exhaustion | Pending work never deleted by cleanup; bounded retry/alerts; duplicates blocked transactionally | `PENDING` |
-| Disk full/read-only media | Ready fails; upload rollback preserves DB/file consistency; recovery and verifier documented | `PENDING` |
-| DB pool exhaustion | Measured connection budget/headroom under 300-user and WSS profiles | `PENDING` |
-| Load-test authorization | Seed/users/secrets isolated; load endpoints are normal authorized APIs; no production private-content capture | `PENDING` |
-| Optional delivery | Internal SMTP; Web Push disabled without customer approval, generic payload and vendor allowlist | `PENDING` |
-| Cloudflare bypass/HA claims | Access before origin; only Nginx on tunnel network; same-host connectors not described as host HA | `PENDING` |
+| Area                        | Required control/evidence                                                                                         | Result                                                                                                                     |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Production settings bypass  | `config.settings.production`; missing/unsafe values stop startup; `check --deploy`                                | `PASS` — production preflight and release gate                                                                             |
+| Development defaults        | No development secret/password, demo admin/password, mock adapter, localhost/wildcard production origin           | `PASS` — fail-fast configuration tests and rendered Compose                                                                |
+| Release identity            | Semantic `APP_VERSION`, exact 40-hex SHA, immutable image labels/tags                                             | `PASS` — runtime and image metadata verified                                                                               |
+| Host/proxy/origin           | Allowed hosts/origins exact; trusted Cloudflare client IP only from tunnel subnet; direct origin blocked          | `PARTIAL` — configuration/local isolation PASS; external bypass pending                                                    |
+| HTTPS/headers               | Valid TLS, HSTS, nosniff, DENY frame, Permissions-Policy; CSP enforced after clean browser audit                  | `PARTIAL` — config and TLS PASS; authorized browser header sweep pending                                                   |
+| XSS/rich text               | Structured allowlist, safe links/media node kinds, no `unsafe-eval`; no unexplained CSP violations                | `PARTIAL` — automated policy PASS; authorized CSP browser sweep pending                                                    |
+| CSRF/session                | HttpOnly/Secure/SameSite session, CSRF on mutations, rotation, idle/absolute expiry, security-epoch invalidation  | `PASS` — regression and production smoke                                                                                   |
+| Password/recovery           | Argon2, generic denial, throttles, hash-only expiring one-use capabilities, no secret logs/URL query token        | `PASS` — regression suite                                                                                                  |
+| WebSocket auth              | Exact origin, one-use session-bound scoped ticket, epoch/expiry/socket limit, no private payload in Redis         | `PASS` — regression, mixed load and 300-WSS                                                                                |
+| News/comment IDOR           | Addressed queryset before detail/comment/reaction/ack/search/media                                                | `PASS` — cross-module permission suite                                                                                     |
+| Private-message IDOR        | Membership intervals for inbox/history/context/search/reply/forward/file; Platform Admin has no bypass            | `PASS` — cross-module permission suite                                                                                     |
+| Channel permissions         | Admin/writer/member mutation policy, bounded `@all`, membership changes audited                                   | `PASS` — permission and audit suites                                                                                       |
+| Notification/search IDOR    | Recipient-only notifications; every search section and destination independently reauthorize                      | `PASS` — permission and search suites                                                                                      |
+| Media                       | Signature/type/size checks, non-executable/private response, safe storage path, rollback-safe file lifecycle      | `PASS` — media validation/IDOR/rollback suites                                                                             |
+| Audit                       | Security/business/application logs separated; business/security audit append-only and previous/new state complete | `PASS` — append-only audit suites                                                                                          |
+| Backup permissions/secrets  | `0700`/`umask 077`, separate mount, no URL output, safe manifest/tar, production restore refusal                  | `PASS` — script tests and isolated restore drill                                                                           |
+| Metrics/log privacy         | Monitoring bearer token; stable low-cardinality labels; no IDs, credentials, cookies, endpoints or bodies         | `PASS` — monitoring tests and sanitized evidence scan                                                                      |
+| Outbox/retry exhaustion     | Pending work never deleted by cleanup; bounded retry/alerts; duplicates blocked transactionally                   | `PASS` — cleanup, retry and fault recovery suites                                                                          |
+| Disk full/read-only media   | Ready fails; upload rollback preserves DB/file consistency; recovery and verifier documented                      | `PARTIAL` — automated behavior PASS; live read-only-media exercise pending                                                 |
+| DB pool exhaustion          | Measured connection budget/headroom under 300-user and WSS profiles                                               | `PASS` — peak 23/400 mixed and 6/400 WSS; rollback/deadlock 0                                                              |
+| Load-test authorization     | Seed/users/secrets isolated; load endpoints are normal authorized APIs; no production private-content capture     | `PASS` — isolated `stage10_load_*` database and normal session/ticket APIs                                                 |
+| Optional delivery           | Internal SMTP; Web Push disabled without customer approval, generic payload and vendor allowlist                  | `OPS_DEPENDENT` — customer infrastructure/approval                                                                         |
+| Cloudflare bypass/HA claims | Access before origin; only Nginx on tunnel network; same-host connectors not described as host HA                 | `PARTIAL` — Access/DNS/TLS and local no-published-port checks passed; authorized tunnel and external bypass checks pending |
 
 ## Required automated regression
 
@@ -56,14 +56,14 @@ Actual test counts and commands belong in `STAGE10_REPORT.md`, not in this plan.
 
 ## Sign-off
 
-| Field | Value |
-| --- | --- |
-| Reviewer | Codex Security diff scan; independent human reviewer `PENDING` |
-| Reviewed commit | `bf668a5a611de60cd30e788062f7ba67cf3842e8`; follow-up operational fixes reviewed separately |
-| Critical unresolved | `0` |
-| High unresolved | `0` |
-| Major unresolved | `0` |
-| Full gate rerun | `PASS` — CI `33037413497` on `135029ea94d6aa7bb7390be7c1950788007ce508` |
-| Decision | Automated security gate `PASS`; independent/live sign-off `PENDING` |
+| Field               | Value                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| Reviewer            | Codex Security diff scan; independent human reviewer `PENDING`                              |
+| Reviewed commit     | `bf668a5a611de60cd30e788062f7ba67cf3842e8`; follow-up operational fixes reviewed separately |
+| Critical unresolved | `0`                                                                                         |
+| High unresolved     | `0`                                                                                         |
+| Major unresolved    | `0`                                                                                         |
+| Full gate rerun     | `PASS` — CI `33037413497` on `135029ea94d6aa7bb7390be7c1950788007ce508`                     |
+| Decision            | Automated security gate `PASS`; independent/live sign-off `PENDING`                         |
 
 Release criterion is exactly zero unresolved Critical, High and Major findings. Lower-severity debt must be recorded with owner/rationale and may not conceal a higher-impact issue.

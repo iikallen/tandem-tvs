@@ -12,18 +12,19 @@ Hard release profile:
 
 ## Measured release record
 
-| Metric | Actual |
-| --- | --- |
-| Dataset counts | 1 000 active load users; 120 publications; 360 comments/reactions; 30 conversations; 20 000 messages; 20 000 notifications |
-| Duration and VU distribution | `PENDING` |
-| HTTP errors | `PENDING` |
-| Feed/detail p95 | `PENDING` |
-| Inbox/history p95 | `PENDING` |
-| Global search p95 | `PENDING` |
-| Realtime p95 | `PENDING` |
-| 300 WSS hold/reconnect | `PENDING` |
-| Peak PostgreSQL connections / budget | `PENDING` |
-| Redis/CPU/memory/disk peak | `PENDING` |
-| Query-plan changes | Isolated PostgreSQL 18.6 plans captured; autovacuum on; no evidence-based index change (`db-profiling.md`) |
+| Metric                               | Actual                                                                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Dataset counts                       | 1 000 active load users; 120 publications; 360 comments/reactions; 30 conversations; 20 000 messages; 20 000 notifications |
+| Duration and VU distribution         | 5m ramp + 30m hold; 180 portal + 90 Messenger HTTP + 30 realtime                                                           |
+| HTTP errors                          | 0/44,960; 44,960/44,960 checks passed                                                                                      |
+| Feed/detail p95                      | 581 / 576ms                                                                                                                |
+| Inbox/history p95                    | History 749ms; post-run durable state PASS                                                                                 |
+| Global search p95                    | 1.06s                                                                                                                      |
+| Realtime p95                         | Message delivery 982ms; failures 0%                                                                                        |
+| 300 WSS hold/reconnect               | Observed 303; completed 300; full-duration 300/300; failures 0%                                                            |
+| Peak PostgreSQL connections / budget | Mixed 23/400; WSS 6/400; rollback/deadlock 0                                                                               |
+| Redis/CPU/memory/disk peak           | WSS Redis container ~44.3MiB; post-run DB 93,345,471 bytes; representative media 8,252 bytes                               |
+| Query-plan changes                   | Post-load PostgreSQL 18.6 plans captured; autovacuum on; no evidence-based index change (`db-profiling.md`)                |
 
-No threshold is passed until the dedicated production-shaped run supplies the actual output.
+Raw k6 summaries are retained in [`evidence/`](evidence/). Customer host/storage capacity and alert
+limits remain operational decisions; they are not inferred from the representative fixture size.

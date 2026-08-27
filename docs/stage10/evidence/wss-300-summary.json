@@ -1,0 +1,192 @@
+{
+  "metrics": {
+    "ws_msgs_sent": {
+      "count": 28637,
+      "rate": 27.255242383084486
+    },
+    "ws_connecting": {
+      "max": 509.754199,
+      "p(90)": 165.90288210000006,
+      "p(95)": 232.98185945000003,
+      "avg": 106.89033523666663,
+      "min": 53.823054,
+      "med": 86.45111299999999,
+      "thresholds": {
+        "p(95)<2000": false
+      }
+    },
+    "http_reqs": {
+      "count": 1399,
+      "rate": 1.3314971573117014
+    },
+    "http_req_failed": {
+      "passes": 0,
+      "fails": 1399,
+      "value": 0
+    },
+    "ws_msgs_received": {
+      "count": 625816,
+      "rate": 595.6198892067047
+    },
+    "data_sent": {
+      "count": 1354616,
+      "rate": 1289.254719977804
+    },
+    "tandem_active_socket_observed": {
+      "min": 4,
+      "med": 303,
+      "max": 303,
+      "p(90)": 303,
+      "p(95)": 303,
+      "avg": 276.4472361809045,
+      "thresholds": {
+        "max>=300": false
+      }
+    },
+    "tandem_ws_sessions_completed": {
+      "count": 300,
+      "rate": 0.2855247656851397,
+      "thresholds": {
+        "count==300": false
+      }
+    },
+    "http_req_receiving": {
+      "max": 10.754233,
+      "p(90)": 0.30339140000000014,
+      "p(95)": 0.3899912,
+      "avg": 0.22205878699070744,
+      "min": 0.080771,
+      "med": 0.177533
+    },
+    "iteration_duration": {
+      "avg": 616020.2426714235,
+      "min": 5043.505707,
+      "med": 1020853.116818,
+      "max": 1023386.979447,
+      "p(90)": 1021399.9143622,
+      "p(95)": 1021713.0498732
+    },
+    "iterations": {
+      "count": 499,
+      "rate": 0.4749228602562824
+    },
+    "http_req_waiting": {
+      "avg": 260.61025747176615,
+      "min": 24.981529,
+      "med": 124.401801,
+      "max": 2071.420635,
+      "p(90)": 681.0989832000001,
+      "p(95)": 830.2300263999999
+    },
+    "http_req_sending": {
+      "min": 0.013617,
+      "med": 0.073146,
+      "max": 3.34144,
+      "p(90)": 0.12945800000000002,
+      "p(95)": 0.1687392999999999,
+      "avg": 0.08854072337383848
+    },
+    "tandem_realtime_failures": {
+      "fails": 300,
+      "passes": 0,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "http_req_tls_handshaking": {
+      "avg": 0,
+      "min": 0,
+      "med": 0,
+      "max": 0,
+      "p(90)": 0,
+      "p(95)": 0
+    },
+    "checks": {
+      "passes": 1200,
+      "fails": 0,
+      "value": 1
+    },
+    "tandem_realtime_delivery_ms": {
+      "p(90)": 6,
+      "p(95)": 8,
+      "avg": 3.0349896986416174,
+      "min": -2,
+      "med": 2,
+      "max": 176
+    },
+    "ws_sessions": {
+      "count": 300,
+      "rate": 0.2855247656851397
+    },
+    "data_received": {
+      "count": 48607711,
+      "rate": 46262.350979219955
+    },
+    "tandem_ws_full_duration_success": {
+      "passes": 300,
+      "fails": 0,
+      "thresholds": {
+        "rate==1": false
+      },
+      "value": 1
+    },
+    "http_req_blocked": {
+      "med": 0.01005,
+      "max": 18.237751,
+      "p(90)": 0.5380302,
+      "p(95)": 0.6971194999999994,
+      "avg": 0.18101996140100074,
+      "min": 0.003337
+    },
+    "tandem_ops_monitor_failures": {
+      "passes": 0,
+      "fails": 199,
+      "thresholds": {
+        "rate<0.01": false
+      },
+      "value": 0
+    },
+    "http_req_connecting": {
+      "avg": 0.13258638170121514,
+      "min": 0,
+      "med": 0,
+      "max": 18.10615,
+      "p(90)": 0.38355300000000003,
+      "p(95)": 0.48918409999999996
+    },
+    "http_req_duration": {
+      "p(95)": 830.5468737999998,
+      "avg": 260.9208569821301,
+      "min": 25.214693,
+      "med": 124.850195,
+      "max": 2071.646224,
+      "p(90)": 681.3792460000002
+    },
+    "ws_session_duration": {
+      "max": 1020098.145896,
+      "p(90)": 1007659.6523411,
+      "p(95)": 1013706.9167377499,
+      "avg": 959709.5522279809,
+      "min": 899701.642687,
+      "med": 959677.8886005001
+    },
+    "vus": {
+      "value": 1,
+      "min": 1,
+      "max": 301
+    },
+    "vus_max": {
+      "value": 301,
+      "min": 301,
+      "max": 301
+    }
+  },
+  "root_group": {
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": {},
+    "checks": {},
+    "name": "",
+    "path": ""
+  }
+}

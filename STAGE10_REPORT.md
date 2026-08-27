@@ -2,15 +2,17 @@
 
 Date: 2026-08-27 UTC  
 Stage 9 baseline: `020d77af98f4c2741f91666b8baf5d21a908fc9b` (`stage-9-complete^{}`)  
-Verified implementation candidate: `135029ea94d6aa7bb7390be7c1950788007ce508`  
-CI: [Stage 10 CI 33037413497](https://github.com/iikallen/tandem-tvs/actions/runs/33037413497), `release-gate` PASS in 10m15s
+Operationally tested implementation: `2852bdb7c1500e85fe3b9785f1a4aaf77ad87f7e`
+
+Latest pushed CI before the operational evidence commit: [Stage 10 CI 33043641864](https://github.com/iikallen/tandem-tvs/actions/runs/33043641864), `release-gate` PASS in 10m09s
 
 ## Decision
 
-The repository is ready for a protected pull request. It is **not yet eligible** for the
-`stage-10-complete` tag: the dedicated 300-user/30-minute run, 300-WSS/15-minute run, full fault
-matrix, external Cloudflare/origin acceptance, operational retention evidence and customer
-sign-offs have not been executed. No result below converts those operational gates into PASS.
+The repository remains **not yet eligible** for the `stage-10-complete` tag. The dedicated
+300-user/30-minute and 300-WSS/15-minute runs now pass, as do post-load database profiling and the
+six locally testable fault cases. External Cloudflare/origin acceptance, the tunnel fault,
+operational retention evidence, the manual browser/accessibility matrix and customer sign-offs
+remain open. No local result below converts those external or human gates into PASS.
 
 `v1.0.0` was not created. Stage 11 was not started.
 
@@ -20,6 +22,11 @@ sign-offs have not been executed. No result below converts those operational gat
   the exact CI failure `Restored CSRF smoke returned HTTP 400` from run `33009909857`.
 - Operational cleanup now takes the same shared PostgreSQL advisory lock as HTTP mutations, so a
   backup cannot race temporary-media deletion and produce a mismatched database/media snapshot.
+- k6 now suppresses high-cardinality URL/name system tags and can join an isolated Compose
+  `tunnel-edge` network, so the full profile measures the seeded release candidate without metric
+  cardinality growth or an HTTPS redirect to another environment.
+- The fault reconnect probe tolerates valid queued Messenger events before its `pong`; a focused
+  PostgreSQL regression test covers that ordering.
 - The frontend Prettier gate accepts the checkout's native line ending, allowing the same format
   contract on Windows and Linux without rewriting the repository.
 - Ponytail Ultra Audit result: `Lean already. Ship.` No dependency or speculative abstraction was
@@ -27,49 +34,53 @@ sign-offs have not been executed. No result below converts those operational gat
 
 ## Automated acceptance evidence
 
-| Gate | Actual result |
-| --- | --- |
-| Protected baseline | `main` protection requires strict `release-gate`; force-push and deletion disabled. `stage-9-complete^{}` resolves to the Stage 9 baseline. |
-| Static and migration checks | Ruff format/check, basedpyright, ty, Django checks and migration drift PASS. |
-| Dependency/security tooling | `pip-audit`: no known vulnerabilities; npm audit: 0 vulnerabilities; Bandit high/medium gate PASS. |
-| Backend suite | 261 passed in 75.42s; 94.67% total coverage (required 93.49%). |
-| Module coverage | identity 96.26%; discussions 95.20%; publications 95.77%; Messenger 96.34%; notifications 92.44%; search 94.79%. |
-| Frontend suite | 8 files / 32 tests PASS; ESLint, TypeScript, Prettier and production Vite build PASS. |
-| PostgreSQL/realtime integration | Stage 2-9 verifiers PASS; dedicated realtime suite 13 passed. |
-| Browser acceptance | 38 Playwright tests passed in 1.2m. |
-| Production preflight | Exact production settings, Compose rendering, services, immutable image metadata and `APP_GIT_SHA` checks PASS. |
-| Stage 10 runtime | Production-shaped deployment seeded; media integrity PASS; `scripts/verify_stage10.py` reported `Stage 10: PASS`. |
-| Load smoke | 8 VUs / 60s; 745 checks; HTTP failures 0/745; aggregate HTTP p95 170.49ms; realtime failures 0/4; realtime p95 287.5ms. This is smoke evidence only. |
-| Backup/restore | Development-shaped and production-shaped drills PASS: lock refusal, production-target refusal, non-empty-target refusal, SHA/archive verification, isolated PostgreSQL restore, protected-media restore, media integrity and application/API smoke. |
-| Final diff security review | Codex Security scan `13c6a35e-3325-4a62-93d2-1f14ce11caee`: 134/134 changed-file receipts, eight security surfaces, zero findings. The small follow-up diff was separately static-reviewed and exercised by the green CI candidate. |
+| Gate                            | Actual result                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Protected baseline              | `main` protection requires strict `release-gate`; force-push and deletion disabled. `stage-9-complete^{}` resolves to the Stage 9 baseline.                                                                                                                                                                                                                                     |
+| Static and migration checks     | Ruff format/check, basedpyright, ty, Django checks and migration drift PASS.                                                                                                                                                                                                                                                                                                    |
+| Dependency/security tooling     | `pip-audit`: no known vulnerabilities; npm audit: 0 vulnerabilities; Bandit high/medium gate PASS.                                                                                                                                                                                                                                                                              |
+| Backend suite                   | 261 passed in 75.42s; 94.67% total coverage (required 93.49%).                                                                                                                                                                                                                                                                                                                  |
+| Module coverage                 | identity 96.26%; discussions 95.20%; publications 95.77%; Messenger 96.34%; notifications 92.44%; search 94.79%.                                                                                                                                                                                                                                                                |
+| Frontend suite                  | 8 files / 32 tests PASS; ESLint, TypeScript, Prettier and production Vite build PASS.                                                                                                                                                                                                                                                                                           |
+| PostgreSQL/realtime integration | Stage 2-9 verifiers PASS; dedicated realtime suite 13 passed.                                                                                                                                                                                                                                                                                                                   |
+| Browser acceptance              | 38 Playwright tests passed in 1.2m.                                                                                                                                                                                                                                                                                                                                             |
+| Production preflight            | Exact production settings, Compose rendering, services, immutable image metadata and `APP_GIT_SHA` checks PASS.                                                                                                                                                                                                                                                                 |
+| Stage 10 runtime                | Production-shaped deployment seeded; media integrity PASS; `scripts/verify_stage10.py` reported `Stage 10: PASS`.                                                                                                                                                                                                                                                               |
+| Load smoke                      | 8 VUs / 60s; 653/653 checks; HTTP failures 0/653; feed/detail/history/search p95 257/226/232/508ms; realtime message p95 449ms; 4/4 full WSS sessions.                                                                                                                                                                                                                          |
+| 300-user mixed load             | Default five-minute ramp plus 30-minute hold; 180 portal, 90 Messenger HTTP and 30 realtime VUs; 44,960/44,960 checks; HTTP failures 0%; feed/detail/history/search p95 581/576/749/1,060ms; realtime message p95 982ms; 954/954 full realtime sessions; post-run state PASS. Raw summary: [`mixed-300-summary.json`](docs/stage10/evidence/mixed-300-summary.json).            |
+| 300-WSS capacity                | 300 authenticated sockets; observed maximum 303; exactly 300 completed and 300/300 full-duration successes; realtime and monitoring failures 0%; handshake p95 233ms; post-run state PASS. Raw summary: [`wss-300-summary.json`](docs/stage10/evidence/wss-300-summary.json).                                                                                                   |
+| Connection/capacity evidence    | Mixed-run PostgreSQL peak 23/400 (5.75%, 377 headroom) across 385 five-second samples; WSS-run peak 6/400; rollback and deadlock counters stayed zero. Restored post-load database: 93,345,471 bytes; representative media: 8,252 bytes.                                                                                                                                        |
+| Post-load query profiling       | All required `EXPLAIN (ANALYZE, BUFFERS, VERBOSE)` families ran against 1,000 users / 20,975 messages. Slowest measured plan was analytics at 184.554ms; global-search messages 86.713ms; all others below 25ms; `autovacuum=on`; no speculative index added.                                                                                                                   |
+| Local fault recovery            | Exact-SHA isolated matrix PASS for Redis, Celery worker, Celery beat, backend, frontend and PostgreSQL. Each case rechecked committed-data digests, media integrity, durable session policy, search, outbox reconciliation, duplicate prevention and realtime reconnect. Cloudflared was explicitly skipped for the required Access-authorized external exercise.               |
+| External edge precheck          | Anonymous HTTPS reached Cloudflare Access and returned its login challenge before origin content. DNS resolved only to Cloudflare addresses; TLS 1.3 used a valid `chatlink.kz` certificate expiring 2026-11-17. The exact-SHA local Compose published no origin ports. This is not proof of the named tunnel, authenticated HTTP/WSS, or outside-network origin-bypass denial. |
+| Backup/restore                  | Development-shaped and production-shaped drills PASS: lock refusal, production-target refusal, non-empty-target refusal, SHA/archive verification, isolated PostgreSQL restore, protected-media restore, media integrity and application/API smoke.                                                                                                                             |
+| Final diff security review      | Codex Security scan `13c6a35e-3325-4a62-93d2-1f14ce11caee`: 134/134 changed-file receipts, eight security surfaces, zero findings. The small follow-up diff was separately static-reviewed and exercised by the green CI candidate.                                                                                                                                             |
 
-Local supplemental checks on Windows used `uv run python -m ...` because Application Control blocks
-generated console launchers. Backend static/audit checks and the focused cleanup-lock regression
-passed; frontend lint/typecheck/audit, 32 tests and build passed. Local Docker evidence was not used:
-Docker Desktop 4.84 failed before engine startup on inaccessible AF_UNIX runtime sockets. CI supplied
-the authoritative Docker evidence above.
+Local supplemental checks on Windows used `uv run python -m ...` where Application Control blocked
+generated console launchers. Docker Desktop supplied the isolated production-shaped load, WSS,
+fault and post-load profiling evidence above; CI remains authoritative for the repository-wide
+release gate on each pushed SHA.
 
 ## Operational gates still required
 
-| Release gate | Status / required evidence |
-| --- | --- |
-| 300 mixed users for at least 30 minutes | `PENDING`: run the default `make load-full` profile against the production-shaped release candidate and retain the k6 summary plus host/DB/Redis metrics. |
-| 300 authenticated WSS for at least 15 minutes | `PENDING`: run `make load-websocket`; prove 300 observed sockets, 300 completed sessions and threshold compliance. |
-| PostgreSQL connection budget and query plans under release load | `PENDING`: capture actual peak connections/headroom and compare the recorded plans after the full run. |
-| Complete fault matrix | `PENDING`: execute PostgreSQL, Redis, backend, frontend, worker, beat and tunnel cases; record recovery time and durable mutation reconciliation. |
-| External Cloudflare acceptance | `PENDING`: Access interception, named tunnel, TLS/headers, external HTTP/WSS and direct-origin bypass denial from outside the origin network. |
-| Manual responsive/accessibility review | `PENDING`: 360/390/768/1440, keyboard-only, labels/screen reader, reduced motion and loading/empty/403/404/500/degraded states. |
-| Backup operations | `OPS_DEPENDENT`: corporate separate mount, encryption/access control, daily schedule and at least 14 retained successful days. |
-| Availability/alert routing | `OPS_DEPENDENT`: alert delivery exercise and the customer-defined post-go-live 99% observation period. |
-| Retention/legal hold and optional SMTP/Web Push | `OPS_DEPENDENT`: customer approvals and infrastructure. |
-| Sign-off | `PENDING`: independent security reviewer, operations and product/customer technical acceptance. |
+| Release gate                                                    | Status / required evidence                                                                                                                                                                                          |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 300 mixed users for at least 30 minutes                         | `PASS`: default 5m ramp + 30m hold, 300 max VUs, all thresholds green, post-run state PASS; raw summary retained.                                                                                                   |
+| 300 authenticated WSS for at least 15 minutes                   | `PASS`: 303 observed, exactly 300 completed, 300/300 full-duration, all thresholds green; raw summary retained.                                                                                                     |
+| PostgreSQL connection budget and query plans under release load | `PASS`: peak 23/400, 377 headroom, zero rollbacks/deadlocks; required post-load plans captured, autovacuum on, no measured need for another index.                                                                  |
+| Complete fault matrix                                           | `PARTIAL`: Redis, worker, beat, backend, frontend and PostgreSQL PASS locally; cloudflared remains the required Access-authorized external fault.                                                                   |
+| External Cloudflare acceptance                                  | `PARTIAL`: anonymous Access interception, Cloudflare DNS and valid TLS 1.3 certificate observed; named tunnel, authenticated HTTP/WSS, full headers and outside-network direct-origin bypass denial remain pending. |
+| Manual responsive/accessibility review                          | `PENDING`: 360/390/768/1440, keyboard-only, labels/screen reader, reduced motion and loading/empty/403/404/500/degraded states.                                                                                     |
+| Backup operations                                               | `OPS_DEPENDENT`: corporate separate mount, encryption/access control, daily schedule and at least 14 retained successful days.                                                                                      |
+| Availability/alert routing                                      | `OPS_DEPENDENT`: alert delivery exercise and the customer-defined post-go-live 99% observation period.                                                                                                              |
+| Retention/legal hold and optional SMTP/Web Push                 | `OPS_DEPENDENT`: customer approvals and infrastructure.                                                                                                                                                             |
+| Sign-off                                                        | `PENDING`: independent security reviewer, operations and product/customer technical acceptance.                                                                                                                     |
 
 ## Release sequence
 
-1. Open the protected pull request from `stage-10-production-readiness` to `main`.
+1. Keep protected PR [#8](https://github.com/iikallen/tandem-tvs/pull/8) from `stage-10-production-readiness` to `main` green on its exact head.
 2. Complete the operational gates above and attach sanitized evidence.
 3. Merge only with a green `release-gate` on the exact PR head.
 4. Confirm the post-merge `release-gate` on the exact merge SHA.
 5. Only then create immutable annotated `stage-10-complete` on that merge SHA and verify its peeled
    target. Do not move Stage 1-9 tags.
-
