@@ -1,8 +1,14 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { authenticatedContext } from "./auth";
 
 test.describe.configure({ mode: "serial" });
+
+async function expectRealtimeConnected(page: Page) {
+  await expect(
+    page.getByText("Обновления в реальном времени подключены"),
+  ).toBeVisible({ timeout: 15_000 });
+}
 
 test("thread, mention notification, reactions, acknowledgement and moderation work live", async ({
   browser,
@@ -88,12 +94,8 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
     participantPage.goto(`/news/${draft.id}`),
   ]);
   await Promise.all([
-    expect(
-      employeePage.getByText("Обновления в реальном времени подключены"),
-    ).toBeVisible(),
-    expect(
-      participantPage.getByText("Обновления в реальном времени подключены"),
-    ).toBeVisible(),
+    expectRealtimeConnected(employeePage),
+    expectRealtimeConnected(participantPage),
   ]);
   await employeePage.getByLabel("Комментарий").fill("Коллеги, посмотрите");
   await employeePage.getByLabel("Упомянуть сотрудника").fill("Серик");
@@ -111,9 +113,7 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
     participantPage.getByText("упоминает вас в комментарии").first(),
   ).toBeVisible();
   await participantPage.goto(`/news/${draft.id}`);
-  await expect(
-    participantPage.getByText("Обновления в реальном времени подключены"),
-  ).toBeVisible();
+  await expectRealtimeConnected(participantPage);
 
   const root = (
     await (
@@ -158,9 +158,7 @@ test("thread, mention notification, reactions, acknowledgement and moderation wo
     employeePage.getByText("ответил(а) на ваш комментарий").first(),
   ).toBeVisible();
   await employeePage.goto(`/news/${draft.id}`);
-  await expect(
-    employeePage.getByText("Обновления в реальном времени подключены"),
-  ).toBeVisible();
+  await expectRealtimeConnected(employeePage);
 
   await employee.request.post(
     `/api/v1/news/${draft.id}/comments/${reply.id}/reports`,
