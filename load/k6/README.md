@@ -32,3 +32,7 @@ thirty-minute defaults.
 
 Set `WS_BASE_URL` only when the WebSocket origin differs from `BASE_URL`. `LOAD_USER_COUNT` and
 `LOAD_USER_OFFSET` select disjoint `load-NNNN` account ranges for distributed runners.
+
+For an isolated production Compose project, set `LOAD_DOCKER_NETWORK=<project>_tunnel-edge`, use
+`http://frontend` / `ws://frontend`, and export `TANDEM_TRUSTED_PROXY=true` with the production host
+and origin so nginx exercises the same trusted-tunnel path as cloudflared.

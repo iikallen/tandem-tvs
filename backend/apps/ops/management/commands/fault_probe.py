@@ -178,7 +178,11 @@ class Command(BaseCommand):
         try:
             with connect(uri, origin=origin, proxy=None, open_timeout=5, close_timeout=5) as socket:
                 socket.send('{"type":"ping"}')
-                payload = json.loads(socket.recv(timeout=5))
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    payload = json.loads(socket.recv(timeout=deadline - time.monotonic()))
+                    if payload == {"type": "pong"}:
+                        break
         except Exception as exc:
             raise CommandError("Realtime reconnect failed after fault recovery") from exc
         if payload != {"type": "pong"}:

@@ -264,9 +264,10 @@ def test_fault_probe_persists_session_and_checks_realtime_reconnect(settings, mo
     call_command("fault_probe", "session-create", stdout=created)
     session_key = created.getvalue().strip().splitlines()[-1]
     sent: list[str] = []
+    received = iter(['{"type":"messenger.presence.changed"}', '{"type":"pong"}'])
     socket = SimpleNamespace(
         send=sent.append,
-        recv=lambda **_kwargs: '{"type":"pong"}',
+        recv=lambda **_kwargs: next(received),
     )
     monkeypatch.setattr(
         "apps.ops.management.commands.fault_probe.create_ticket",
