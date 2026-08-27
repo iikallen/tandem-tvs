@@ -1,39 +1,39 @@
 # Stage 10 final acceptance
 
-Stage 10 is the final implementation stage of the current TZ. This checklist records release eligibility; it does not predict results. Current decision: **NOT READY — acceptance evidence is PENDING**.
+Stage 10 is the final implementation stage of the current TZ. This checklist records release eligibility; it does not predict results. Current decision: **IMPLEMENTATION CANDIDATE GREEN — OPERATIONAL ACCEPTANCE PENDING**. Actual evidence is recorded in [`../../STAGE10_REPORT.md`](../../STAGE10_REPORT.md).
 
 ## Product and regression gate
 
 | Gate | Actual |
 | --- | --- |
-| Exact baseline/tag/protected branch verified | `PENDING` |
+| Exact baseline/tag/protected branch verified | `PASS` — protected `main`, strict `release-gate`, immutable Stage 9 baseline |
 | Full TZ traceability has no unexplained omission | `PENDING` |
-| Stage 2-9 verifiers green | `PENDING` |
-| Backend tests/coverage >=93.49% and module floors | `PENDING` |
-| Frontend format/lint/typecheck/Vitest/build/audit | `PENDING` |
-| Playwright full suite and responsive/a11y states | `PENDING` |
-| Migration drift, Ruff, basedpyright, ty, Django checks | `PENDING` |
-| pip/npm audit and Bandit | `PENDING` |
-| Exact `make prod` after final fixes | `PENDING` |
+| Stage 2-9 verifiers green | `PASS` — CI `33037413497` |
+| Backend tests/coverage >=93.49% and module floors | `PASS` — 261 tests, 94.67% total, all module floors |
+| Frontend format/lint/typecheck/Vitest/build/audit | `PASS` — 32 tests, build, 0 npm vulnerabilities |
+| Playwright full suite and responsive/a11y states | `PARTIAL` — 38 automated tests PASS; manual matrix pending |
+| Migration drift, Ruff, basedpyright, ty, Django checks | `PASS` |
+| pip/npm audit and Bandit | `PASS` |
+| Exact `make prod` after final fixes | `PASS` — `135029ea94d6aa7bb7390be7c1950788007ce508` |
 
 ## Production and operations gate
 
 | Gate | Actual |
 | --- | --- |
-| Production-only Compose/fail-fast settings | `PENDING` |
-| One-shot migrations and all services healthy | `PENDING` |
+| Production-only Compose/fail-fast settings | `PASS` |
+| One-shot migrations and all services healthy | `PASS` — production-shaped CI deployment |
 | Safe SPA headers and CSP browser review | `PENDING` |
-| Exact version/SHA in runtime and image labels | `PENDING` |
-| DB+media backup and isolated restore drill | `PENDING` |
-| Media integrity, operational cleanup boundaries | `PENDING` |
+| Exact version/SHA in runtime and image labels | `PASS` |
+| DB+media backup and isolated restore drill | `PASS` — both CI deployment shapes |
+| Media integrity, operational cleanup boundaries | `PASS` — automated scope |
 | Health/metrics privacy and alert exercise | `PENDING` |
 | 300 concurrent users / 30 min thresholds | `PENDING` |
 | 300 authenticated WSS / 15 min thresholds | `PENDING` |
 | PostgreSQL query plans and connection budget | `PENDING` |
 | Redis/worker/beat/backend/frontend/tunnel/PostgreSQL fault matrix | `PENDING` |
 | Named tunnel `tandem-tvs`, Access and no origin bypass | `PENDING` |
-| Permission matrix and Platform Admin private-chat denial | `PENDING` |
-| Independent review: 0 Critical/High/Major | `PENDING` |
+| Permission matrix and Platform Admin private-chat denial | `PASS` — automated matrix; live load authorization gate pending |
+| Independent review: 0 Critical/High/Major | `PARTIAL` — diff scan found 0; independent reviewer sign-off pending |
 
 ## Acceptance facts that remain operational
 

@@ -1,6 +1,6 @@
 # Stage 10 security acceptance
 
-Historical Stage 9 review reported zero unresolved Critical/High/Major findings for the Stage 9 scope. Stage 10 changes production configuration, deployment, backup and monitoring boundaries, so a new full-diff and whole-system review is mandatory. Its result is currently `PENDING`.
+Historical Stage 9 review reported zero unresolved Critical/High/Major findings for the Stage 9 scope. Stage 10 diff scan `13c6a35e-3325-4a62-93d2-1f14ce11caee` reviewed 134/134 change receipts across eight security surfaces and reported zero findings. Independent reviewer and live operational sign-off remain `PENDING`; see [`../../STAGE10_REPORT.md`](../../STAGE10_REPORT.md).
 
 ## Review matrix
 
@@ -58,12 +58,12 @@ Actual test counts and commands belong in `STAGE10_REPORT.md`, not in this plan.
 
 | Field | Value |
 | --- | --- |
-| Reviewer | `PENDING` |
-| Reviewed commit | `PENDING` |
-| Critical unresolved | `PENDING` |
-| High unresolved | `PENDING` |
-| Major unresolved | `PENDING` |
-| Full gate rerun | `PENDING` |
-| Decision | `PENDING` |
+| Reviewer | Codex Security diff scan; independent human reviewer `PENDING` |
+| Reviewed commit | `bf668a5a611de60cd30e788062f7ba67cf3842e8`; follow-up operational fixes reviewed separately |
+| Critical unresolved | `0` |
+| High unresolved | `0` |
+| Major unresolved | `0` |
+| Full gate rerun | `PASS` — CI `33037413497` on `135029ea94d6aa7bb7390be7c1950788007ce508` |
+| Decision | Automated security gate `PASS`; independent/live sign-off `PENDING` |
 
 Release criterion is exactly zero unresolved Critical, High and Major findings. Lower-severity debt must be recorded with owner/rationale and may not conceal a higher-impact issue.
