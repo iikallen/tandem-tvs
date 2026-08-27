@@ -54,9 +54,9 @@ Actual test counts and commands belong in `STAGE10_REPORT.md`, not in this plan.
 5. Run production-shaped load, fault matrix and isolated restore.
 6. Re-run exact `make prod` after fixes.
 
-Item 3 is locally complete: 24/24 core route/viewport cells had no horizontal overflow; keyboard
-focus, accessible names, reduced motion and every listed state were exercised. The authorized
-external CSP/header sweep remains item 2, not part of this local PASS.
+Item 3 is locally complete: 84/84 role-correct main product surface/viewport cells had no
+horizontal overflow; keyboard focus, accessible names, reduced motion and every listed state were
+exercised. The authorized external CSP/header sweep remains item 2, not part of this local PASS.
 
 ## Sign-off
 
@@ -67,7 +67,7 @@ external CSP/header sweep remains item 2, not part of this local PASS.
 | Critical unresolved | `0`                                                                                                 |
 | High unresolved     | `0`                                                                                                 |
 | Major unresolved    | `0`                                                                                                 |
-| Full gate rerun     | `PASS` — CI `33061347368` on `ef4edb0016cea73d4eb64403cd9ad3eca48d61c0`                             |
+| Full gate rerun     | `PASS` — CI `33064184773` attempt 2 on `93ec667ebf3768bb78f9622eb710681cba813698`                   |
 | Decision            | Automated security gate `PASS`; independent/live sign-off `PENDING`                                 |
 
 Release criterion is exactly zero unresolved Critical, High and Major findings. Lower-severity debt must be recorded with owner/rationale and may not conceal a higher-impact issue.

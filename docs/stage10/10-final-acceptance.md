@@ -4,17 +4,17 @@ Stage 10 is the final implementation stage of the current TZ. This checklist rec
 
 ## Product and regression gate
 
-| Gate                                                   | Actual                                                                       |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| Exact baseline/tag/protected branch verified           | `PASS` — protected `main`, strict `release-gate`, immutable Stage 9 baseline |
-| Full TZ traceability has no unexplained omission       | `PASS` — every requirement is mapped and open acceptance is explicit         |
-| Stage 2-9 verifiers green                              | `PASS` — CI `33061347368`                                                    |
-| Backend tests/coverage >=93.49% and module floors      | `PASS` — 261 tests, 94.67% total, all module floors                          |
-| Frontend format/lint/typecheck/Vitest/build/audit      | `PASS` — 33 tests, build, 0 npm vulnerabilities                              |
-| Playwright full suite and responsive/a11y states       | `PASS` — 39-test local suite plus 24/24 manual viewport/route cells          |
-| Migration drift, Ruff, basedpyright, ty, Django checks | `PASS`                                                                       |
-| pip/npm audit and Bandit                               | `PASS`                                                                       |
-| Exact `make prod` after final fixes                    | `PASS` — CI `33061347368` on `ef4edb0016cea73d4eb64403cd9ad3eca48d61c0`      |
+| Gate                                                   | Actual                                                                             |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------- |
+| Exact baseline/tag/protected branch verified           | `PASS` — protected `main`, strict `release-gate`, immutable Stage 9 baseline       |
+| Full TZ traceability has no unexplained omission       | `PASS` — every requirement is mapped and open acceptance is explicit               |
+| Stage 2-9 verifiers green                              | `PASS` — CI `33064184773` attempt 2                                                |
+| Backend tests/coverage >=93.49% and module floors      | `PASS` — 261 tests, 94.67% total, all module floors                                |
+| Frontend format/lint/typecheck/Vitest/build/audit      | `PASS` — 33 tests, build, 0 npm vulnerabilities                                    |
+| Playwright full suite and responsive/a11y states       | `PASS` — 40-test local suite plus 84/84 manual role-correct surface/viewport cells |
+| Migration drift, Ruff, basedpyright, ty, Django checks | `PASS`                                                                             |
+| pip/npm audit and Bandit                               | `PASS`                                                                             |
+| Exact `make prod` after final fixes                    | `PASS` — CI `33064184773` attempt 2 on `93ec667ebf3768bb78f9622eb710681cba813698`  |
 
 ## Production and operations gate
 
